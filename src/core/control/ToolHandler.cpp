@@ -371,6 +371,14 @@ void ToolHandler::setAnswerBoxEnabled(bool enabled) {
     this->answerBoxEnabled = enabled;
 }
 
+auto ToolHandler::getAnswerBoxTextColor() const -> Color {
+    return this->answerBoxTextColor;
+}
+
+void ToolHandler::setAnswerBoxTextColor(Color color) {
+    this->answerBoxTextColor = color;
+}
+
 auto ToolHandler::getAnswerBoxBackgroundColor() const -> Color {
     return this->answerBoxBackgroundColor;
 }
@@ -421,6 +429,14 @@ auto ToolHandler::getTeacherStampText() const -> const std::string& {
 
 void ToolHandler::setTeacherStampText(std::string text) {
     this->teacherStampText = std::move(text);
+}
+
+auto ToolHandler::getTeacherStampColor() const -> Color {
+    return this->teacherStampColor;
+}
+
+void ToolHandler::setTeacherStampColor(Color color) {
+    this->teacherStampColor = color;
 }
 
 void ToolHandler::clearTeacherStamp() {
