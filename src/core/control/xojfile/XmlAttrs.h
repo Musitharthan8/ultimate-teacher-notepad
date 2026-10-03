@@ -59,6 +59,14 @@ constexpr auto Y_COORD_STR = u8"y";  // also in link
 constexpr auto ALIGN_STR = u8"align";  // also in link
 constexpr auto JUSTIFY_STR = u8"justify";
 
+// UTN answer box text attributes
+constexpr auto UTN_BOX_STR = u8"utnBox";
+constexpr auto UTN_BOX_BACKGROUND_STR = u8"utnBoxBackground";
+constexpr auto UTN_BOX_BORDER_STR = u8"utnBoxBorder";
+constexpr auto UTN_BOX_BORDER_WIDTH_STR = u8"utnBoxBorderWidth";
+constexpr auto UTN_BOX_PADDING_STR = u8"utnBoxPadding";
+constexpr auto UTN_BOX_RADIUS_STR = u8"utnBoxRadius";
+
 // image
 constexpr auto LEFT_POS_STR = u8"left";      // also in teximage
 constexpr auto TOP_POS_STR = u8"top";        // also in teximage
