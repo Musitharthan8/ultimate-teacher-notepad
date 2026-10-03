@@ -318,6 +318,7 @@ public:
     void showStudentView();
     void hideStudentView();
     void setStudentViewFullscreen(bool enabled);
+    void projectStudentViewToSecondaryDisplay();
     void refreshStudentView();
     bool isStudentViewVisible() const;
 
