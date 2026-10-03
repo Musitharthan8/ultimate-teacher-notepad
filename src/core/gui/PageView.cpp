@@ -187,6 +187,13 @@ void XojPageView::startText(double x, double y) {
     if (this->textEditor == nullptr) {
         this->textEditor = std::make_unique<TextEditor>(xournal->getControl(), page, xournal->getWidget(), x, y);
         this->overlayViews.emplace_back(std::make_unique<xoj::view::TextEditionView>(this->textEditor.get(), this));
+
+        // UTN teacher stamps are placed with a single page tap
+        auto* tools = xournal->getControl()->getToolHandler();
+        if (tools->hasTeacherStamp()) {
+            endText();
+            tools->clearTeacherStamp();
+        }
     }
 }
 
