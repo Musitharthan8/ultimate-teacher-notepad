@@ -75,6 +75,7 @@ void ToolStudentView::showStudentView() {
     gtk_container_add(GTK_CONTAINER(window), drawingArea);
 
     g_signal_connect(drawingArea, "draw", G_CALLBACK(&ToolStudentView::drawStudentView), this);
+    g_signal_connect(window, "key-press-event", G_CALLBACK(&ToolStudentView::studentViewKeyPressed), this);
     g_signal_connect(window, "destroy", G_CALLBACK(&ToolStudentView::studentViewDestroyed), this);
 
     // Prototype refresh loop for live classroom annotations
@@ -155,6 +156,28 @@ gboolean ToolStudentView::refreshStudentView(gpointer data) {
     return G_SOURCE_CONTINUE;
 }
 
+gboolean ToolStudentView::studentViewKeyPressed(GtkWidget*, GdkEventKey* event, gpointer data) {
+    auto* self = static_cast<ToolStudentView*>(data);
+
+    if (event->keyval == GDK_KEY_F11) {
+        self->fullscreen = !self->fullscreen;
+        if (self->fullscreen) {
+            gtk_window_fullscreen(GTK_WINDOW(self->window));
+        } else {
+            gtk_window_unfullscreen(GTK_WINDOW(self->window));
+        }
+        return TRUE;
+    }
+
+    if (event->keyval == GDK_KEY_Escape && self->fullscreen) {
+        self->fullscreen = false;
+        gtk_window_unfullscreen(GTK_WINDOW(self->window));
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
 void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
     auto* self = static_cast<ToolStudentView*>(data);
 
@@ -165,6 +188,7 @@ void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
 
     self->window = nullptr;
     self->drawingArea = nullptr;
+    self->fullscreen = false;
 }
 
 auto ToolStudentView::getToolDisplayName() const -> std::string {
