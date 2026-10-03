@@ -38,10 +38,19 @@
 #include "SpacerItem.h"
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
+#include "ToolAnswerBox.h"           // for ToolAnswerBox
 #include "ToolPageLayer.h"           // for ToolPageLayer
+#include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
+#include "ToolPrepareReveal.h"        // for ToolPrepareReveal
+#include "ToolPresentationKit.h"      // for ToolPresentationKit
+#include "ToolProfileSelector.h"      // for ToolProfileSelector
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
+#include "ToolEraserShapeSelector.h" // for ToolEraserShapeSelector
+#include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
+#include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
+#include "ToolTeacherStamp.h"       // for ToolTeacherStamp
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
@@ -394,7 +403,28 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("HIGHLIGHTER", Cat::TOOLS, Action::SELECT_TOOL, TOOL_HIGHLIGHTER, "tool-highlighter",
                                 _("Highlighter"));
 
+    // UTN smart highlighter mode
+    emplaceItem<ToolSmartHighlighter>("SMART_HIGHLIGHTER", control, iconNameHelper);
+
     emplaceCustomItemWithTarget("TEXT", Cat::TOOLS, Action::SELECT_TOOL, TOOL_TEXT, "tool-text", _("Text"));
+
+    // UTN answer box text mode
+    emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
+
+    // UTN teacher stamps
+    emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control);
+
+    // UTN prepared answer layers
+    emplaceItem<ToolPrepareReveal>("PREPARE_REVEAL", control);
+
+    // UTN teacher tool profiles
+    emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
+
+    // UTN classroom page labels
+    emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
+
+    // UTN classroom presentation tools
+    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
@@ -470,6 +500,12 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+
+    // UTN eraser shape selector
+    emplaceItem<ToolEraserShapeSelector>("ERASER_SHAPE", control);
+
+    // UTN continuous eraser size slider
+    emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
 
     emplaceItem<ToolZoomSlider>("ZOOM_SLIDER", zoom, iconNameHelper, *control->getActionDatabase());
 

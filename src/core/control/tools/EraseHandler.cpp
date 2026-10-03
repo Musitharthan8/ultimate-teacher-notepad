@@ -45,8 +45,9 @@ EraseHandler::~EraseHandler() {
  */
 void EraseHandler::erase(double x, double y) {
     this->halfEraserSize = this->handler->getThickness();
-    xoj::util::Rectangle<double> eraserRect(x - halfEraserSize, y - halfEraserSize, 2 * halfEraserSize,
-                                            2 * halfEraserSize);
+
+    PaddedBox eraserBounds{{x, y}, halfEraserSize, halfEraserSize, this->handler->getEraserShape()};
+    xoj::util::Rectangle<double> eraserRect = eraserBounds.getInnerRectangle();
 
     Range rerenderRange;
 
@@ -64,11 +65,16 @@ void EraseHandler::erase(double x, double y) {
 }
 
 void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& range) {
+    const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
+    const PaddedBox paddedEraserBox{{x, y},
+                                    halfEraserSize,
+                                    halfEraserSize + paddingCoeff * s->getWidth(),
+                                    this->handler->getEraserShape()};
+
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
         if (this->handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
-            if (!s->intersects(x, y, halfEraserSize)) {
-                // The stroke does not intersect the eraser square
+            if (s->intersectWithPaddedBox(paddedEraserBox).empty()) {
                 return;
             }
 
@@ -98,8 +104,6 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
                 return;
             }
 
-            const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-            const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
             auto intersectionParameters = s->intersectWithPaddedBox(paddedEraserBox);
 
             if (intersectionParameters.empty()) {
@@ -130,8 +134,6 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
         if (pos == -1) {
             return;
         }
-        const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-        const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
         erasable->erase(paddedEraserBox, range);
     }
 }

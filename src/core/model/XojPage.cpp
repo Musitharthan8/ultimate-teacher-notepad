@@ -31,13 +31,19 @@ XojPage::XojPage(XojPage const& page):
         currentLayer(page.currentLayer),
         bgType(page.bgType),
         pdfBackgroundPage(page.pdfBackgroundPage),
-        backgroundColor(page.backgroundColor) {
+        backgroundColor(page.backgroundColor),
+        utnPageLabel(page.utnPageLabel) {
     this->layer.reserve(page.layer.size());
     std::transform(begin(page.layer), end(page.layer), std::back_inserter(this->layer),
                    [](auto* layer) { return layer->clone(); });
 }
 
 auto XojPage::clone() -> XojPage* { return new XojPage(*this); }
+
+auto XojPage::getUtnPageLabel() const -> const std::string& { return this->utnPageLabel; }
+
+void XojPage::setUtnPageLabel(std::string label) { this->utnPageLabel = std::move(label); }
+
 
 void XojPage::addLayer(Layer* layer) {
     this->layer.push_back(layer);

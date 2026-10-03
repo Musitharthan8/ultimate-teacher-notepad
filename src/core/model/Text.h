@@ -63,6 +63,27 @@ public:
     inline void setJustify(bool j) { this->justify = j; }
     inline bool getJustify() const { return justify; }
 
+    // UTN answer box styling
+    bool isBoxEnabled() const;
+    void setBoxEnabled(bool enabled);
+
+    Color getBoxBackgroundColor() const;
+    void setBoxBackgroundColor(Color color);
+
+    Color getBoxBorderColor() const;
+    void setBoxBorderColor(Color color);
+
+    double getBoxBorderWidth() const;
+    void setBoxBorderWidth(double width);
+
+    double getBoxPadding() const;
+    void setBoxPadding(double padding);
+
+    double getBoxCornerRadius() const;
+    void setBoxCornerRadius(double radius);
+
+    xoj::util::Rectangle<double> getBoxBounds() const;
+
     auto cloneText() const -> std::unique_ptr<Text>;
     auto clone() const -> ElementPtr override;
 
@@ -100,6 +121,14 @@ private:
     double wrapWidth = NO_WRAP;  ///< NO_WRAP for no wrap
     TextAlignment align = TextAlignment::LEFT;
     bool justify = false;  ///< Stretch whitespaces to make all complete lines have the same width
+
+    // UTN answer box style
+    bool boxEnabled = false;
+    Color boxBackgroundColor{255U, 248U, 214U, 230U};
+    Color boxBorderColor{80U, 80U, 80U, 255U};
+    double boxBorderWidth = 1.2;
+    double boxPadding = 6.0;
+    double boxCornerRadius = 5.0;
 
     bool inEditing = false;
 };

@@ -41,6 +41,46 @@ void ErasableStrokeView::draw(cairo_t* cr) const {
 
     xoj::util::CairoSaveGuard guard(cr);
 
+    // UTN: composite all surviving highlighter fragments through one mask
+    if (stroke.getToolType() == StrokeTool::HIGHLIGHTER && !stroke.hasPressure()) {
+        Range box;
+        for (const auto& section: sections) {
+            box = box.unite(erasableStroke.getSubSectionBoundingBox(section));
+        }
+
+        cairo_matrix_t matrix;
+        cairo_get_matrix(cr, &matrix);
+        const double zoom = std::max(std::abs(matrix.xx), std::abs(matrix.yy));
+
+        Mask mask(cairo_get_target(cr), box, zoom);
+        cairo_t* crMask = mask.get();
+
+        cairo_set_source_rgba(crMask, 1, 1, 1, 1);
+        cairo_set_operator(crMask, CAIRO_OPERATOR_SOURCE);
+        cairo_set_line_join(crMask, CAIRO_LINE_JOIN_ROUND);
+        cairo_set_line_cap(crMask, StrokeView::CAIRO_LINE_CAP[stroke.getStrokeCapStyle()]);
+        cairo_set_line_width(crMask, stroke.getWidth());
+        Util::cairo_set_dash_from_vector(crMask, dashes, 0);
+
+        for (const auto& section: sections) {
+            Point p = stroke.getPoint(section.min);
+            cairo_move_to(crMask, p.x, p.y);
+
+            auto endIt = std::next(data.cbegin(), static_cast<std::ptrdiff_t>(section.max.index + 1));
+            for (auto it = std::next(data.cbegin(), static_cast<std::ptrdiff_t>(section.min.index + 1)); it != endIt;
+                 ++it) {
+                cairo_line_to(crMask, it->x, it->y);
+            }
+
+            Point q = stroke.getPoint(section.max);
+            cairo_line_to(crMask, q.x, q.y);
+            cairo_stroke(crMask);
+        }
+
+        mask.blitTo(cr);
+        return;
+    }
+
     if (stroke.hasPressure()) {
         double dashOffset = 0;
         for (const auto& interval: sections) {

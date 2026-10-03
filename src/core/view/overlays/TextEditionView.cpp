@@ -6,6 +6,7 @@
 #include "util/Matrix.h"
 #include "util/raii/CairoWrappers.h"
 #include "view/Repaintable.h"
+#include "view/TextBoxRendering.h"
 
 using namespace xoj::view;
 
@@ -114,10 +115,24 @@ void TextEditionView::drawWithoutDrawingAids(cairo_t* cr) const {
     xoj::util::CairoSaveGuard saveGuard(cr);
 
     const Text* textElement = this->textEditor->getTextElement();
-    Util::cairo_set_source_rgbi(cr, textElement->getColor());
 
     // From now on, coordinates are in textElement coordinates
     textElement->getTransformation().transformCairo(cr);
+
+    if (textElement->isBoxEnabled()) {
+        const auto& boxes = this->textEditor->getBoxes();
+        double extra = textElement->getBoxPadding() + 0.5 * textElement->getBoxBorderWidth();
+        double left = std::min(0.0, boxes.effectiveBounds.x) - extra;
+        double top = std::min(0.0, boxes.effectiveBounds.y) - extra;
+        double right =
+                std::max(boxes.theoreticalSize.width, boxes.effectiveBounds.x + boxes.effectiveBounds.width) + extra;
+        double bottom =
+                std::max(boxes.theoreticalSize.height, boxes.effectiveBounds.y + boxes.effectiveBounds.height) + extra;
+
+        drawAnswerBox(cr, textElement, {left, top, right - left, bottom - top});
+    }
+
+    Util::cairo_set_source_rgbi(cr, textElement->getColor());
 
     // The data is owned by textEditor
     PangoLayout* layout = this->textEditor->getUpToDateLayout();

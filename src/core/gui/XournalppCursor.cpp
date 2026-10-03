@@ -397,10 +397,10 @@ auto XournalppCursor::getResizeCursor(double deltaAngle) -> GdkCursor* {
 }
 
 auto XournalppCursor::getEraserCursor() -> GdkCursor* {
-
-    // Eraser's size follow a quadratic increment, so the cursor will do the same
-    double cursorSize = control->getToolHandler()->getThickness() * 2.0 * control->getZoomControl()->getZoom();
-    gulong flavour = static_cast<gulong>(64 * cursorSize);
+    auto* tools = control->getToolHandler();
+    double cursorSize = tools->getThickness() * 2.0 * control->getZoomControl()->getZoom();
+    auto shape = tools->getEraserShape();
+    gulong flavour = static_cast<gulong>(64 * cursorSize) + static_cast<gulong>(shape) * 100000UL;
 
     if (CRSR_ERASER == this->currentCursor && flavour == this->currentCursorFlavour) {
         return nullptr;  // cursor already set
@@ -408,18 +408,40 @@ auto XournalppCursor::getEraserCursor() -> GdkCursor* {
     this->currentCursor = CRSR_ERASER;
     this->currentCursorFlavour = flavour;
 
-    cairo_surface_t* surface =
-            cairo_image_surface_create(CAIRO_FORMAT_ARGB32, ceil_cast<int>(cursorSize), ceil_cast<int>(cursorSize));
+    // UTN: transparent eraser cursor matching the active geometry
+    double cursorWidth = cursorSize;
+    double cursorHeight = cursorSize;
+    if (shape == UtnEraserShape::Flat) {
+        cursorWidth = cursorSize * 1.75;
+        cursorHeight = cursorSize * 0.45;
+    }
+
+    double surfaceWidth = std::max(3.0, std::ceil(cursorWidth) + 2.0);
+    double surfaceHeight = std::max(3.0, std::ceil(cursorHeight) + 2.0);
+    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, ceil_cast<int>(surfaceWidth),
+                                                           ceil_cast<int>(surfaceHeight));
     cairo_t* cr = cairo_create(surface);
-    cairo_rectangle(cr, 0, 0, cursorSize, cursorSize);
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_fill(cr);
-    cairo_rectangle(cr, 0, 0, cursorSize, cursorSize);
-    cairo_set_source_rgb(cr, 0, 0, 0);
+
+    double insetX = (surfaceWidth - cursorWidth) / 2.0;
+    double insetY = (surfaceHeight - cursorHeight) / 2.0;
+
+    if (shape == UtnEraserShape::Round) {
+        cairo_arc(cr, surfaceWidth / 2.0, surfaceHeight / 2.0, cursorWidth / 2.0, 0.0, 2.0 * M_PI);
+    } else {
+        cairo_rectangle(cr, insetX, insetY, cursorWidth, cursorHeight);
+    }
+
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+    cairo_set_line_width(cr, 3.0);
+    cairo_stroke_preserve(cr);
+
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.95);
+    cairo_set_line_width(cr, 1.0);
     cairo_stroke(cr);
+
     cairo_destroy(cr);
-    GdkCursor* cursor =
-            gdk_cursor_new_from_surface(gdk_display_get_default(), surface, cursorSize / 2.0, cursorSize / 2.0);
+    GdkCursor* cursor = gdk_cursor_new_from_surface(gdk_display_get_default(), surface, surfaceWidth / 2.0,
+                                                     surfaceHeight / 2.0);
     cairo_surface_destroy(surface);
     return cursor;
 }
