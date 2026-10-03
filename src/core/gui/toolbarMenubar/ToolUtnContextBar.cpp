@@ -8,7 +8,9 @@
 
 #include "ToolUtnContextBar.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <utility>
 
 #include "control/Control.h"
@@ -108,7 +110,53 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     appendSeparator();
 
     switch (tool) {
-        case TOOL_PEN:
+        case TOOL_PEN: {
+            appendLabel(_("Profile"));
+
+            struct ProfileEntry {
+                const char* label;
+                ToolSize size;
+                Color color;
+            };
+
+            const std::array<ProfileEntry, 4> profiles{{
+                    {_("Pen"), TOOL_SIZE_MEDIUM, Colors::xopp_royalblue},
+                    {_("Pencil"), TOOL_SIZE_VERY_FINE, Colors::gray},
+                    {_("Brush"), TOOL_SIZE_THICK, Colors::black},
+                    {_("Marker"), TOOL_SIZE_THICK, Colors::xopp_darkorange},
+            }};
+
+            for (const auto& profile: profiles) {
+                GtkWidget* button = gtk_button_new_with_label(profile.label);
+                g_object_set_data(G_OBJECT(button), "utn-control", control);
+                g_object_set_data(G_OBJECT(button), "utn-size", GINT_TO_POINTER(static_cast<int>(profile.size)));
+
+                auto* colorData = new Color(profile.color);
+                g_object_set_data_full(G_OBJECT(button), "utn-color", colorData,
+                                       +[](gpointer data) { delete static_cast<Color*>(data); });
+
+                g_signal_connect(
+                        button,
+                        "clicked",
+                        G_CALLBACK(+[](GtkButton* button, gpointer) {
+                            auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                            auto size = static_cast<ToolSize>(
+                                    GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-size")));
+                            auto* color = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-color"));
+
+                            auto* tools = ctrl->getToolHandler();
+                            tools->selectTool(TOOL_PEN);
+                            tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+                            tools->setPenSize(size);
+                            tools->setColor(*color, false);
+                            tools->fireToolChanged();
+                        }),
+                        nullptr);
+
+                gtk_box_append(box, button);
+            }
+
+            appendSeparator();
             appendColorButton();
             appendSizeButtons(TOOL_PEN);
 
@@ -127,6 +175,7 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
                 gtk_box_append(box, pressure);
             }
             break;
+        }
 
         case TOOL_ERASER:
             appendEraserControls();
@@ -287,7 +336,38 @@ void ToolUtnContextBar::appendEraserControls() {
 void ToolUtnContextBar::appendMarkupControls() {
     appendColorButton();
     appendSizeButtons(TOOL_HIGHLIGHTER);
+
+    appendLabel(_("Opacity"));
+    GtkWidget* opacity = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 10.0, 100.0, 5.0);
+    Color markupColor = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();
+    gtk_range_set_value(GTK_RANGE(opacity), 100.0 * static_cast<double>(markupColor.alpha) / 255.0);
+    gtk_scale_set_digits(GTK_SCALE(opacity), 0);
+    gtk_widget_set_size_request(opacity, 110, -1);
+    g_signal_connect(
+            opacity,
+            "value-changed",
+            G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+                Color color = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+                color.alpha = static_cast<uint8_t>(std::clamp(gtk_range_get_value(range), 10.0, 100.0) * 2.55);
+                tools->setColor(color, false);
+            }),
+            control);
+    gtk_box_append(box, opacity);
+
     appendSeparator();
+
+    GtkWidget* freehand = gtk_button_new_with_label(_("Freehand"));
+    g_signal_connect(
+            freehand,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* tools = static_cast<Control*>(data)->getToolHandler();
+                tools->setSmartHighlighterEnabled(false);
+            }),
+            control);
+    gtk_box_append(box, freehand);
 
     auto addMode = [this](const char* label, SmartHighlighterSnapMode mode) {
         GtkWidget* button = gtk_button_new_with_label(label);
