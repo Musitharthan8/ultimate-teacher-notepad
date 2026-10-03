@@ -8,6 +8,7 @@
 
 #include "ToolLessonNavigator.h"
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <shared_mutex>
