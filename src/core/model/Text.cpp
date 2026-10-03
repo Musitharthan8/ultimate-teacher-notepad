@@ -40,6 +40,9 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     text->wrapWidth = this->wrapWidth;
     text->align = this->align;
     text->justify = this->justify;
+    text->underlined = this->underlined;
+    text->strikethrough = this->strikethrough;
+    text->lineSpacing = this->lineSpacing;
     text->boxEnabled = this->boxEnabled;
     text->boxBackgroundColor = this->boxBackgroundColor;
     text->boxBorderColor = this->boxBorderColor;
@@ -78,6 +81,27 @@ void Text::setWrap(double wrap) {
 
 void Text::setAlignment(TextAlignment a) {
     this->align = a;
+    sizeCalculated = false;
+}
+
+auto Text::isUnderlined() const -> bool { return this->underlined; }
+
+void Text::setUnderlined(bool enabled) {
+    this->underlined = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::isStrikethrough() const -> bool { return this->strikethrough; }
+
+void Text::setStrikethrough(bool enabled) {
+    this->strikethrough = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::getLineSpacing() const -> double { return this->lineSpacing; }
+
+void Text::setLineSpacing(double spacing) {
+    this->lineSpacing = std::clamp(spacing, 0.8, 2.5);
     sizeCalculated = false;
 }
 
@@ -195,8 +219,18 @@ auto Text::createPangoLayout() const -> xoj::util::GObjectSPtr<PangoLayout> {
     pango_layout_set_alignment(layout.get(), this->align.toPango());
 
 #if PANGO_VERSION_CHECK(1, 48, 5)  // see https://gitlab.gnome.org/GNOME/pango/-/issues/499
-    pango_layout_set_line_spacing(layout.get(), 1.0);
+    pango_layout_set_line_spacing(layout.get(), this->lineSpacing);
 #endif
+
+    // UTN applies underline/strike to the whole text object.
+    xoj::util::PangoAttrListSPtr attrs(pango_attr_list_new(), xoj::util::adopt);
+    if (this->underlined) {
+        pango_attr_list_insert(attrs.get(), pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+    }
+    if (this->strikethrough) {
+        pango_attr_list_insert(attrs.get(), pango_attr_strikethrough_new(true));
+    }
+    pango_layout_set_attributes(layout.get(), attrs.get());
 
     updatePangoFont(layout.get());
 
