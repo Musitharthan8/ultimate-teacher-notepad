@@ -81,8 +81,9 @@ StudentViewWindow::StudentViewWindow(Control* control): control(control) {
             nullptr);
 #endif
 
+    // 20 fps keeps projector updates smooth without constantly redrawing the full PDF page
     refreshTimer = g_timeout_add(
-            33,
+            50,
             +[](gpointer data) -> gboolean {
                 auto* self = static_cast<StudentViewWindow*>(data);
                 if (self->isVisible()) {
