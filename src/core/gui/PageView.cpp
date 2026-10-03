@@ -260,6 +260,15 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
     XournalppCursor* cursor = xournal->getCursor();
     cursor->setMouseDown(true);
 
+    // UTN presentation overlays consume page input without changing the document
+    if (h->isSpotlightEnabled() || h->isCurtainEnabled()) {
+        this->presentationPointerX = x;
+        this->presentationPointerY = y;
+        this->presentationPointerInitialized = true;
+        this->repaintPage();
+        return true;
+    }
+
     if (((h->getToolType() == TOOL_PEN || h->getToolType() == TOOL_HIGHLIGHTER) &&
          h->getDrawingType() != DRAWING_TYPE_SPLINE) ||
         (h->getToolType() == TOOL_ERASER && h->getEraserType() == ERASER_TYPE_WHITEOUT)) {
@@ -561,6 +570,15 @@ auto XojPageView::onMotionNotifyEvent(const PositionInputData& pos) -> bool {
 
     ToolHandler* h = xournal->getControl()->getToolHandler();
     auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+
+    // UTN spotlight and curtain follow the pointer without editing the page
+    if (h->isSpotlightEnabled() || h->isCurtainEnabled()) {
+        this->presentationPointerX = x;
+        this->presentationPointerY = y;
+        this->presentationPointerInitialized = true;
+        this->repaintPage();
+        return true;
+    }
 
     if (this->inputHandler && this->inputHandler->onMotionNotifyEvent(pos, zoom)) {
         // input handler used this event
@@ -1130,6 +1148,43 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
      */
     for (const auto& v: this->overlayViews) {
         v->draw(cr);
+    }
+
+    // UTN presentation overlays are display-only and never enter the document buffer
+    ToolHandler* tools = this->xournal->getControl()->getToolHandler();
+    if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
+        const double pointerX = this->presentationPointerInitialized ? this->presentationPointerX : page->getWidth() / 2.0;
+        const double pointerY = this->presentationPointerInitialized ? this->presentationPointerY : page->getHeight() / 2.0;
+
+        xoj::util::CairoSaveGuard overlayGuard(cr);
+
+        if (tools->isSpotlightEnabled()) {
+            const double radius = 115.0 / zoom;
+
+            cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
+            cairo_rectangle(cr, 0.0, 0.0, page->getWidth(), page->getHeight());
+            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
+
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.62);
+            cairo_fill(cr);
+
+            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.65);
+            cairo_set_line_width(cr, 2.0 / zoom);
+            cairo_stroke(cr);
+        } else {
+            const double curtainY = std::clamp(pointerY, 0.0, page->getHeight());
+
+            cairo_rectangle(cr, 0.0, curtainY, page->getWidth(), page->getHeight() - curtainY);
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.88);
+            cairo_fill(cr);
+
+            cairo_move_to(cr, 0.0, curtainY);
+            cairo_line_to(cr, page->getWidth(), curtainY);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.75);
+            cairo_set_line_width(cr, 2.0 / zoom);
+            cairo_stroke(cr);
+        }
     }
 
     return true;
