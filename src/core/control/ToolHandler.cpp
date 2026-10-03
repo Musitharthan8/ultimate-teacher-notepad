@@ -419,6 +419,33 @@ void ToolHandler::clearTeacherStamp() {
     this->teacherStampText.clear();
 }
 
+auto ToolHandler::isSpotlightEnabled() const -> bool {
+    return this->spotlightEnabled;
+}
+
+auto ToolHandler::isCurtainEnabled() const -> bool {
+    return this->curtainEnabled;
+}
+
+void ToolHandler::setSpotlightEnabled(bool enabled) {
+    this->spotlightEnabled = enabled;
+    if (enabled) {
+        this->curtainEnabled = false;
+    }
+}
+
+void ToolHandler::setCurtainEnabled(bool enabled) {
+    this->curtainEnabled = enabled;
+    if (enabled) {
+        this->spotlightEnabled = false;
+    }
+}
+
+void ToolHandler::clearPresentationOverlay() {
+    this->spotlightEnabled = false;
+    this->curtainEnabled = false;
+}
+
 void ToolHandler::setSize(ToolSize size) {
     ToolSize clippedSize = std::clamp(size, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK);
     if (clippedSize != size)
