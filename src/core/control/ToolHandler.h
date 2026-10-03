@@ -199,6 +199,14 @@ public:
      */
     double getThickness() const;
 
+    // UTN: continuous eraser thickness
+    double getEraserThickness() const;
+    void setEraserThickness(double thickness);
+
+    // UTN: smart highlighter mode
+    bool isSmartHighlighterEnabled() const;
+    void setSmartHighlighterEnabled(bool enabled);
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -391,6 +399,12 @@ protected:
 
 private:
     std::array<std::unique_ptr<Tool>, TOOL_COUNT> tools;
+
+    // UTN: continuous eraser size
+    double eraserThickness = 8.50;
+
+    // UTN: straighten rough horizontal highlighter strokes
+    bool smartHighlighterEnabled = false;
 
     /**
      * @brief Get the Button Tool pointer based on enum

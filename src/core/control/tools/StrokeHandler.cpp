@@ -166,6 +166,9 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     }
     finalizeStroke(pos.pressure);
 
+    Range finalizationRange;
+    straightenSmartHighlighterStroke(finalizationRange);
+
     Layer* layer = page->getSelectedLayer();
 
     UndoRedoHandler* undo = control->getUndoRedoHandler();
@@ -206,10 +209,68 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     doc->unlock();
 
     // Blitt the stroke to the page's buffer and delete all views.
-    // Passing the empty Range() as no actual redrawing is necessary at this point
-    this->viewPool->dispatchAndClear(xoj::view::StrokeToolView::FINALIZATION_REQUEST, Range());
+    this->viewPool->dispatchAndClear(xoj::view::StrokeToolView::FINALIZATION_REQUEST, finalizationRange);
 
     page->fireElementChanged(ptr);
+}
+
+bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
+    auto* tools = control->getToolHandler();
+    if (!tools->isSmartHighlighterEnabled() || stroke->getToolType() != StrokeTool::HIGHLIGHTER) {
+        return false;
+    }
+
+    const auto& points = stroke->getPointVector();
+    if (points.size() < 3) {
+        return false;
+    }
+
+    Point first = points.front();
+    Point last = points.back();
+
+    double dx = last.x - first.x;
+    double dy = last.y - first.y;
+    double horizontalSpan = std::abs(dx);
+
+    if (horizontalSpan < 20.0 || std::abs(dy) > horizontalSpan * 0.21) {
+        return false;
+    }
+
+    // Reject scribbles that travel backwards too much
+    double horizontalTravel = 0.0;
+    double averageY = 0.0;
+    for (size_t i = 0; i < points.size(); ++i) {
+        averageY += points[i].y;
+        if (i > 0) {
+            horizontalTravel += std::abs(points[i].x - points[i - 1].x);
+        }
+    }
+    averageY /= static_cast<double>(points.size());
+
+    if (horizontalTravel > horizontalSpan * 1.35) {
+        return false;
+    }
+
+    double maxDeviation = 0.0;
+    for (const auto& point: points) {
+        maxDeviation = std::max(maxDeviation, std::abs(point.y - averageY));
+    }
+
+    double baseTolerance = std::clamp(stroke->getWidth() * 0.75, 4.0, 12.0);
+    double allowedDeviation = std::min(16.0, std::max(baseTolerance, horizontalSpan * 0.04));
+    if (maxDeviation > allowedDeviation) {
+        return false;
+    }
+
+    Range oldRange(stroke->getBoundingBox());
+
+    first.y = averageY;
+    last.y = averageY;
+    stroke->setPointVector(std::vector<Point>{first, last});
+
+    repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
+    this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
+    return true;
 }
 
 void StrokeHandler::strokeRecognizerDetected(std::unique_ptr<Stroke> recognized, Layer* layer) {

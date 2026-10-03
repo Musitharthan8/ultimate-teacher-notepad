@@ -42,6 +42,8 @@
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
+#include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
+#include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
@@ -394,6 +396,9 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("HIGHLIGHTER", Cat::TOOLS, Action::SELECT_TOOL, TOOL_HIGHLIGHTER, "tool-highlighter",
                                 _("Highlighter"));
 
+    // UTN smart highlighter mode
+    emplaceItem<ToolSmartHighlighter>("SMART_HIGHLIGHTER", control, iconNameHelper);
+
     emplaceCustomItemWithTarget("TEXT", Cat::TOOLS, Action::SELECT_TOOL, TOOL_TEXT, "tool-text", _("Text"));
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
@@ -470,6 +475,9 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+
+    // UTN continuous eraser size slider
+    emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
 
     emplaceItem<ToolZoomSlider>("ZOOM_SLIDER", zoom, iconNameHelper, *control->getActionDatabase());
 
