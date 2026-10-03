@@ -62,6 +62,7 @@ class MainWindow;
 class ObjectInputStream;
 class ScrollHandler;
 class SearchBar;
+class StudentViewWindow;
 class Settings;
 class TextEditor;
 class XournalScheduler;
@@ -312,6 +313,15 @@ public:
     MainWindow* getWindow() const;
     GtkWindow* getGtkWindow() const;
     ScrollHandler* getScrollHandler() const;
+
+    // UTN student-facing projector window
+    void showStudentView();
+    void hideStudentView();
+    void setStudentViewFullscreen(bool enabled);
+    void refreshStudentView();
+    bool isStudentViewVisible() const;
+
+
     PageRef getCurrentPage();
     size_t getCurrentPageNo() const;
     XournalppCursor* getCursor() const;
@@ -489,6 +499,9 @@ private:
     Settings* settings = nullptr;
     std::unique_ptr<Palette> palette;
     MainWindow* win = nullptr;
+
+    // UTN projector/student-facing view
+    std::unique_ptr<StudentViewWindow> studentViewWindow;
 
     Document* doc = nullptr;
 
