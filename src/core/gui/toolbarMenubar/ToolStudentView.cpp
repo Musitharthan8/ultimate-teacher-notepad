@@ -43,7 +43,7 @@ ToolStudentView::~ToolStudentView() {
 }
 
 auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkWidget* button = gtk_button_new_with_label("SV");
+    GtkWidget* button = gtk_button_new_with_label(_("Student View"));
     gtk_widget_set_can_focus(button, false);
     gtk_widget_set_tooltip_text(button, getToolDisplayName().c_str());
 
