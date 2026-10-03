@@ -134,6 +134,43 @@ void StudentViewWindow::setFullscreen(bool enabled) {
     }
 }
 
+void StudentViewWindow::projectToSecondaryDisplay() {
+    if (!window) {
+        return;
+    }
+
+    show();
+
+#if GTK_MAJOR_VERSION == 3
+    GdkDisplay* display = gdk_display_get_default();
+    if (display) {
+        const int monitorCount = gdk_display_get_n_monitors(display);
+        GdkMonitor* target = nullptr;
+
+        for (int i = 0; i < monitorCount; ++i) {
+            GdkMonitor* monitor = gdk_display_get_monitor(display, i);
+            if (monitor && !gdk_monitor_is_primary(monitor)) {
+                target = monitor;
+                break;
+            }
+        }
+
+        if (!target && monitorCount > 0) {
+            target = gdk_display_get_monitor(display, monitorCount - 1);
+        }
+
+        if (target) {
+            GdkRectangle geometry{};
+            gdk_monitor_get_geometry(target, &geometry);
+            gtk_window_unfullscreen(window);
+            gtk_window_move(window, geometry.x, geometry.y);
+        }
+    }
+#endif
+
+    gtk_window_fullscreen(window);
+}
+
 void StudentViewWindow::refresh() {
     if (drawingArea) {
         gtk_widget_queue_draw(drawingArea);
