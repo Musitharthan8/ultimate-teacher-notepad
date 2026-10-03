@@ -60,6 +60,11 @@ constexpr auto Y_COORD_STR = u8"y";  // also in link
 constexpr auto ALIGN_STR = u8"align";  // also in link
 constexpr auto JUSTIFY_STR = u8"justify";
 
+// UTN classroom text formatting attributes
+constexpr auto UTN_UNDERLINE_STR = u8"utnUnderline";
+constexpr auto UTN_STRIKETHROUGH_STR = u8"utnStrikethrough";
+constexpr auto UTN_LINE_SPACING_STR = u8"utnLineSpacing";
+
 // UTN answer box text attributes
 constexpr auto UTN_BOX_STR = u8"utnBox";
 constexpr auto UTN_BOX_BACKGROUND_STR = u8"utnBoxBackground";
