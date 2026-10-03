@@ -541,9 +541,77 @@ void ToolUtnContextBar::appendTextControls() {
     gtk_box_append(box, justify);
 
     if (control->getToolHandler()->isAnswerBoxEnabled()) {
-        GtkWidget* badge = gtk_label_new(_("Answer Box"));
-        gtk_widget_add_css_class(badge, "utn-context-badge");
-        gtk_box_append(box, badge);
+        appendSeparator();
+
+        GtkWidget* preset = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(preset), _("Model Answer"));
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(preset), _("Definition"));
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(preset), _("Warning"));
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(preset), _("Note"));
+        gtk_combo_box_set_active(GTK_COMBO_BOX(preset), 0);
+        gtk_widget_set_tooltip_text(preset, _("Answer Box preset"));
+
+        g_signal_connect(
+                preset,
+                "changed",
+                G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                    auto* tools = static_cast<Control*>(data)->getToolHandler();
+
+                    switch (gtk_combo_box_get_active(combo)) {
+                        case 1:
+                            tools->setAnswerBoxBackgroundColor(Color{224U, 240U, 255U, 230U});
+                            tools->setAnswerBoxBorderColor(Color{50U, 110U, 180U, 255U});
+                            break;
+                        case 2:
+                            tools->setAnswerBoxBackgroundColor(Color{255U, 228U, 232U, 235U});
+                            tools->setAnswerBoxBorderColor(Color{190U, 55U, 70U, 255U});
+                            break;
+                        case 3:
+                            tools->setAnswerBoxBackgroundColor(Color{232U, 247U, 232U, 230U});
+                            tools->setAnswerBoxBorderColor(Color{60U, 135U, 75U, 255U});
+                            break;
+                        case 0:
+                        default:
+                            tools->setAnswerBoxBackgroundColor(Color{255U, 248U, 214U, 230U});
+                            tools->setAnswerBoxBorderColor(Color{180U, 140U, 20U, 255U});
+                            break;
+                    }
+                }),
+                control);
+
+        gtk_box_append(box, preset);
+
+        GdkRGBA background = Util::argb_to_GdkRGBA(control->getToolHandler()->getAnswerBoxBackgroundColor());
+        GtkWidget* backgroundButton = gtk_color_button_new_with_rgba(&background);
+        gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(backgroundButton), true);
+        gtk_widget_set_tooltip_text(backgroundButton, _("Answer Box fill"));
+        g_signal_connect(
+                backgroundButton,
+                "color-set",
+                G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                    GdkRGBA color{};
+                    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
+                    static_cast<Control*>(data)->getToolHandler()->setAnswerBoxBackgroundColor(
+                            Util::GdkRGBA_to_argb(color));
+                }),
+                control);
+        gtk_box_append(box, backgroundButton);
+
+        GdkRGBA border = Util::argb_to_GdkRGBA(control->getToolHandler()->getAnswerBoxBorderColor());
+        GtkWidget* borderButton = gtk_color_button_new_with_rgba(&border);
+        gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(borderButton), true);
+        gtk_widget_set_tooltip_text(borderButton, _("Answer Box border"));
+        g_signal_connect(
+                borderButton,
+                "color-set",
+                G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                    GdkRGBA color{};
+                    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
+                    static_cast<Control*>(data)->getToolHandler()->setAnswerBoxBorderColor(
+                            Util::GdkRGBA_to_argb(color));
+                }),
+                control);
+        gtk_box_append(box, borderButton);
     }
 }
 
