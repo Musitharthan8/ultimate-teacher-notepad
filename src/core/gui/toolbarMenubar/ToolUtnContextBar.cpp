@@ -18,6 +18,7 @@
 #include "control/settings/Settings.h"
 #include "model/Font.h"
 #include "model/TextAlignment.h"
+#include "util/Color.h"
 #include "util/Util.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
