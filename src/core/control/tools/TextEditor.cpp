@@ -374,6 +374,31 @@ void TextEditor::setLineSpacing(double spacing) {
     repaintEditor(true);
 }
 
+void TextEditor::setBoxBackgroundColor(Color color) {
+    this->textElement->setBoxBackgroundColor(color);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxBorderColor(Color color) {
+    this->textElement->setBoxBorderColor(color);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxBorderWidth(double width) {
+    this->textElement->setBoxBorderWidth(width);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxPadding(double padding) {
+    this->textElement->setBoxPadding(padding);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxCornerRadius(double radius) {
+    this->textElement->setBoxCornerRadius(radius);
+    repaintEditor(true);
+}
+
 void TextEditor::afterFontChange() {
     this->textElement->updatePangoFont(this->layout.get());
     this->computeVirtualCursorPosition();
@@ -1341,11 +1366,22 @@ void TextEditor::initializeEditionAt(double x, double y) {
         tools->setTextUnderline(this->textElement->isUnderlined());
         tools->setTextStrikethrough(this->textElement->isStrikethrough());
         tools->setTextLineSpacing(this->textElement->getLineSpacing());
+        tools->setAnswerBoxEnabled(this->textElement->isBoxEnabled());
+
+        if (this->textElement->isBoxEnabled()) {
+            tools->setAnswerBoxTextColor(this->textElement->getColor());
+            tools->setAnswerBoxBackgroundColor(this->textElement->getBoxBackgroundColor());
+            tools->setAnswerBoxBorderColor(this->textElement->getBoxBorderColor());
+            tools->setAnswerBoxBorderWidth(this->textElement->getBoxBorderWidth());
+            tools->setAnswerBoxPadding(this->textElement->getBoxPadding());
+            tools->setAnswerBoxCornerRadius(this->textElement->getBoxCornerRadius());
+        }
 
         Color c = this->textElement->getColor();
         c.alpha = 0xff;
         db->setActionState(Action::TOOL_COLOR, c);
 
+        tools->fireToolChanged();
         this->page->fireElementChanged(text);
     }
     this->currentWrapWidth = this->textElement->getWrap();
