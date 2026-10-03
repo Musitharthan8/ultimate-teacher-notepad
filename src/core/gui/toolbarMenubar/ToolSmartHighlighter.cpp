@@ -109,6 +109,8 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     addMode(_("Straighten Only"), SmartHighlighterSnapMode::Straight);
     addMode(_("Snap to Word"), SmartHighlighterSnapMode::Word);
     addMode(_("Snap to Line"), SmartHighlighterSnapMode::Line);
+    addMode(_("Underline Text"), SmartHighlighterSnapMode::Underline);
+    addMode(_("Strikethrough Text"), SmartHighlighterSnapMode::Strikethrough);
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
