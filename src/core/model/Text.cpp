@@ -39,6 +39,12 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     text->wrapWidth = this->wrapWidth;
     text->align = this->align;
     text->justify = this->justify;
+    text->boxEnabled = this->boxEnabled;
+    text->boxBackgroundColor = this->boxBackgroundColor;
+    text->boxBorderColor = this->boxBorderColor;
+    text->boxBorderWidth = this->boxBorderWidth;
+    text->boxPadding = this->boxPadding;
+    text->boxCornerRadius = this->boxCornerRadius;
 
     return text;
 }
@@ -74,6 +80,61 @@ void Text::setAlignment(TextAlignment a) {
     sizeCalculated = false;
 }
 
+auto Text::isBoxEnabled() const -> bool { return this->boxEnabled; }
+
+void Text::setBoxEnabled(bool enabled) {
+    this->boxEnabled = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::getBoxBackgroundColor() const -> Color { return this->boxBackgroundColor; }
+
+void Text::setBoxBackgroundColor(Color color) { this->boxBackgroundColor = color; }
+
+auto Text::getBoxBorderColor() const -> Color { return this->boxBorderColor; }
+
+void Text::setBoxBorderColor(Color color) { this->boxBorderColor = color; }
+
+auto Text::getBoxBorderWidth() const -> double { return this->boxBorderWidth; }
+
+void Text::setBoxBorderWidth(double width) {
+    this->boxBorderWidth = std::max(0.0, width);
+    sizeCalculated = false;
+}
+
+auto Text::getBoxPadding() const -> double { return this->boxPadding; }
+
+void Text::setBoxPadding(double padding) {
+    this->boxPadding = std::max(0.0, padding);
+    sizeCalculated = false;
+}
+
+auto Text::getBoxCornerRadius() const -> double { return this->boxCornerRadius; }
+
+void Text::setBoxCornerRadius(double radius) { this->boxCornerRadius = std::max(0.0, radius); }
+
+static auto computeAnswerBoxBounds(const Text::Boxes& boxes, double padding, double borderWidth)
+        -> xoj::util::Rectangle<double> {
+    const double extra = padding + 0.5 * borderWidth;
+    const double left = std::min(0.0, boxes.effectiveBounds.x) - extra;
+    const double top = std::min(0.0, boxes.effectiveBounds.y) - extra;
+    const double right =
+            std::max(boxes.theoreticalSize.width, boxes.effectiveBounds.x + boxes.effectiveBounds.width) + extra;
+    const double bottom =
+            std::max(boxes.theoreticalSize.height, boxes.effectiveBounds.y + boxes.effectiveBounds.height) + extra;
+
+    return {left, top, right - left, bottom - top};
+}
+
+auto Text::getBoxBounds() const -> xoj::util::Rectangle<double> {
+    if (!this->sizeCalculated) {
+        this->calcSize();
+    }
+
+    Boxes boxes{this->naturalSize, this->effectiveBounds};
+    return computeAnswerBoxBounds(boxes, this->boxPadding, this->boxBorderWidth);
+}
+
 Text::Boxes Text::computeBoxesForLayout(PangoLayout* layout, double wrapWidth) {
     PangoRectangle box;
     pango_layout_get_extents(layout, nullptr, &box);
@@ -106,8 +167,14 @@ void Text::calcSize() const {
     this->effectiveBounds = boxes.effectiveBounds;
 
     const auto& matrix = this->getTransformation();
-    this->boundingBox = matrix * this->effectiveBounds;
-    this->snappedBounds = matrix * xoj::util::Rectangle<double>{{0, 0}, this->naturalSize};
+    if (this->boxEnabled) {
+        auto boxBounds = computeAnswerBoxBounds(boxes, this->boxPadding, this->boxBorderWidth);
+        this->boundingBox = matrix * boxBounds;
+        this->snappedBounds = matrix * boxBounds;
+    } else {
+        this->boundingBox = matrix * this->effectiveBounds;
+        this->snappedBounds = matrix * xoj::util::Rectangle<double>{{0, 0}, this->naturalSize};
+    }
 
     this->sizeCalculated = true;
 }
