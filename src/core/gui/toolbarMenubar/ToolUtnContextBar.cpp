@@ -194,7 +194,7 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
         case TOOL_SELECT_OBJECT:
         case TOOL_SELECT_MULTILAYER_RECT:
         case TOOL_SELECT_MULTILAYER_REGION:
-            appendGenericMessage(_("Select an object to edit its properties"));
+            appendSelectionControls();
             break;
 
         case TOOL_HAND:
@@ -537,6 +537,88 @@ void ToolUtnContextBar::appendTextControls() {
         GtkWidget* badge = gtk_label_new(_("Answer Box"));
         gtk_widget_add_css_class(badge, "utn-context-badge");
         gtk_box_append(box, badge);
+    }
+}
+
+void ToolUtnContextBar::appendSelectionControls() {
+    auto* tools = control->getToolHandler();
+
+    if (tools->hasCapability(TOOL_CAP_COLOR)) {
+        appendColorButton();
+    }
+
+    if (tools->hasCapability(TOOL_CAP_SIZE)) {
+        appendLabel(_("Size"));
+
+        struct SizeEntry {
+            const char* label;
+            ToolSize size;
+        };
+
+        constexpr std::array<SizeEntry, 5> sizes{{
+                {"XS", TOOL_SIZE_VERY_FINE},
+                {"S", TOOL_SIZE_FINE},
+                {"M", TOOL_SIZE_MEDIUM},
+                {"L", TOOL_SIZE_THICK},
+                {"XL", TOOL_SIZE_VERY_THICK},
+        }};
+
+        for (const auto& entry: sizes) {
+            GtkWidget* button = gtk_button_new_with_label(entry.label);
+            g_object_set_data(G_OBJECT(button), "utn-control", control);
+            g_object_set_data(G_OBJECT(button), "utn-size", GINT_TO_POINTER(static_cast<int>(entry.size)));
+
+            g_signal_connect(
+                    button,
+                    "clicked",
+                    G_CALLBACK(+[](GtkButton* button, gpointer) {
+                        auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                        auto size = static_cast<ToolSize>(
+                                GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-size")));
+                        ctrl->setToolSize(size);
+                    }),
+                    nullptr);
+
+            gtk_box_append(box, button);
+        }
+    }
+
+    appendSeparator();
+
+    GtkWidget* front = gtk_button_new_with_label(_("Front"));
+    g_signal_connect(
+            front,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->reorderSelection(EditSelection::OrderChange::BringToFront);
+            }),
+            control);
+    gtk_widget_set_tooltip_text(front, _("Bring selection to front"));
+    gtk_box_append(box, front);
+
+    GtkWidget* back = gtk_button_new_with_label(_("Back"));
+    g_signal_connect(
+            back,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->reorderSelection(EditSelection::OrderChange::SendToBack);
+            }),
+            control);
+    gtk_widget_set_tooltip_text(back, _("Send selection to back"));
+    gtk_box_append(box, back);
+
+    GtkWidget* remove = gtk_button_new_with_label(_("Delete"));
+    g_signal_connect(
+            remove,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->deleteSelection();
+            }),
+            control);
+    gtk_box_append(box, remove);
+
+    if (!tools->hasCapability(TOOL_CAP_COLOR) && !tools->hasCapability(TOOL_CAP_SIZE)) {
+        appendGenericMessage(_("Drag over an object to select it"));
     }
 }
 
