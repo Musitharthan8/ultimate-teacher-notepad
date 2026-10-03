@@ -80,6 +80,10 @@ public:
     bool backgroundHasName() const;
     void setBackgroundName(const std::string& newName);
 
+    // UTN classroom page label
+    const std::string& getUtnPageLabel() const;
+    void setUtnPageLabel(std::string label);
+
     /**
      * Copies this page an all it's contents to a new page
      */
@@ -131,6 +135,9 @@ private:
      * Background name
      */
     std::optional<std::string> backgroundName;
+
+    // UTN classroom page label
+    std::string utnPageLabel;
 
     // Allow LoadHandler to add layers directly
     friend class LoadHandler;
