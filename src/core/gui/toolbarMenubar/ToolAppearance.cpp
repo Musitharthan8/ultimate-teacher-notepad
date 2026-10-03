@@ -68,6 +68,38 @@ auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_box_append(panel, button);
     }
 
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    bool touchUi = false;
+    control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
+
+    GtkWidget* density = gtk_toggle_button_new_with_label(_("Touch-friendly controls"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(density), touchUi);
+    gtk_widget_set_tooltip_text(density, _("Use larger controls for stylus and touchscreen teaching"));
+
+    g_signal_connect(
+            density,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                bool enabled = gtk_toggle_button_get_active(button);
+
+                SElement& utn = ctrl->getSettings()->getCustomElement("utn");
+                utn.setBool("touchUi", enabled);
+                ctrl->getSettings()->customSettingsChanged();
+
+                GtkStyleContext* context =
+                        gtk_widget_get_style_context(GTK_WIDGET(ctrl->getWindow()->getWindow()));
+                if (enabled) {
+                    gtk_style_context_add_class(context, "utnTouch");
+                } else {
+                    gtk_style_context_remove_class(context, "utnTouch");
+                }
+            }),
+            control);
+
+    gtk_box_append(panel, density);
+
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
