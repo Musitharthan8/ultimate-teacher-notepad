@@ -360,7 +360,7 @@ void ToolUtnContextBar::appendMarkupControls() {
     Color markupColor = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();
     gtk_range_set_value(GTK_RANGE(opacity), 100.0 * static_cast<double>(markupColor.alpha) / 255.0);
     gtk_scale_set_digits(GTK_SCALE(opacity), 0);
-    gtk_widget_set_size_request(opacity, 110, -1);
+    gtk_widget_set_size_request(opacity, 100, -1);
     g_signal_connect(
             opacity,
             "value-changed",
@@ -375,44 +375,42 @@ void ToolUtnContextBar::appendMarkupControls() {
     gtk_box_append(box, opacity);
 
     appendSeparator();
+    appendLabel(_("Mode"));
 
-    GtkWidget* freehand = gtk_button_new_with_label(_("Freehand"));
+    GtkWidget* mode = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Freehand"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Straight"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Word"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Line"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Underline"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Strike"));
+
+    auto* tools = control->getToolHandler();
+    int activeMode = 0;
+    if (tools->isSmartHighlighterEnabled()) {
+        activeMode = static_cast<int>(tools->getSmartHighlighterSnapMode()) + 1;
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(mode), activeMode);
+
     g_signal_connect(
-            freehand,
-            "clicked",
-            G_CALLBACK(+[](GtkButton*, gpointer data) {
+            mode,
+            "changed",
+            G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
                 auto* tools = static_cast<Control*>(data)->getToolHandler();
-                tools->setSmartHighlighterEnabled(false);
+                int active = gtk_combo_box_get_active(combo);
+
+                if (active <= 0) {
+                    tools->setSmartHighlighterEnabled(false);
+                    return;
+                }
+
+                tools->setSmartHighlighterEnabled(true);
+                tools->setSmartHighlighterSnapMode(static_cast<SmartHighlighterSnapMode>(active - 1));
             }),
             control);
-    gtk_box_append(box, freehand);
 
-    auto addMode = [this](const char* label, SmartHighlighterSnapMode mode) {
-        GtkWidget* button = gtk_button_new_with_label(label);
-        g_object_set_data(G_OBJECT(button), "utn-control", control);
-        g_object_set_data(G_OBJECT(button), "utn-mode", GINT_TO_POINTER(static_cast<int>(mode)));
-
-        g_signal_connect(
-                button,
-                "clicked",
-                G_CALLBACK(+[](GtkButton* button, gpointer) {
-                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                    auto mode = static_cast<SmartHighlighterSnapMode>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-mode")));
-                    auto* tools = ctrl->getToolHandler();
-                    tools->setSmartHighlighterEnabled(true);
-                    tools->setSmartHighlighterSnapMode(mode);
-                }),
-                nullptr);
-
-        gtk_box_append(box, button);
-    };
-
-    addMode(_("Straight"), SmartHighlighterSnapMode::Straight);
-    addMode(_("Word"), SmartHighlighterSnapMode::Word);
-    addMode(_("Line"), SmartHighlighterSnapMode::Line);
-    addMode(_("Underline"), SmartHighlighterSnapMode::Underline);
-    addMode(_("Strike"), SmartHighlighterSnapMode::Strikethrough);
+    gtk_widget_set_tooltip_text(mode, _("Markup behaviour"));
+    gtk_box_append(box, mode);
 }
 
 void ToolUtnContextBar::appendTextControls() {
