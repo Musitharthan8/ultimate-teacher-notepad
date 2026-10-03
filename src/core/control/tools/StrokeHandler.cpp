@@ -25,6 +25,7 @@
 #include "model/LineStyle.h"                                // for LineStyle
 #include "model/Stroke.h"                                   // for Stroke, STROKE_...
 #include "model/XojPage.h"                                  // for XojPage
+#include "pdf/base/XojPdfPage.h"                           // for PDF text snapping
 #include "undo/InsertUndoAction.h"                          // for InsertUndoAction
 #include "undo/RecognizerUndoAction.h"                      // for RecognizerUndoA...
 #include "undo/UndoRedoHandler.h"                           // for UndoRedoHandler
@@ -32,6 +33,7 @@
 #include "util/DispatchPool.h"                              // for DispatchPool
 #include "util/Range.h"                                     // for Range
 #include "util/Rectangle.h"                                 // for Rectangle, util
+#include "util/Util.h"                                      // for npos
 #include "view/overlays/StrokeToolFilledHighlighterView.h"  // for StrokeToolFilledHighlighterView
 #include "view/overlays/StrokeToolFilledView.h"             // for StrokeToolFilledView
 #include "view/overlays/StrokeToolView.h"                   // for StrokeToolView
@@ -264,6 +266,50 @@ bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
 
     Range oldRange(stroke->getBoundingBox());
 
+    // On selectable PDFs, snap the highlight to the nearest text line
+    if (auto pdfPageNr = page->getPdfPageNr(); pdfPageNr != npos) {
+        Document* doc = control->getDocument();
+        doc->lock_shared();
+        auto pdf = doc->getPdfPage(pdfPageNr);
+        doc->unlock_shared();
+
+        if (pdf) {
+            XojPdfRectangle selection(first.x, averageY, last.x, averageY);
+            auto textSelection = pdf->selectTextLines(selection, XojPdfPageSelectionStyle::Line);
+
+            const XojPdfRectangle* bestRect = nullptr;
+            double bestDistance = std::numeric_limits<double>::max();
+
+            for (const auto& rect: textSelection.rects) {
+                double centerY = 0.5 * (rect.y1 + rect.y2);
+                double distance = std::abs(centerY - averageY);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestRect = &rect;
+                }
+            }
+
+            if (bestRect != nullptr) {
+                double left = std::min(bestRect->x1, bestRect->x2);
+                double right = std::max(bestRect->x1, bestRect->x2);
+                double top = std::min(bestRect->y1, bestRect->y2);
+                double bottom = std::max(bestRect->y1, bestRect->y2);
+                double centerY = 0.5 * (top + bottom);
+
+                Point snappedStart(dx >= 0.0 ? left : right, centerY);
+                Point snappedEnd(dx >= 0.0 ? right : left, centerY);
+
+                stroke->setPointVector(std::vector<Point>{snappedStart, snappedEnd});
+                stroke->setWidth(std::max(1.0, (bottom - top) * 0.85));
+
+                repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
+                this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
+                return true;
+            }
+        }
+    }
+
+    // Fall back to simple straightening on non-PDF or image-only pages
     first.y = averageY;
     last.y = averageY;
     stroke->setPointVector(std::vector<Point>{first, last});
