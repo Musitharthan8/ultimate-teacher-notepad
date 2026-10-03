@@ -12,6 +12,11 @@ on:
 env:
   BUILD_TYPE: Debug
 
+# UTN feature work moves quickly. Only the newest build for a branch matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   windows:
     runs-on: windows-2022
