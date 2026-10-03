@@ -9,6 +9,8 @@
 #include "ToolPageLabels.h"
 
 #include <array>
+#include <memory>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 
