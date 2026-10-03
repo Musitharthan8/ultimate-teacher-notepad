@@ -37,6 +37,7 @@ private:
     void appendEraserControls();
     void appendMarkupControls();
     void appendTextControls();
+    void appendShapeControls(DrawingType type);
     void appendSelectionControls();
     void appendGenericMessage(const char* text);
 
