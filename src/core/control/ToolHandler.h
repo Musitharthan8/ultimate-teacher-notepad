@@ -17,7 +17,8 @@
 #include <string>      // for string
 #include <vector>      // for vector
 
-#include "control/ToolEnums.h"               // for ToolSize, ToolType, Draw...
+#include "control/ToolEnums.h"
+#include "control/UtnEraserShape.h"               // for ToolSize, ToolType, Draw...
 #include "control/settings/SettingsEnums.h"  // for Button
 #include "util/Color.h"                      // for Color
 
@@ -203,6 +204,10 @@ public:
     // UTN: continuous eraser thickness
     double getEraserThickness() const;
     void setEraserThickness(double thickness);
+
+    // UTN: eraser geometry
+    UtnEraserShape getEraserShape() const;
+    void setEraserShape(UtnEraserShape shape);
 
     // UTN: smart highlighter mode
     bool isSmartHighlighterEnabled() const;
@@ -424,6 +429,9 @@ private:
 
     // UTN: continuous eraser size
     double eraserThickness = 8.50;
+
+    // UTN: round is the classroom-friendly default
+    UtnEraserShape eraserShape = UtnEraserShape::Round;
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;
