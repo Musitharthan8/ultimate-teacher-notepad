@@ -217,6 +217,8 @@ public:
     bool isAnswerBoxEnabled() const;
     void setAnswerBoxEnabled(bool enabled);
 
+    Color getAnswerBoxTextColor() const;
+    void setAnswerBoxTextColor(Color color);
     Color getAnswerBoxBackgroundColor() const;
     void setAnswerBoxBackgroundColor(Color color);
     Color getAnswerBoxBorderColor() const;
@@ -232,6 +234,8 @@ public:
     bool hasTeacherStamp() const;
     const std::string& getTeacherStampText() const;
     void setTeacherStampText(std::string text);
+    Color getTeacherStampColor() const;
+    void setTeacherStampColor(Color color);
     void clearTeacherStamp();
 
     // UTN: presentation overlays
@@ -443,6 +447,7 @@ private:
 
     // UTN: create styled text answer boxes
     bool answerBoxEnabled = false;
+    Color answerBoxTextColor{45U, 45U, 45U, 255U};
     Color answerBoxBackgroundColor{255U, 248U, 214U, 230U};
     Color answerBoxBorderColor{80U, 80U, 80U, 255U};
     double answerBoxBorderWidth = 1.2;
@@ -451,6 +456,7 @@ private:
 
     // UTN: selected one-shot teacher stamp
     std::string teacherStampText;
+    Color teacherStampColor{45U, 90U, 170U, 255U};
 
     // UTN: presentation overlay state
     bool spotlightEnabled = false;
