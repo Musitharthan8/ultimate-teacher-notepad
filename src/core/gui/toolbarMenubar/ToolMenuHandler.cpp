@@ -38,7 +38,9 @@
 #include "SpacerItem.h"
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
+#include "ToolAppearance.h"          // for ToolAppearance
 #include "ToolAnswerBox.h"           // for ToolAnswerBox
+#include "ToolClear.h"               // for ToolClear
 #include "ToolPageLayer.h"           // for ToolPageLayer
 #include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
@@ -407,6 +409,10 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolSmartHighlighter>("SMART_HIGHLIGHTER", control, iconNameHelper);
 
     emplaceCustomItemWithTarget("TEXT", Cat::TOOLS, Action::SELECT_TOOL, TOOL_TEXT, "tool-text", _("Text"));
+
+    // UTN shell controls
+    emplaceItem<ToolAppearance>("UTN_APPEARANCE", control);
+    emplaceItem<ToolClear>("UTN_CLEAR", control);
 
     // UTN answer box text mode
     emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
