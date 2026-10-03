@@ -75,6 +75,9 @@ public:
     void setColor(Color color);
     void setAlignment(TextAlignment al);
     void setJustify(bool justify);
+    void setUnderline(bool enabled);
+    void setStrikethrough(bool enabled);
+    void setLineSpacing(double spacing);
 
     PangoLayout* getUpToDateLayout() const;
 
@@ -121,6 +124,7 @@ private:
      */
     void setTextToPangoLayout(PangoLayout* pl) const;
 
+    void addBaseTextAttributes(PangoAttrList* attrs) const;
     void setSelectionAttributesToPangoLayout(PangoLayout* pl) const;
 
     void updateBoxes();
