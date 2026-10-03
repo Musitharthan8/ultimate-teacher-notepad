@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - utn-dev
-      - "feature/**"
   pull_request:
     branches:
       - utn-dev
