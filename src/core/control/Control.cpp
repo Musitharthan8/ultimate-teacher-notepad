@@ -88,6 +88,7 @@
 #include "plugin/PluginController.h"                             // for Plug...
 #include "settings/RecolorParameters.h"                          // for RecolorParameters
 #include "undo/AddUndoAction.h"                                  // for AddU...
+#include "undo/DeleteUndoAction.h"                               // for DeleteUndoAction
 #include "undo/InsertDeletePageUndoAction.h"                     // for Inse...
 #include "undo/InsertUndoAction.h"                               // for Inse...
 #include "undo/MoveSelectionToLayerUndoAction.h"                 // for Move...
@@ -2551,6 +2552,40 @@ void Control::clearSelection() {
     if (this->win) {
         this->win->getXournal()->clearSelection();
         this->win->getPdfToolbox()->userCancelSelection();
+    }
+}
+
+void Control::clearCurrentPageAnnotations() {
+    clearSelectionEndText();
+
+    PageRef page = getCurrentPage();
+    if (!page) {
+        return;
+    }
+
+    auto undo = std::make_unique<DeleteUndoAction>(page, false);
+    bool removedAnything = false;
+
+    this->doc->lock();
+    for (Layer* layer: page->getLayers()) {
+        auto elements = layer->clearNoFree();
+        Element::Index position = 0;
+
+        for (auto&& element: elements) {
+            undo->addElement(layer, std::move(element), position++);
+            removedAnything = true;
+        }
+    }
+    this->doc->unlock();
+
+    if (!removedAnything) {
+        return;
+    }
+
+    this->undoRedo->addUndoAction(std::move(undo));
+
+    if (this->win) {
+        this->win->getXournal()->repaintSelection(true);
     }
 }
 
