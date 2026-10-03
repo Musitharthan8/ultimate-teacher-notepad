@@ -43,6 +43,7 @@
 #include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPrepareReveal.h"        // for ToolPrepareReveal
+#include "ToolPresentationKit.h"      // for ToolPresentationKit
 #include "ToolProfileSelector.h"      // for ToolProfileSelector
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
@@ -420,6 +421,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN classroom page labels
     emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
+
+    // UTN classroom presentation tools
+    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
