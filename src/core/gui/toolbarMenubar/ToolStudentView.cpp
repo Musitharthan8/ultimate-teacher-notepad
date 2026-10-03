@@ -65,6 +65,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_popover_set_child(popover, GTK_WIDGET(panel));
 
     GtkWidget* open = gtk_button_new_with_label(_("Open Student View"));
+    GtkWidget* project = gtk_button_new_with_label(_("Project to Second Display"));
     GtkWidget* fullscreen = gtk_button_new_with_label(_("Fullscreen Student View"));
     GtkWidget* windowed = gtk_button_new_with_label(_("Windowed Student View"));
     GtkWidget* hide = gtk_button_new_with_label(_("Hide Student View"));
@@ -74,8 +75,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* curtainOff = gtk_button_new_with_label(_("Curtain Off"));
     GtkWidget* notes = gtk_button_new_with_label(_("Create Teacher Notes Layer"));
 
-    const std::array<GtkWidget*, 9> buttons{
-            open, fullscreen, windowed, hide, spotlightOn, spotlightOff, curtainOn, curtainOff, notes};
+    const std::array<GtkWidget*, 10> buttons{
+            open, project, fullscreen, windowed, hide, spotlightOn, spotlightOff, curtainOn, curtainOff, notes};
     for (GtkWidget* button: buttons) {
         gtk_widget_set_can_focus(button, false);
         g_object_set_data(G_OBJECT(button), "utn-control", control);
@@ -87,6 +88,16 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             G_CALLBACK(+[](GtkButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                 ctrl->showStudentView();
+                gtk_popover_popdown(GTK_POPOVER(data));
+            }),
+            popover);
+
+    g_signal_connect(
+            project,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                ctrl->projectStudentViewToSecondaryDisplay();
                 gtk_popover_popdown(GTK_POPOVER(data));
             }),
             popover);
@@ -170,6 +181,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             popover);
 
     gtk_box_append(panel, open);
+    gtk_box_append(panel, project);
     gtk_box_append(panel, fullscreen);
     gtk_box_append(panel, windowed);
     gtk_box_append(panel, hide);
