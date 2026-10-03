@@ -283,48 +283,48 @@ void ToolUtnContextBar::appendColorButton() {
 }
 
 void ToolUtnContextBar::appendSizeButtons(ToolType tool) {
-    struct SizeEntry {
-        const char* label;
-        ToolSize size;
-    };
-
-    constexpr std::array<SizeEntry, 5> sizes{{
-            {"XS", TOOL_SIZE_VERY_FINE},
-            {"S", TOOL_SIZE_FINE},
-            {"M", TOOL_SIZE_MEDIUM},
-            {"L", TOOL_SIZE_THICK},
-            {"XL", TOOL_SIZE_VERY_THICK},
-    }};
-
     appendLabel(_("Size"));
 
-    for (const auto& entry: sizes) {
-        GtkWidget* button = gtk_button_new_with_label(entry.label);
-        g_object_set_data(G_OBJECT(button), "utn-control", control);
-        g_object_set_data(G_OBJECT(button), "utn-tool", GINT_TO_POINTER(static_cast<int>(tool)));
-        g_object_set_data(G_OBJECT(button), "utn-size", GINT_TO_POINTER(static_cast<int>(entry.size)));
+    GtkWidget* combo = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "XS");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "S");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "M");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "L");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "XL");
 
-        g_signal_connect(
-                button,
-                "clicked",
-                G_CALLBACK(+[](GtkButton* button, gpointer) {
-                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                    auto tool = static_cast<ToolType>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-tool")));
-                    auto size = static_cast<ToolSize>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-size")));
+    auto* tools = control->getToolHandler();
+    ToolSize current = tool == TOOL_HIGHLIGHTER ? tools->getHighlighterSize() : tools->getPenSize();
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), static_cast<int>(current));
 
-                    auto* tools = ctrl->getToolHandler();
-                    if (tool == TOOL_PEN) {
-                        tools->setPenSize(size);
-                    } else if (tool == TOOL_HIGHLIGHTER) {
-                        tools->setHighlighterSize(size);
-                    }
-                }),
-                nullptr);
+    g_object_set_data(G_OBJECT(combo), "utn-control", control);
+    g_object_set_data(G_OBJECT(combo), "utn-tool", GINT_TO_POINTER(static_cast<int>(tool)));
 
-        gtk_box_append(box, button);
-    }
+    g_signal_connect(
+            combo,
+            "changed",
+            G_CALLBACK(+[](GtkComboBox* combo, gpointer) {
+                int active = gtk_combo_box_get_active(combo);
+                if (active < static_cast<int>(TOOL_SIZE_VERY_FINE) ||
+                    active > static_cast<int>(TOOL_SIZE_VERY_THICK)) {
+                    return;
+                }
+
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(combo), "utn-control"));
+                auto tool =
+                        static_cast<ToolType>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(combo), "utn-tool")));
+                auto size = static_cast<ToolSize>(active);
+
+                auto* tools = ctrl->getToolHandler();
+                if (tool == TOOL_HIGHLIGHTER) {
+                    tools->setHighlighterSize(size);
+                } else {
+                    tools->setPenSize(size);
+                }
+            }),
+            nullptr);
+
+    gtk_widget_set_tooltip_text(combo, _("Tool size"));
+    gtk_box_append(box, combo);
 }
 
 void ToolUtnContextBar::appendEraserControls() {
