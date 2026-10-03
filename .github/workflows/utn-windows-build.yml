@@ -9,6 +9,10 @@ on:
     branches:
       - utn-dev
 
+concurrency:
+  group: utn-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   BUILD_TYPE: Debug
 
