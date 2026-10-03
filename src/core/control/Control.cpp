@@ -1146,6 +1146,52 @@ auto Control::isStudentViewVisible() const -> bool {
     return this->studentViewWindow && this->studentViewWindow->isVisible();
 }
 
+void Control::setStudentSpotlightEnabled(bool enabled) {
+    this->studentSpotlightEnabled = enabled;
+    refreshStudentView();
+}
+
+auto Control::isStudentSpotlightEnabled() const -> bool {
+    return this->studentSpotlightEnabled;
+}
+
+void Control::updateStudentPresentationPointer(size_t page, double x, double y) {
+    this->studentPointerValid = true;
+    this->studentPointerPage = page;
+    this->studentPointerX = x;
+    this->studentPointerY = y;
+    refreshStudentView();
+}
+
+auto Control::getStudentPresentationPointer(size_t& page, double& x, double& y) const -> bool {
+    if (!this->studentPointerValid) {
+        return false;
+    }
+
+    page = this->studentPointerPage;
+    x = this->studentPointerX;
+    y = this->studentPointerY;
+    return true;
+}
+
+void Control::setStudentCurtainEnabled(bool enabled) {
+    this->studentCurtainEnabled = enabled;
+    refreshStudentView();
+}
+
+auto Control::isStudentCurtainEnabled() const -> bool {
+    return this->studentCurtainEnabled;
+}
+
+void Control::setStudentCurtainReveal(double fraction) {
+    this->studentCurtainReveal = std::clamp(fraction, 0.0, 1.0);
+    refreshStudentView();
+}
+
+auto Control::getStudentCurtainReveal() const -> double {
+    return this->studentCurtainReveal;
+}
+
 auto Control::getCurrentPageNo() const -> size_t {
     if (this->win) {
         return this->win->getXournal()->getCurrentPage();
