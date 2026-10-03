@@ -363,6 +363,46 @@ void ToolHandler::setAnswerBoxEnabled(bool enabled) {
     this->answerBoxEnabled = enabled;
 }
 
+auto ToolHandler::getAnswerBoxBackgroundColor() const -> Color {
+    return this->answerBoxBackgroundColor;
+}
+
+void ToolHandler::setAnswerBoxBackgroundColor(Color color) {
+    this->answerBoxBackgroundColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderColor() const -> Color {
+    return this->answerBoxBorderColor;
+}
+
+void ToolHandler::setAnswerBoxBorderColor(Color color) {
+    this->answerBoxBorderColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderWidth() const -> double {
+    return this->answerBoxBorderWidth;
+}
+
+void ToolHandler::setAnswerBoxBorderWidth(double width) {
+    this->answerBoxBorderWidth = std::clamp(width, 0.0, 8.0);
+}
+
+auto ToolHandler::getAnswerBoxPadding() const -> double {
+    return this->answerBoxPadding;
+}
+
+void ToolHandler::setAnswerBoxPadding(double padding) {
+    this->answerBoxPadding = std::clamp(padding, 0.0, 24.0);
+}
+
+auto ToolHandler::getAnswerBoxCornerRadius() const -> double {
+    return this->answerBoxCornerRadius;
+}
+
+void ToolHandler::setAnswerBoxCornerRadius(double radius) {
+    this->answerBoxCornerRadius = std::clamp(radius, 0.0, 24.0);
+}
+
 void ToolHandler::setSize(ToolSize size) {
     ToolSize clippedSize = std::clamp(size, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK);
     if (clippedSize != size)
