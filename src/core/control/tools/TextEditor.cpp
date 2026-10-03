@@ -1,5 +1,6 @@
 #include "TextEditor.h"
 
+#include <cctype>
 #include <cstring>  // for strcmp, size_t
 #include <memory>   // for allocator, make_unique, __shared_p...
 #include <string>   // for std::string()
@@ -371,6 +372,128 @@ void TextEditor::setStrikethrough(bool enabled) {
 void TextEditor::setLineSpacing(double spacing) {
     this->textElement->setLineSpacing(spacing);
     this->layoutStatus = LayoutStatus::NEEDS_PARAMETERS_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::toggleBulletList() {
+    std::string source = cloneToStdString(this->buffer.get());
+    bool removeBullets = true;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        if (end == std::string::npos) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty() && !line.starts_with("• ")) {
+            removeBullets = false;
+            break;
+        }
+
+        if (end == source.size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    std::string result;
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        bool hasNewline = end != std::string::npos;
+        if (!hasNewline) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty()) {
+            if (removeBullets && line.starts_with("• ")) {
+                line.remove_prefix(std::string_view("• ").size());
+            } else if (!removeBullets) {
+                result += "• ";
+            }
+        }
+
+        result.append(line);
+        if (hasNewline) {
+            result += '\n';
+            start = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    replaceBufferContent(result);
+    contentsChanged(true);
+    repaintEditor(true);
+}
+
+void TextEditor::toggleNumberedList() {
+    auto prefixLength = [](std::string_view line) -> size_t {
+        size_t i = 0;
+        while (i < line.size() && std::isdigit(static_cast<unsigned char>(line[i]))) {
+            ++i;
+        }
+        if (i > 0 && i + 1 < line.size() && line[i] == '.' && line[i + 1] == ' ') {
+            return i + 2;
+        }
+        return 0;
+    };
+
+    std::string source = cloneToStdString(this->buffer.get());
+    bool removeNumbers = true;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        if (end == std::string::npos) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty() && prefixLength(line) == 0) {
+            removeNumbers = false;
+            break;
+        }
+
+        if (end == source.size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    std::string result;
+    size_t number = 1;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        bool hasNewline = end != std::string::npos;
+        if (!hasNewline) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty()) {
+            if (removeNumbers) {
+                size_t prefix = prefixLength(line);
+                if (prefix > 0) {
+                    line.remove_prefix(prefix);
+                }
+            } else {
+                result += std::to_string(number++) + ". ";
+            }
+        }
+
+        result.append(line);
+        if (hasNewline) {
+            result += '\n';
+            start = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    replaceBufferContent(result);
+    contentsChanged(true);
     repaintEditor(true);
 }
 
