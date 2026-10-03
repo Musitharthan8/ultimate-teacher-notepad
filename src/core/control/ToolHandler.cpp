@@ -367,6 +367,15 @@ void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
     this->smartHighlighterEnabled = enabled;
 }
 
+auto ToolHandler::getSmartHighlighterMode() const -> UtnSmartHighlightMode {
+    return this->smartHighlighterMode;
+}
+
+void ToolHandler::setSmartHighlighterMode(UtnSmartHighlightMode mode) {
+    this->smartHighlighterMode = mode;
+    this->smartHighlighterEnabled = true;
+}
+
 auto ToolHandler::isAnswerBoxEnabled() const -> bool {
     return this->answerBoxEnabled;
 }
