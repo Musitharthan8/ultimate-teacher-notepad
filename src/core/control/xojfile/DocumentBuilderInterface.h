@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -54,7 +55,8 @@ public:
     virtual void addLayer(const std::optional<std::string_view>& name) = 0;
     virtual void finalizeLayer() = 0;
     virtual void addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
-                           const LineStyle& lineStyle, fs::path filename, size_t timestamp) = 0;
+                           const LineStyle& lineStyle, uint64_t highlighterGroupId,
+                           fs::path filename, size_t timestamp) = 0;
     virtual void setStrokePoints(std::vector<Point> pointVector, bool hasPressure) = 0;
     virtual void finalizeStroke() = 0;
     virtual void addText(std::string font, double size, xoj::util::Matrix matrix, Color color,
