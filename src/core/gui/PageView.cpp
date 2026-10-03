@@ -187,6 +187,13 @@ void XojPageView::startText(double x, double y) {
     if (this->textEditor == nullptr) {
         this->textEditor = std::make_unique<TextEditor>(xournal->getControl(), page, xournal->getWidget(), x, y);
         this->overlayViews.emplace_back(std::make_unique<xoj::view::TextEditionView>(this->textEditor.get(), this));
+
+        // UTN teacher stamps are placed with a single page tap
+        auto* tools = xournal->getControl()->getToolHandler();
+        if (tools->hasTeacherStamp()) {
+            endText();
+            tools->clearTeacherStamp();
+        }
     }
 }
 
@@ -552,8 +559,14 @@ auto XojPageView::onMotionNotifyEvent(const PositionInputData& pos) -> bool {
     double x = pos.x / zoom;
     double y = pos.y / zoom;
 
-    ToolHandler* h = xournal->getControl()->getToolHandler();
-    auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+    Control* control = xournal->getControl();
+    ToolHandler* h = control->getToolHandler();
+    auto* pdfToolbox = control->getWindow()->getPdfToolbox();
+
+    // UTN: let the projector spotlight follow the teacher's pointer
+    if (control->isStudentSpotlightEnabled() && control->isStudentViewVisible()) {
+        control->updateStudentPresentationPointer(control->getCurrentPageNo(), x, y);
+    }
 
     if (this->inputHandler && this->inputHandler->onMotionNotifyEvent(pos, zoom)) {
         // input handler used this event

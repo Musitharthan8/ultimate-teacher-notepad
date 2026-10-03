@@ -71,12 +71,8 @@ void ErasableStroke::beginErasure(const IntersectionParametersContainer& paddedI
                 // The stroke was split in two or more (and possibly shrank). Need to rerender its entire box.
                 range = range.unite(Range(this->stroke.getBoundingBox()));
             }
-        } else if (subsections.size() > 1) {
-            /**
-             * Highlighter and the stroke has been split in two or more subsections.
-             * Rerender wherever those subsections overlap
-             */
-            addOverlapsToRange(subsections, range);
+        } else {
+            // UTN: highlighter fragments are composited through one mask, so overlap rerendering is unnecessary
         }
     }
 
@@ -207,14 +203,7 @@ void ErasableStroke::erase(const PaddedBox& box, Range& range) {
                     range = range.unite(this->getSubSectionBoundingBox(section));
                     break;
                 }
-                // Necessarily highlighter and not filled
-                if (subsections.size() > 1) {
-                    /**
-                     * The section has been split in two (or more).
-                     * Rerender wherever those subsections overlap.
-                     */
-                    addOverlapsToRange(subsections, range);
-                }
+                // UTN: masked highlighter fragments no longer need overlap-tree rerendering
             }
         } else {
             // Update the remaining sections

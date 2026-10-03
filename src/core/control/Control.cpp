@@ -40,7 +40,8 @@
 #include "control/xojfile/LoadHandler.h"                         // for Load...
 #include "control/zoom/ZoomControl.h"                            // for Zoom...
 #include "gui/FloatingToolbox.h"                                 // for Floa...
-#include "gui/MainWindow.h"                                      // for Main...
+#include "gui/MainWindow.h"
+#include "gui/StudentViewWindow.h"                                      // for Main...
 #include "gui/PageView.h"                                        // for XojP...
 #include "gui/PdfFloatingToolbox.h"                              // for PdfF...
 #include "gui/SearchBar.h"                                       // for Sear...
@@ -179,6 +180,8 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
 Control::~Control() {
     g_source_remove(this->changeTimout);
     this->enableAutosave(false);
+
+    this->studentViewWindow.reset();
 
     deleteLastAutosaveFile();
     this->scheduler->stop();
@@ -1110,6 +1113,90 @@ void Control::setViewLayoutB2T(bool b2t) {
     settings->setViewLayoutB2T(b2t);
     win->getXournal()->layoutPages();
     scrollHandler->scrollToPage(getCurrentPageNo());
+}
+
+void Control::showStudentView() {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->show();
+}
+
+void Control::hideStudentView() {
+    if (this->studentViewWindow) {
+        this->studentViewWindow->hide();
+    }
+}
+
+void Control::setStudentViewFullscreen(bool enabled) {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->show();
+    this->studentViewWindow->setFullscreen(enabled);
+}
+
+void Control::projectStudentViewToSecondaryDisplay() {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->projectToSecondaryDisplay();
+}
+
+void Control::refreshStudentView() {
+    if (this->studentViewWindow) {
+        this->studentViewWindow->refresh();
+    }
+}
+
+auto Control::isStudentViewVisible() const -> bool {
+    return this->studentViewWindow && this->studentViewWindow->isVisible();
+}
+
+void Control::setStudentSpotlightEnabled(bool enabled) {
+    this->studentSpotlightEnabled = enabled;
+    refreshStudentView();
+}
+
+auto Control::isStudentSpotlightEnabled() const -> bool {
+    return this->studentSpotlightEnabled;
+}
+
+void Control::updateStudentPresentationPointer(size_t page, double x, double y) {
+    this->studentPointerValid = true;
+    this->studentPointerPage = page;
+    this->studentPointerX = x;
+    this->studentPointerY = y;
+    refreshStudentView();
+}
+
+auto Control::getStudentPresentationPointer(size_t& page, double& x, double& y) const -> bool {
+    if (!this->studentPointerValid) {
+        return false;
+    }
+
+    page = this->studentPointerPage;
+    x = this->studentPointerX;
+    y = this->studentPointerY;
+    return true;
+}
+
+void Control::setStudentCurtainEnabled(bool enabled) {
+    this->studentCurtainEnabled = enabled;
+    refreshStudentView();
+}
+
+auto Control::isStudentCurtainEnabled() const -> bool {
+    return this->studentCurtainEnabled;
+}
+
+void Control::setStudentCurtainReveal(double fraction) {
+    this->studentCurtainReveal = std::clamp(fraction, 0.0, 1.0);
+    refreshStudentView();
+}
+
+auto Control::getStudentCurtainReveal() const -> double {
+    return this->studentCurtainReveal;
 }
 
 auto Control::getCurrentPageNo() const -> size_t {

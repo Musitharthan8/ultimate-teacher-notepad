@@ -1,0 +1,46 @@
+name: UTN Windows Build
+
+on:
+  push:
+    branches:
+      - utn-dev
+  pull_request:
+    branches:
+      - utn-dev
+
+concurrency:
+  group: utn-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Debug
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    name: Build UTN on Windows x86_64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        uses: ./.github/actions/install_deps_windows
+        with:
+          msystem: mingw64
+          msys_package_env: x86_64
+
+      - name: Build UTN
+        uses: ./.github/actions/build
+        with:
+          build_type: ${{ env.BUILD_TYPE }}
+          shell: msys2 {0}
+
+      - name: Build unit tests
+        shell: msys2 {0}
+        run: cmake --build . --target test-units
+        working-directory: ${{ github.workspace }}/build
+
+      - name: Run unit tests
+        shell: msys2 {0}
+        run: CI=true ./test/test-units
+        working-directory: ${{ github.workspace }}/build

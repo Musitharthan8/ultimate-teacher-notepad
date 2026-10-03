@@ -2,7 +2,8 @@
 
 #include <algorithm>    // for all_of
 #include <cctype>       // for isspace
-#include <cstddef>      // for size_t
+#include <cstddef>
+#include <cstdint>      // for size_t
 #include <ranges>       // for all_of, reverse_view
 #include <stdexcept>    // for domain_error
 #include <string>       // for stod, string
@@ -239,8 +240,10 @@ void XmlParser::parseMrWriterTag(const XmlParserHelper::AttributeMap& attributeM
 void XmlParser::parsePageTag(const XmlParserHelper::AttributeMap& attributeMap) {
     const auto width = XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::WIDTH_STR, attributeMap);
     const auto height = XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::HEIGHT_STR, attributeMap);
+    const auto pageLabel =
+            XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_PAGE_LABEL_STR, attributeMap);
 
-    this->builder.addPage(width, height);
+    this->builder.addPage(width, height, pageLabel ? std::string{*pageLabel} : std::string{});
 }
 
 void XmlParser::parseAudioTag(const XmlParserHelper::AttributeMap& attributeMap) {
@@ -392,6 +395,11 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     const auto lineStyle =
             XmlParserHelper::getAttribMandatory<LineStyle>(xoj::xml_attrs::STYLE_STR, attributeMap, {}, false);
 
+    // UTN highlighter fragment group
+    const uint64_t highlighterGroupId =
+            XmlParserHelper::getAttribMandatory<uint64_t>(xoj::xml_attrs::UTN_HIGHLIGHTER_GROUP_STR, attributeMap,
+                                                          0ULL, false);
+
     // audio filename and timestamp
     const auto optFilename = XmlParserHelper::getAttrib<fs::path>(xoj::xml_attrs::AUDIO_FILENAME_STR, attributeMap);
     if (optFilename && !optFilename->empty()) {
@@ -404,8 +412,8 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     }
 
     // forward data to builder
-    this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, std::move(this->tempFilename),
-                            this->tempTimestamp);
+    this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, highlighterGroupId,
+                            std::move(this->tempFilename), this->tempTimestamp);
 
     // Reset timestamp, filename was already moved from
     this->tempTimestamp = 0;
@@ -458,6 +466,32 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
     const bool justify =
             XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::JUSTIFY_STR, attributeMap, false, false);
 
+    // UTN answer box attributes
+    const bool boxEnabled =
+            XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::UTN_BOX_STR, attributeMap, false, false);
+
+    Color boxBackground{255U, 248U, 214U, 230U};
+    if (auto value = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_BOX_BACKGROUND_STR, attributeMap)) {
+        if (auto parsed = XmlParserHelper::parseColorCode(*value)) {
+            boxBackground = *parsed;
+        }
+    }
+
+    Color boxBorder{80U, 80U, 80U, 255U};
+    if (auto value = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_BOX_BORDER_STR, attributeMap)) {
+        if (auto parsed = XmlParserHelper::parseColorCode(*value)) {
+            boxBorder = *parsed;
+        }
+    }
+
+    const double boxBorderWidth =
+            XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::UTN_BOX_BORDER_WIDTH_STR, attributeMap, 1.2,
+                                                        false);
+    const double boxPadding =
+            XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::UTN_BOX_PADDING_STR, attributeMap, 6.0, false);
+    const double boxRadius =
+            XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::UTN_BOX_RADIUS_STR, attributeMap, 5.0, false);
+
     // audio filename and timestamp
     const auto optFilename = XmlParserHelper::getAttrib<fs::path>(xoj::xml_attrs::AUDIO_FILENAME_STR, attributeMap);
     if (optFilename && !optFilename->empty()) {
@@ -478,7 +512,8 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
         matrix = xoj::util::Matrix::TRANSLATION(x, y);
     }
 
-    this->builder.addText(std::string{font}, size, matrix.value(), color, wrap, align, justify, std::move(tempFilename),
+    this->builder.addText(std::string{font}, size, matrix.value(), color, wrap, align, justify, boxEnabled,
+                          boxBackground, boxBorder, boxBorderWidth, boxPadding, boxRadius, std::move(tempFilename),
                           tempTimestamp);
 
     this->tempTimestamp = 0;

@@ -13,6 +13,7 @@
 
 #include <array>    // for array
 #include <cstddef>  // for size_t
+#include <cstdint>  // for uint64_t
 #include <memory>   // for unique_ptr
 #include <vector>   // for vector
 
@@ -148,6 +149,10 @@ public:
     void setToolType(StrokeTool type);
     StrokeTool getToolType() const;
 
+    // UTN: fragments from one erased highlighter stroke share a group
+    uint64_t getHighlighterGroupId() const;
+    void setHighlighterGroupId(uint64_t groupId);
+
     const LineStyle& getLineStyle() const;
     void setLineStyle(const LineStyle& style);
 
@@ -226,6 +231,9 @@ private:
     LineStyle lineStyle;
 
     ErasableStroke* erasable = nullptr;
+
+    // UTN: nonzero only for fragments originating from one highlighter stroke
+    uint64_t highlighterGroupId = 0;
 
     /**
      * Option to fill the shape:
