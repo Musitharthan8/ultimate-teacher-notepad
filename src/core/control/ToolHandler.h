@@ -41,6 +41,9 @@ class TextAlignment;
  */
 enum SelectedTool { active, toolbar };
 
+// UTN smart highlighter snapping behaviour
+enum class SmartHighlighterSnapMode { Straight, Word, Line };
+
 class ToolListener {
 public:
     /**
@@ -207,6 +210,8 @@ public:
     // UTN: smart highlighter mode
     bool isSmartHighlighterEnabled() const;
     void setSmartHighlighterEnabled(bool enabled);
+    SmartHighlighterSnapMode getSmartHighlighterSnapMode() const;
+    void setSmartHighlighterSnapMode(SmartHighlighterSnapMode mode);
 
     // UTN: answer box text mode
     bool isAnswerBoxEnabled() const;
@@ -434,6 +439,7 @@ private:
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;
+    SmartHighlighterSnapMode smartHighlighterSnapMode = SmartHighlighterSnapMode::Line;
 
     // UTN: create styled text answer boxes
     bool answerBoxEnabled = false;
