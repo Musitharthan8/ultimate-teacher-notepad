@@ -207,6 +207,10 @@ public:
     bool isSmartHighlighterEnabled() const;
     void setSmartHighlighterEnabled(bool enabled);
 
+    // UTN: answer box text mode
+    bool isAnswerBoxEnabled() const;
+    void setAnswerBoxEnabled(bool enabled);
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -405,6 +409,9 @@ private:
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;
+
+    // UTN: create styled text answer boxes
+    bool answerBoxEnabled = false;
 
     /**
      * @brief Get the Button Tool pointer based on enum
