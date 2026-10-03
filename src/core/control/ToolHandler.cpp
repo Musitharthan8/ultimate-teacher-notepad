@@ -645,6 +645,18 @@ void ToolHandler::saveSettings() const {
         }
     }
 
+    // UTN tool-specific preferences live beside Xournal's per-tool settings.
+    SElement& utn = s.child("utn");
+    utn.setDouble("eraserThickness", this->eraserThickness);
+    utn.setInt("smartHighlighterMode", static_cast<int>(this->smartHighlighterSnapMode));
+    utn.setIntHex("answerBoxTextColor", int(uint32_t(this->answerBoxTextColor)));
+    utn.setIntHex("answerBoxBackgroundColor", int(uint32_t(this->answerBoxBackgroundColor)));
+    utn.setIntHex("answerBoxBorderColor", int(uint32_t(this->answerBoxBorderColor)));
+    utn.setDouble("answerBoxBorderWidth", this->answerBoxBorderWidth);
+    utn.setDouble("answerBoxPadding", this->answerBoxPadding);
+    utn.setDouble("answerBoxCornerRadius", this->answerBoxCornerRadius);
+    utn.setIntHex("teacherStampColor", int(uint32_t(this->teacherStampColor)));
+
     settings->customSettingsChanged();
 }
 
@@ -728,6 +740,41 @@ void ToolHandler::loadSettings() {
                 tool->setTextJustify(justify);
             }
         }
+    }
+
+    // Restore UTN-specific tool preferences if they were saved.
+    SElement& utn = s.child("utn");
+
+    double doubleValue = 0.0;
+    if (utn.getDouble("eraserThickness", doubleValue)) {
+        this->eraserThickness = std::clamp(doubleValue, 0.5, 30.0);
+    }
+
+    int intValue = 0;
+    if (utn.getInt("smartHighlighterMode", intValue) && intValue >= 0 && intValue <= 2) {
+        this->smartHighlighterSnapMode = static_cast<SmartHighlighterSnapMode>(intValue);
+    }
+
+    if (utn.getInt("answerBoxTextColor", intValue)) {
+        this->answerBoxTextColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getInt("answerBoxBackgroundColor", intValue)) {
+        this->answerBoxBackgroundColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getInt("answerBoxBorderColor", intValue)) {
+        this->answerBoxBorderColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getDouble("answerBoxBorderWidth", doubleValue)) {
+        this->answerBoxBorderWidth = std::clamp(doubleValue, 0.0, 8.0);
+    }
+    if (utn.getDouble("answerBoxPadding", doubleValue)) {
+        this->answerBoxPadding = std::clamp(doubleValue, 0.0, 24.0);
+    }
+    if (utn.getDouble("answerBoxCornerRadius", doubleValue)) {
+        this->answerBoxCornerRadius = std::clamp(doubleValue, 0.0, 24.0);
+    }
+    if (utn.getInt("teacherStampColor", intValue)) {
+        this->teacherStampColor = Color(as_unsigned(intValue));
     }
 }
 
