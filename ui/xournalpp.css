@@ -335,3 +335,36 @@ window.utnShell.utnHighContrast toolbar button:hover {
     color: #000000;
     border-color: #ffffff;
 }
+
+
+window.utnShell #utnContextBar {
+    padding: 1px 4px;
+}
+
+window.utnShell .utn-context-title {
+    font-weight: bold;
+    padding: 0 6px;
+}
+
+window.utnShell .utn-context-hint {
+    opacity: 0.72;
+    padding: 0 6px;
+}
+
+window.utnShell .utn-context-badge {
+    background-color: alpha(#4f7cff, 0.14);
+    border: 1px solid alpha(#4f7cff, 0.50);
+    border-radius: 8px;
+    padding: 4px 8px;
+}
+
+window.utnShell.darkMode .utn-context-badge {
+    background-color: alpha(#7da0ff, 0.22);
+    border-color: #7da0ff;
+}
+
+window.utnShell.utnHighContrast .utn-context-badge {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+}
