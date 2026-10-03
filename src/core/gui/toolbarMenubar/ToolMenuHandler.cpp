@@ -41,6 +41,7 @@
 #include "ToolAppearance.h"          // for ToolAppearance
 #include "ToolAnswerBox.h"           // for ToolAnswerBox
 #include "ToolClear.h"               // for ToolClear
+#include "ToolLessonNavigator.h"     // for ToolLessonNavigator
 #include "ToolPageLayer.h"           // for ToolPageLayer
 #include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
@@ -515,6 +516,7 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+    toolLessonNavigator = &emplaceItem<ToolLessonNavigator>("LESSON_NAVIGATOR", control);
 
     // UTN continuous eraser size slider
     emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
@@ -566,6 +568,9 @@ void ToolMenuHandler::initToolItems() {
 void ToolMenuHandler::setPageInfo(size_t currentPage, size_t pageCount, size_t pdfpage) {
     if (this->toolPageSpinner) {
         this->toolPageSpinner->setPageInfo(currentPage, pageCount, pdfpage);
+    }
+    if (this->toolLessonNavigator) {
+        this->toolLessonNavigator->setPageInfo(currentPage, pageCount);
     }
 }
 
