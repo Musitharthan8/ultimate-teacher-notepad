@@ -75,6 +75,41 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_box_append(panel, button);
     }
 
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    GtkWidget* customLabel = gtk_label_new(_("Custom stamp"));
+    gtk_widget_set_halign(customLabel, GTK_ALIGN_START);
+    gtk_box_append(panel, customLabel);
+
+    GtkWidget* customEntry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(customEntry), _("Type feedback, e.g. Check tense"));
+    gtk_box_append(panel, customEntry);
+
+    GtkWidget* customButton = gtk_button_new_with_label(_("Use Custom Stamp"));
+    g_object_set_data(G_OBJECT(customButton), "utn-control", control);
+    g_object_set_data(G_OBJECT(customButton), "utn-entry", customEntry);
+
+    g_signal_connect(
+            customButton,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                auto* entry = GTK_EDITABLE(g_object_get_data(G_OBJECT(button), "utn-entry"));
+                const char* text = gtk_editable_get_text(entry);
+
+                if (text != nullptr && text[0] != '\0') {
+                    auto* tools = ctrl->getToolHandler();
+                    tools->setAnswerBoxEnabled(false);
+                    tools->setTeacherStampText(text);
+                    tools->selectTool(TOOL_TEXT);
+                    tools->fireToolChanged();
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }
+            }),
+            popover);
+
+    gtk_box_append(panel, customButton);
+
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
