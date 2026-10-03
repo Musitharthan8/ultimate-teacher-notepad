@@ -53,6 +53,7 @@
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
 #include "ToolStudentView.h"         // for ToolStudentView
 #include "ToolTeacherStamp.h"       // for ToolTeacherStamp
+#include "ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
@@ -413,6 +414,7 @@ void ToolMenuHandler::initToolItems() {
     // UTN shell controls
     emplaceItem<ToolAppearance>("UTN_APPEARANCE", control);
     emplaceItem<ToolClear>("UTN_CLEAR", control);
+    emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode
     emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
