@@ -272,6 +272,14 @@ public:
     bool getTextJustify() const;
     void setTextJustify(bool j);
 
+    // UTN classroom text formatting defaults
+    bool getTextUnderline() const;
+    void setTextUnderline(bool enabled);
+    bool getTextStrikethrough() const;
+    void setTextStrikethrough(bool enabled);
+    double getTextLineSpacing() const;
+    void setTextLineSpacing(double spacing);
+
     /**
      * @brief Set the toolbar selected tool to the type
      * This will also point the active tool to the same tool as the toolbar selected tool.
@@ -457,6 +465,11 @@ private:
     // UTN: selected one-shot teacher stamp
     std::string teacherStampText;
     Color teacherStampColor{45U, 90U, 170U, 255U};
+
+    // UTN: classroom text formatting defaults
+    bool textUnderline = false;
+    bool textStrikethrough = false;
+    double textLineSpacing = 1.0;
 
     // UTN: presentation overlay state
     bool spotlightEnabled = false;
