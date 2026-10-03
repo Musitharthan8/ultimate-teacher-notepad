@@ -136,5 +136,5 @@ auto ToolPrepareReveal::getToolDisplayName() const -> std::string {
 }
 
 auto ToolPrepareReveal::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new("R");
+    return gtk_label_new(_("Reveal"));
 }
