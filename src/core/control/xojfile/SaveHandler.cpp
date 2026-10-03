@@ -227,6 +227,16 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
                 text->setAttrib(xoj::xml_attrs::JUSTIFY_STR, xoj::xml_values::TRUE_STR);
             }
 
+            if (t->isUnderlined()) {
+                text->setAttrib(xoj::xml_attrs::UTN_UNDERLINE_STR, xoj::xml_values::TRUE_STR);
+            }
+            if (t->isStrikethrough()) {
+                text->setAttrib(xoj::xml_attrs::UTN_STRIKETHROUGH_STR, xoj::xml_values::TRUE_STR);
+            }
+            if (t->getLineSpacing() != 1.0) {
+                text->setAttrib(xoj::xml_attrs::UTN_LINE_SPACING_STR, t->getLineSpacing());
+            }
+
             if (t->isBoxEnabled()) {
                 text->setAttrib(xoj::xml_attrs::UTN_BOX_STR, xoj::xml_values::TRUE_STR);
 
