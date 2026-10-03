@@ -78,6 +78,8 @@ public:
     void setUnderline(bool enabled);
     void setStrikethrough(bool enabled);
     void setLineSpacing(double spacing);
+    void toggleBulletList();
+    void toggleNumberedList();
 
     // UTN Answer Box live styling
     void setBoxBackgroundColor(Color color);
