@@ -74,6 +74,13 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
 
     loadMainCSS(gladeSearchPath, "xournalpp.css");
 
+    // UTN interface density is independent from document rendering.
+    bool touchUi = false;
+    control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
+    if (touchUi) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(this->window)), "utnTouch");
+    }
+
     GtkOverlay* overlay = GTK_OVERLAY(get("mainOverlay"));
     this->pdfFloatingToolBox = std::make_unique<PdfFloatingToolbox>(this, overlay);
     this->floatingToolbox = std::make_unique<FloatingToolbox>(this, overlay);
