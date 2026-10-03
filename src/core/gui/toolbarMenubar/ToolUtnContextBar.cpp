@@ -123,48 +123,50 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
 
             appendLabel(_("Profile"));
 
-            struct ProfileEntry {
-                const char* label;
-                ToolSize size;
-                Color color;
-            };
+            GtkWidget* profile = gtk_combo_box_text_new();
+            gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(profile), _("Custom"));
+            gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(profile), _("Pen"));
+            gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(profile), _("Pencil"));
+            gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(profile), _("Brush"));
+            gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(profile), _("Marker"));
+            gtk_combo_box_set_active(GTK_COMBO_BOX(profile), 0);
+            gtk_widget_set_tooltip_text(profile, _("Quick pen profile"));
 
-            const std::array<ProfileEntry, 4> profiles{{
-                    {_("Pen"), TOOL_SIZE_MEDIUM, Colors::xopp_royalblue},
-                    {_("Pencil"), TOOL_SIZE_VERY_FINE, Colors::gray},
-                    {_("Brush"), TOOL_SIZE_THICK, Colors::black},
-                    {_("Marker"), TOOL_SIZE_THICK, Colors::xopp_darkorange},
-            }};
+            g_signal_connect(
+                    profile,
+                    "changed",
+                    G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                        auto* ctrl = static_cast<Control*>(data);
+                        auto* tools = ctrl->getToolHandler();
 
-            for (const auto& profile: profiles) {
-                GtkWidget* button = gtk_button_new_with_label(profile.label);
-                g_object_set_data(G_OBJECT(button), "utn-control", control);
-                g_object_set_data(G_OBJECT(button), "utn-size", GINT_TO_POINTER(static_cast<int>(profile.size)));
+                        switch (gtk_combo_box_get_active(combo)) {
+                            case 1:
+                                tools->setPenSize(TOOL_SIZE_MEDIUM);
+                                tools->setColor(Colors::xopp_royalblue, false);
+                                break;
+                            case 2:
+                                tools->setPenSize(TOOL_SIZE_VERY_FINE);
+                                tools->setColor(Colors::gray, false);
+                                break;
+                            case 3:
+                                tools->setPenSize(TOOL_SIZE_THICK);
+                                tools->setColor(Colors::black, false);
+                                break;
+                            case 4:
+                                tools->setPenSize(TOOL_SIZE_THICK);
+                                tools->setColor(Colors::xopp_darkorange, false);
+                                break;
+                            default:
+                                return;
+                        }
 
-                auto* colorData = new Color(profile.color);
-                g_object_set_data_full(G_OBJECT(button), "utn-color", colorData,
-                                       +[](gpointer data) { delete static_cast<Color*>(data); });
+                        tools->selectTool(TOOL_PEN);
+                        tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+                        tools->fireToolChanged();
+                    }),
+                    control);
 
-                g_signal_connect(
-                        button,
-                        "clicked",
-                        G_CALLBACK(+[](GtkButton* button, gpointer) {
-                            auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                            auto size = static_cast<ToolSize>(
-                                    GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-size")));
-                            auto* color = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-color"));
-
-                            auto* tools = ctrl->getToolHandler();
-                            tools->selectTool(TOOL_PEN);
-                            tools->setDrawingType(DRAWING_TYPE_DEFAULT);
-                            tools->setPenSize(size);
-                            tools->setColor(*color, false);
-                            tools->fireToolChanged();
-                        }),
-                        nullptr);
-
-                gtk_box_append(box, button);
-            }
+            gtk_box_append(box, profile);
 
             appendSeparator();
             appendColorButton();
