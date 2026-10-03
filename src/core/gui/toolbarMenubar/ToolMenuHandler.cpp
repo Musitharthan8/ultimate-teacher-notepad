@@ -50,6 +50,7 @@
 #include "ToolEraserShapeSelector.h" // for ToolEraserShapeSelector
 #include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
+#include "ToolStudentView.h"          // for ToolStudentView
 #include "ToolTeacherStamp.h"       // for ToolTeacherStamp
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
@@ -425,6 +426,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN classroom presentation tools
     emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control);
+
+    // UTN teacher/student projector view
+    emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
