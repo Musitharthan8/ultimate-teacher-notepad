@@ -97,7 +97,14 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
 
     clearBox(box);
 
-    appendLabel(toolTitle(tool));
+    const char* title = toolTitle(tool);
+    if (tool == TOOL_TEXT && control->getToolHandler()->hasTeacherStamp()) {
+        title = _("Feedback");
+    } else if (tool == TOOL_TEXT && control->getToolHandler()->isAnswerBoxEnabled()) {
+        title = _("Answer Box");
+    }
+
+    appendLabel(title);
     appendSeparator();
 
     switch (tool) {
@@ -169,10 +176,21 @@ void ToolUtnContextBar::appendSeparator() {
 
 void ToolUtnContextBar::appendColorButton() {
     auto* tools = control->getToolHandler();
-    GdkRGBA color = Util::argb_to_GdkRGBA(tools->getColor());
 
+    Color current = tools->getColor();
+    bool allowAlpha = true;
+
+    if (tools->getToolType() == TOOL_TEXT && tools->hasTeacherStamp()) {
+        current = tools->getTeacherStampColor();
+        allowAlpha = false;
+    } else if (tools->getToolType() == TOOL_TEXT && tools->isAnswerBoxEnabled()) {
+        current = tools->getAnswerBoxTextColor();
+        allowAlpha = false;
+    }
+
+    GdkRGBA color = Util::argb_to_GdkRGBA(current);
     GtkWidget* button = gtk_color_button_new_with_rgba(&color);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(button), true);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(button), allowAlpha);
     gtk_widget_set_tooltip_text(button, _("Tool colour"));
 
     g_signal_connect(
@@ -180,9 +198,19 @@ void ToolUtnContextBar::appendColorButton() {
             "color-set",
             G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+
                 GdkRGBA color{};
                 gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
-                ctrl->getToolHandler()->setColor(Util::GdkRGBA_to_argb(color), true);
+                Color chosen = Util::GdkRGBA_to_argb(color);
+
+                if (tools->getToolType() == TOOL_TEXT && tools->hasTeacherStamp()) {
+                    tools->setTeacherStampColor(chosen);
+                } else if (tools->getToolType() == TOOL_TEXT && tools->isAnswerBoxEnabled()) {
+                    tools->setAnswerBoxTextColor(chosen);
+                } else {
+                    tools->setColor(chosen, true);
+                }
             }),
             control);
 
