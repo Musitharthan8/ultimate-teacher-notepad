@@ -229,6 +229,13 @@ public:
     void setTeacherStampText(std::string text);
     void clearTeacherStamp();
 
+    // UTN: presentation overlays
+    bool isSpotlightEnabled() const;
+    bool isCurtainEnabled() const;
+    void setSpotlightEnabled(bool enabled);
+    void setCurtainEnabled(bool enabled);
+    void clearPresentationOverlay();
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -438,6 +445,10 @@ private:
 
     // UTN: selected one-shot teacher stamp
     std::string teacherStampText;
+
+    // UTN: presentation overlay state
+    bool spotlightEnabled = false;
+    bool curtainEnabled = false;
 
     /**
      * @brief Get the Button Tool pointer based on enum
