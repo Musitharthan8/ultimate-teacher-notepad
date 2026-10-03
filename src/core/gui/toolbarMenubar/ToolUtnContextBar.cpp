@@ -270,6 +270,12 @@ void ToolUtnContextBar::appendColorButton() {
                 } else {
                     tools->setColor(chosen, true);
                 }
+
+                if (tools->getToolType() == TOOL_TEXT) {
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setColor(chosen);
+                    }
+                }
             }),
             control);
 
@@ -612,7 +618,8 @@ void ToolUtnContextBar::appendTextControls() {
                 preset,
                 "changed",
                 G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
-                    auto* tools = static_cast<Control*>(data)->getToolHandler();
+                    auto* ctrl = static_cast<Control*>(data);
+                    auto* tools = ctrl->getToolHandler();
 
                     switch (gtk_combo_box_get_active(combo)) {
                         case 1:
@@ -633,6 +640,11 @@ void ToolUtnContextBar::appendTextControls() {
                             tools->setAnswerBoxBorderColor(Color{180U, 140U, 20U, 255U});
                             break;
                     }
+
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxBackgroundColor(tools->getAnswerBoxBackgroundColor());
+                        editor->setBoxBorderColor(tools->getAnswerBoxBorderColor());
+                    }
                 }),
                 control);
 
@@ -648,8 +660,12 @@ void ToolUtnContextBar::appendTextControls() {
                 G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                     GdkRGBA color{};
                     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
-                    static_cast<Control*>(data)->getToolHandler()->setAnswerBoxBackgroundColor(
-                            Util::GdkRGBA_to_argb(color));
+                    auto* ctrl = static_cast<Control*>(data);
+                    Color chosen = Util::GdkRGBA_to_argb(color);
+                    ctrl->getToolHandler()->setAnswerBoxBackgroundColor(chosen);
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxBackgroundColor(chosen);
+                    }
                 }),
                 control);
         gtk_box_append(box, backgroundButton);
@@ -664,8 +680,12 @@ void ToolUtnContextBar::appendTextControls() {
                 G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                     GdkRGBA color{};
                     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
-                    static_cast<Control*>(data)->getToolHandler()->setAnswerBoxBorderColor(
-                            Util::GdkRGBA_to_argb(color));
+                    auto* ctrl = static_cast<Control*>(data);
+                    Color chosen = Util::GdkRGBA_to_argb(color);
+                    ctrl->getToolHandler()->setAnswerBoxBorderColor(chosen);
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxBorderColor(chosen);
+                    }
                 }),
                 control);
         gtk_box_append(box, borderButton);
