@@ -355,6 +355,14 @@ void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
     this->smartHighlighterEnabled = enabled;
 }
 
+auto ToolHandler::getSmartHighlighterSnapMode() const -> SmartHighlighterSnapMode {
+    return this->smartHighlighterSnapMode;
+}
+
+void ToolHandler::setSmartHighlighterSnapMode(SmartHighlighterSnapMode mode) {
+    this->smartHighlighterSnapMode = mode;
+}
+
 auto ToolHandler::isAnswerBoxEnabled() const -> bool {
     return this->answerBoxEnabled;
 }
