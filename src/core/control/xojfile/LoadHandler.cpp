@@ -98,10 +98,11 @@ void LoadHandler::finalizeDocument() {
     this->parsingComplete = true;
 }
 
-void LoadHandler::addPage(double width, double height) {
+void LoadHandler::addPage(double width, double height, std::string utnPageLabel) {
     xoj_assert(!this->page);
 
     this->page = std::make_shared<XojPage>(width, height, /*suppressLayerCreation*/ true);
+    this->page->setUtnPageLabel(std::move(utnPageLabel));
     this->pages.emplace_back(this->page);
 }
 
@@ -353,7 +354,8 @@ void LoadHandler::finalizeStroke() {
 
 void LoadHandler::addText(std::string font, double size, xoj::util::Matrix matrix, Color color,
                           std::optional<double> wrap, std::optional<TextAlignment> align, bool justify,
-                          fs::path filename, size_t timestamp) {
+                          bool boxEnabled, Color boxBackground, Color boxBorder, double boxBorderWidth,
+                          double boxPadding, double boxRadius, fs::path filename, size_t timestamp) {
     xoj_assert(!this->text);
     this->text = std::make_unique<Text>();
 
@@ -365,6 +367,12 @@ void LoadHandler::addText(std::string font, double size, xoj::util::Matrix matri
     this->text->setWrap(wrap.value_or(Text::NO_WRAP));
     this->text->setAlignment(align.value_or(TextAlignment::LEFT));
     this->text->setJustify(justify);
+    this->text->setBoxEnabled(boxEnabled);
+    this->text->setBoxBackgroundColor(boxBackground);
+    this->text->setBoxBorderColor(boxBorder);
+    this->text->setBoxBorderWidth(boxBorderWidth);
+    this->text->setBoxPadding(boxPadding);
+    this->text->setBoxCornerRadius(boxRadius);
 
     setAudioAttributes(*this->text, std::move(filename), timestamp);
 }
