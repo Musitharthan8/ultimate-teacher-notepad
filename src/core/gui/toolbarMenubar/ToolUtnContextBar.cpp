@@ -689,6 +689,89 @@ void ToolUtnContextBar::appendTextControls() {
                 }),
                 control);
         gtk_box_append(box, borderButton);
+
+        GtkPopover* stylePopover = GTK_POPOVER(gtk_popover_new());
+        gtk_widget_add_css_class(GTK_WIDGET(stylePopover), "toolbar");
+
+        GtkBox* stylePanel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+        gtk_widget_set_margin_start(GTK_WIDGET(stylePanel), 8);
+        gtk_widget_set_margin_end(GTK_WIDGET(stylePanel), 8);
+        gtk_widget_set_margin_top(GTK_WIDGET(stylePanel), 8);
+        gtk_widget_set_margin_bottom(GTK_WIDGET(stylePanel), 8);
+        gtk_popover_set_child(stylePopover, GTK_WIDGET(stylePanel));
+
+        auto appendStyleRow = [stylePanel](const char* label, GtkWidget* widget) {
+            GtkBox* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+            GtkWidget* text = gtk_label_new(label);
+            gtk_widget_set_halign(text, GTK_ALIGN_START);
+            gtk_widget_set_hexpand(text, true);
+            gtk_box_append(row, text);
+            gtk_box_append(row, widget);
+            gtk_box_append(stylePanel, GTK_WIDGET(row));
+        };
+
+        GtkWidget* borderWidth = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 8.0, 0.2);
+        gtk_range_set_value(GTK_RANGE(borderWidth), control->getToolHandler()->getAnswerBoxBorderWidth());
+        gtk_scale_set_digits(GTK_SCALE(borderWidth), 1);
+        gtk_widget_set_size_request(borderWidth, 140, -1);
+        g_signal_connect(
+                borderWidth,
+                "value-changed",
+                G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(data);
+                    double value = gtk_range_get_value(range);
+                    ctrl->getToolHandler()->setAnswerBoxBorderWidth(value);
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxBorderWidth(value);
+                    }
+                }),
+                control);
+        appendStyleRow(_("Border"), borderWidth);
+
+        GtkWidget* padding = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 24.0, 1.0);
+        gtk_range_set_value(GTK_RANGE(padding), control->getToolHandler()->getAnswerBoxPadding());
+        gtk_scale_set_digits(GTK_SCALE(padding), 0);
+        gtk_widget_set_size_request(padding, 140, -1);
+        g_signal_connect(
+                padding,
+                "value-changed",
+                G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(data);
+                    double value = gtk_range_get_value(range);
+                    ctrl->getToolHandler()->setAnswerBoxPadding(value);
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxPadding(value);
+                    }
+                }),
+                control);
+        appendStyleRow(_("Padding"), padding);
+
+        GtkWidget* radius = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 24.0, 1.0);
+        gtk_range_set_value(GTK_RANGE(radius), control->getToolHandler()->getAnswerBoxCornerRadius());
+        gtk_scale_set_digits(GTK_SCALE(radius), 0);
+        gtk_widget_set_size_request(radius, 140, -1);
+        g_signal_connect(
+                radius,
+                "value-changed",
+                G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(data);
+                    double value = gtk_range_get_value(range);
+                    ctrl->getToolHandler()->setAnswerBoxCornerRadius(value);
+                    if (auto* editor = ctrl->getTextEditor(); editor) {
+                        editor->setBoxCornerRadius(value);
+                    }
+                }),
+                control);
+        appendStyleRow(_("Corners"), radius);
+
+        GtkMenuButton* styleButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+        gtk_button_set_label(GTK_BUTTON(styleButton), _("Box Style"));
+        gtk_widget_set_tooltip_text(GTK_WIDGET(styleButton), _("Border, padding and corner radius"));
+        gtk_menu_button_set_popover(styleButton, GTK_WIDGET(stylePopover));
+        gtk_menu_button_set_direction(styleButton, GTK_ARROW_DOWN);
+        gtk_box_append(box, GTK_WIDGET(styleButton));
+
+        gtk_widget_show_all(GTK_WIDGET(stylePanel));
     }
 }
 
