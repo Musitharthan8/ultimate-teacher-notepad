@@ -199,6 +199,29 @@ public:
      */
     double getThickness() const;
 
+    // UTN: continuous eraser thickness
+    double getEraserThickness() const;
+    void setEraserThickness(double thickness);
+
+    // UTN: smart highlighter mode
+    bool isSmartHighlighterEnabled() const;
+    void setSmartHighlighterEnabled(bool enabled);
+
+    // UTN: answer box text mode
+    bool isAnswerBoxEnabled() const;
+    void setAnswerBoxEnabled(bool enabled);
+
+    Color getAnswerBoxBackgroundColor() const;
+    void setAnswerBoxBackgroundColor(Color color);
+    Color getAnswerBoxBorderColor() const;
+    void setAnswerBoxBorderColor(Color color);
+    double getAnswerBoxBorderWidth() const;
+    void setAnswerBoxBorderWidth(double width);
+    double getAnswerBoxPadding() const;
+    void setAnswerBoxPadding(double padding);
+    double getAnswerBoxCornerRadius() const;
+    void setAnswerBoxCornerRadius(double radius);
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -391,6 +414,20 @@ protected:
 
 private:
     std::array<std::unique_ptr<Tool>, TOOL_COUNT> tools;
+
+    // UTN: continuous eraser size
+    double eraserThickness = 8.50;
+
+    // UTN: straighten rough horizontal highlighter strokes
+    bool smartHighlighterEnabled = false;
+
+    // UTN: create styled text answer boxes
+    bool answerBoxEnabled = false;
+    Color answerBoxBackgroundColor{255U, 248U, 214U, 230U};
+    Color answerBoxBorderColor{80U, 80U, 80U, 255U};
+    double answerBoxBorderWidth = 1.2;
+    double answerBoxPadding = 6.0;
+    double answerBoxCornerRadius = 5.0;
 
     /**
      * @brief Get the Button Tool pointer based on enum

@@ -320,12 +320,87 @@ auto ToolHandler::getTextJustify() const -> bool { return this->getTool(TOOL_TEX
 
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
+
+    // UTN: use continuous thickness for the toolbar eraser
+    if (tool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        return this->eraserThickness;
+    }
+
     if (tool->thickness) {
         return tool->thickness.value()[tool->getSize()];
     }
 
     g_warning("Request size of \"%s\"", tool->getName().c_str());
     return 0;
+}
+
+auto ToolHandler::getEraserThickness() const -> double {
+    return this->eraserThickness;
+}
+
+void ToolHandler::setEraserThickness(double thickness) {
+    // Clamp eraser thickness to a usable range
+    this->eraserThickness = std::clamp(thickness, 0.5, 30.0);
+
+    if (this->activeTool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        this->stateChangeListener->toolSizeChanged();
+    }
+}
+
+auto ToolHandler::isSmartHighlighterEnabled() const -> bool {
+    return this->smartHighlighterEnabled;
+}
+
+void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
+    this->smartHighlighterEnabled = enabled;
+}
+
+auto ToolHandler::isAnswerBoxEnabled() const -> bool {
+    return this->answerBoxEnabled;
+}
+
+void ToolHandler::setAnswerBoxEnabled(bool enabled) {
+    this->answerBoxEnabled = enabled;
+}
+
+auto ToolHandler::getAnswerBoxBackgroundColor() const -> Color {
+    return this->answerBoxBackgroundColor;
+}
+
+void ToolHandler::setAnswerBoxBackgroundColor(Color color) {
+    this->answerBoxBackgroundColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderColor() const -> Color {
+    return this->answerBoxBorderColor;
+}
+
+void ToolHandler::setAnswerBoxBorderColor(Color color) {
+    this->answerBoxBorderColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderWidth() const -> double {
+    return this->answerBoxBorderWidth;
+}
+
+void ToolHandler::setAnswerBoxBorderWidth(double width) {
+    this->answerBoxBorderWidth = std::clamp(width, 0.0, 8.0);
+}
+
+auto ToolHandler::getAnswerBoxPadding() const -> double {
+    return this->answerBoxPadding;
+}
+
+void ToolHandler::setAnswerBoxPadding(double padding) {
+    this->answerBoxPadding = std::clamp(padding, 0.0, 24.0);
+}
+
+auto ToolHandler::getAnswerBoxCornerRadius() const -> double {
+    return this->answerBoxCornerRadius;
+}
+
+void ToolHandler::setAnswerBoxCornerRadius(double radius) {
+    this->answerBoxCornerRadius = std::clamp(radius, 0.0, 24.0);
 }
 
 void ToolHandler::setSize(ToolSize size) {
