@@ -1,7 +1,7 @@
 /*
  * Ultimate Teacher Notepad
  *
- * Smart highlighter toolbar toggle
+ * Smart highlighter toolbar control
  *
  * Based on Xournal++ GPLv2+
  */
@@ -12,6 +12,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
 ToolSmartHighlighter::ToolSmartHighlighter(std::string id, Control* control, IconNameHelper iconNameHelper):
@@ -20,20 +21,20 @@ ToolSmartHighlighter::ToolSmartHighlighter(std::string id, Control* control, Ico
         iconName(iconNameHelper.iconName("tool-highlighter")) {}
 
 auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkToolItem* item = gtk_toggle_tool_button_new();
-    gtk_tool_button_set_icon_widget(GTK_TOOL_BUTTON(item), getNewToolIcon());
-    gtk_widget_set_tooltip_text(GTK_WIDGET(item), getToolDisplayName().c_str());
+    auto* tools = control->getToolHandler();
 
-    gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(item),
-                                      control->getToolHandler()->isSmartHighlighterEnabled());
+    GtkWidget* toggle = gtk_toggle_button_new();
+    gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
+    gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->isSmartHighlighterEnabled());
 
     // Enable smart mode and switch directly to the highlighter
     g_signal_connect(
-            item,
+            toggle,
             "toggled",
-            G_CALLBACK(+[](GtkToggleToolButton* button, gpointer data) {
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                bool enabled = gtk_toggle_tool_button_get_active(button);
+                bool enabled = gtk_toggle_button_get_active(button);
 
                 auto* tools = ctrl->getToolHandler();
                 tools->setSmartHighlighterEnabled(enabled);
@@ -45,7 +46,58 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
             }),
             control);
 
-    return xoj::util::WidgetSPtr(GTK_WIDGET(item), xoj::util::adopt);
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    auto addMode = [this, panel, popover](const char* label, SmartHighlighterSnapMode mode) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-mode", GINT_TO_POINTER(static_cast<int>(mode)));
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto mode = static_cast<SmartHighlighterSnapMode>(
+                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-mode")));
+
+                    auto* tools = ctrl->getToolHandler();
+                    tools->setSmartHighlighterEnabled(true);
+                    tools->setSmartHighlighterSnapMode(mode);
+                    tools->selectTool(TOOL_HIGHLIGHTER);
+                    tools->fireToolChanged();
+
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+
+        gtk_box_append(panel, button);
+    };
+
+    addMode(_("Straighten Only"), SmartHighlighterSnapMode::Straight);
+    addMode(_("Snap to Word"), SmartHighlighterSnapMode::Word);
+    addMode(_("Snap to Line"), SmartHighlighterSnapMode::Line);
+
+    GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Smart Highlighter Mode"));
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+    gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+
+    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
+    gtk_box_append(box, toggle);
+    gtk_box_append(box, GTK_WIDGET(menuButton));
+
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
 }
 
 auto ToolSmartHighlighter::getToolDisplayName() const -> std::string {
