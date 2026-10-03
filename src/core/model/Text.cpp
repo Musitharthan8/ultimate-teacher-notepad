@@ -1,5 +1,6 @@
 #include "Text.h"
 
+#include <algorithm>
 #include <memory>
 #include <utility>  // for move
 
