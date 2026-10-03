@@ -321,6 +321,16 @@ public:
     void refreshStudentView();
     bool isStudentViewVisible() const;
 
+    // UTN student-view presentation overlays
+    void setStudentSpotlightEnabled(bool enabled);
+    bool isStudentSpotlightEnabled() const;
+    void updateStudentPresentationPointer(size_t page, double x, double y);
+    bool getStudentPresentationPointer(size_t& page, double& x, double& y) const;
+
+    void setStudentCurtainEnabled(bool enabled);
+    bool isStudentCurtainEnabled() const;
+    void setStudentCurtainReveal(double fraction);
+    double getStudentCurtainReveal() const;
 
     PageRef getCurrentPage();
     size_t getCurrentPageNo() const;
@@ -502,6 +512,13 @@ private:
 
     // UTN projector/student-facing view
     std::unique_ptr<StudentViewWindow> studentViewWindow;
+    bool studentSpotlightEnabled = false;
+    bool studentPointerValid = false;
+    size_t studentPointerPage = 0;
+    double studentPointerX = 0.0;
+    double studentPointerY = 0.0;
+    bool studentCurtainEnabled = false;
+    double studentCurtainReveal = 0.50;
 
     Document* doc = nullptr;
 
