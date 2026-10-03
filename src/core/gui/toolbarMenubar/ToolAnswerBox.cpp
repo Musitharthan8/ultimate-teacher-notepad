@@ -118,6 +118,21 @@ auto ToolAnswerBox::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     }
     gtk_box_append(panel, GTK_WIDGET(presetBox));
 
+    GdkRGBA textColor = Util::argb_to_GdkRGBA(tools->getAnswerBoxTextColor());
+    GtkWidget* textColorButton = gtk_color_button_new_with_rgba(&textColor);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(textColorButton), false);
+    g_signal_connect(
+            textColorButton,
+            "color-set",
+            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                GdkRGBA color{};
+                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
+                ctrl->getToolHandler()->setAnswerBoxTextColor(Util::GdkRGBA_to_argb(color));
+            }),
+            control);
+    appendRow(_("Text"), textColorButton);
+
     GdkRGBA background = Util::argb_to_GdkRGBA(tools->getAnswerBoxBackgroundColor());
     GtkWidget* backgroundButton = gtk_color_button_new_with_rgba(&background);
     gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(backgroundButton), true);
