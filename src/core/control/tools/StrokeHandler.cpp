@@ -266,16 +266,21 @@ bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
 
     Range oldRange(stroke->getBoundingBox());
 
-    // On selectable PDFs, snap the highlight to the nearest text line
-    if (auto pdfPageNr = page->getPdfPageNr(); pdfPageNr != npos) {
-        Document* doc = control->getDocument();
-        doc->lock_shared();
-        auto pdf = doc->getPdfPage(pdfPageNr);
-        doc->unlock_shared();
+    auto snapMode = tools->getSmartHighlighterMode();
 
-        if (pdf) {
-            XojPdfRectangle selection(first.x, averageY, last.x, averageY);
-            auto textSelection = pdf->selectTextLines(selection, XojPdfPageSelectionStyle::Line);
+    // On selectable PDFs, snap the highlight to a word or text line
+    if (snapMode != UtnSmartHighlightMode::Straight) {
+        if (auto pdfPageNr = page->getPdfPageNr(); pdfPageNr != npos) {
+            Document* doc = control->getDocument();
+            doc->lock_shared();
+            auto pdf = doc->getPdfPage(pdfPageNr);
+            doc->unlock_shared();
+
+            if (pdf) {
+                XojPdfRectangle selection(first.x, averageY, last.x, averageY);
+                auto selectionStyle = snapMode == UtnSmartHighlightMode::Word ? XojPdfPageSelectionStyle::Word :
+                                                                               XojPdfPageSelectionStyle::Line;
+                auto textSelection = pdf->selectTextLines(selection, selectionStyle);
 
             const XojPdfRectangle* bestRect = nullptr;
             double bestDistance = std::numeric_limits<double>::max();
@@ -303,8 +308,9 @@ bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
                 stroke->setWidth(std::max(1.0, (bottom - top) * 0.85));
 
                 repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
-                this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
-                return true;
+                    this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
+                    return true;
+                }
             }
         }
     }
