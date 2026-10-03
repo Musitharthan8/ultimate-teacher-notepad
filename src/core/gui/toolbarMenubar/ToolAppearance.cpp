@@ -84,5 +84,5 @@ auto ToolAppearance::getToolDisplayName() const -> std::string {
 }
 
 auto ToolAppearance::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new("◐");
+    return gtk_label_new(_("Theme"));
 }
