@@ -89,7 +89,12 @@ enum IconTheme {
     ICON_THEME_LUCIDE = 1,
 };
 
-enum ThemeVariant { THEME_VARIANT_USE_SYSTEM, THEME_VARIANT_FORCE_LIGHT, THEME_VARIANT_FORCE_DARK };
+enum ThemeVariant {
+    THEME_VARIANT_USE_SYSTEM,
+    THEME_VARIANT_FORCE_LIGHT,
+    THEME_VARIANT_FORCE_DARK,
+    THEME_VARIANT_HIGH_CONTRAST
+};
 
 /**
  * The user-selectable Page Preview Decoration style
@@ -186,6 +191,8 @@ constexpr auto themeVariantToString(ThemeVariant variant) -> const char* {
             return "forceLight";
         case THEME_VARIANT_FORCE_DARK:
             return "forceDark";
+        case THEME_VARIANT_HIGH_CONTRAST:
+            return "highContrast";
         default:
             return "unknown";
     }
