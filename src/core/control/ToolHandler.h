@@ -18,7 +18,8 @@
 #include <vector>      // for vector
 
 #include "control/ToolEnums.h"
-#include "control/UtnEraserShape.h"               // for ToolSize, ToolType, Draw...
+#include "control/UtnEraserShape.h"
+#include "control/UtnSmartHighlightMode.h"               // for ToolSize, ToolType, Draw...
 #include "control/settings/SettingsEnums.h"  // for Button
 #include "util/Color.h"                      // for Color
 
@@ -212,6 +213,8 @@ public:
     // UTN: smart highlighter mode
     bool isSmartHighlighterEnabled() const;
     void setSmartHighlighterEnabled(bool enabled);
+    UtnSmartHighlightMode getSmartHighlighterMode() const;
+    void setSmartHighlighterMode(UtnSmartHighlightMode mode);
 
     // UTN: answer box text mode
     bool isAnswerBoxEnabled() const;
@@ -435,6 +438,7 @@ private:
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;
+    UtnSmartHighlightMode smartHighlighterMode = UtnSmartHighlightMode::Line;
 
     // UTN: create styled text answer boxes
     bool answerBoxEnabled = false;
