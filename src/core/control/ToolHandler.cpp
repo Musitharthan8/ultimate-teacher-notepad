@@ -403,6 +403,22 @@ void ToolHandler::setAnswerBoxCornerRadius(double radius) {
     this->answerBoxCornerRadius = std::clamp(radius, 0.0, 24.0);
 }
 
+auto ToolHandler::hasTeacherStamp() const -> bool {
+    return !this->teacherStampText.empty();
+}
+
+auto ToolHandler::getTeacherStampText() const -> const std::string& {
+    return this->teacherStampText;
+}
+
+void ToolHandler::setTeacherStampText(std::string text) {
+    this->teacherStampText = std::move(text);
+}
+
+void ToolHandler::clearTeacherStamp() {
+    this->teacherStampText.clear();
+}
+
 void ToolHandler::setSize(ToolSize size) {
     ToolSize clippedSize = std::clamp(size, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK);
     if (clippedSize != size)
