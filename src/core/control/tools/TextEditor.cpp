@@ -356,6 +356,24 @@ void TextEditor::setJustify(bool justify) {
     repaintEditor(true);
 }
 
+void TextEditor::setUnderline(bool enabled) {
+    this->textElement->setUnderlined(enabled);
+    this->layoutStatus = LayoutStatus::NEEDS_ATTRIBUTES_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::setStrikethrough(bool enabled) {
+    this->textElement->setStrikethrough(enabled);
+    this->layoutStatus = LayoutStatus::NEEDS_ATTRIBUTES_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::setLineSpacing(double spacing) {
+    this->textElement->setLineSpacing(spacing);
+    this->layoutStatus = LayoutStatus::NEEDS_PARAMETERS_UPDATE;
+    repaintEditor(true);
+}
+
 void TextEditor::afterFontChange() {
     this->textElement->updatePangoFont(this->layout.get());
     this->computeVirtualCursorPosition();
@@ -1054,6 +1072,7 @@ void TextEditor::setTextToPangoLayout(PangoLayout* pl) const {
 
         int pos = getByteOffsetOfCursor(this->buffer.get());
         xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
+        addBaseTextAttributes(attrlist.get());
         pango_attr_list_splice(attrlist.get(), this->preeditAttrList.get(), pos, static_cast<int>(preed.length()));
 
         pango_layout_set_attributes(pl, attrlist.get());
@@ -1067,8 +1086,18 @@ void TextEditor::setTextToPangoLayout(PangoLayout* pl) const {
 
 Color TextEditor::getSelectionColor() const { return this->control->getSettings()->getSelectionColor(); }
 
+void TextEditor::addBaseTextAttributes(PangoAttrList* attrs) const {
+    if (this->textElement->isUnderlined()) {
+        pango_attr_list_insert(attrs, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+    }
+    if (this->textElement->isStrikethrough()) {
+        pango_attr_list_insert(attrs, pango_attr_strikethrough_new(true));
+    }
+}
+
 void TextEditor::setSelectionAttributesToPangoLayout(PangoLayout* pl) const {
     xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
+    addBaseTextAttributes(attrlist.get());
 
     GtkTextIter start;
     GtkTextIter end;
@@ -1119,6 +1148,9 @@ auto TextEditor::getUpToDateLayout() const -> PangoLayout* {
             pango_layout_set_width(this->layout.get(), round_cast<int>(this->currentWrapWidth * PANGO_SCALE));
             pango_layout_set_justify(layout.get(), this->textElement->getJustify());
             pango_layout_set_alignment(layout.get(), this->textElement->getAlign().toPango());
+#if PANGO_VERSION_CHECK(1, 48, 5)
+            pango_layout_set_line_spacing(layout.get(), this->textElement->getLineSpacing());
+#endif
             break;
         case LayoutStatus::UP_TO_DATE:
             break;
@@ -1270,6 +1302,9 @@ void TextEditor::initializeEditionAt(double x, double y) {
                 xoj::util::Matrix::TRANSLATION(x, y - this->textElement->getBoundingBox().height / 2));
         this->textElement->setAlignment(h->getTextAlignment());
         this->textElement->setJustify(h->getTextJustify());
+        this->textElement->setUnderlined(h->getTextUnderline());
+        this->textElement->setStrikethrough(h->getTextStrikethrough());
+        this->textElement->setLineSpacing(h->getTextLineSpacing());
         this->textElement->setBoxEnabled(h->isAnswerBoxEnabled());
 
         if (h->isAnswerBoxEnabled()) {
@@ -1300,6 +1335,13 @@ void TextEditor::initializeEditionAt(double x, double y) {
         db->setActionState(Action::FONT, this->textElement->getFont().asString().c_str());
         db->setActionState(Action::TEXT_ALIGNMENT, this->textElement->getAlign());
         db->setActionState(Action::TEXT_JUSTIFY, this->textElement->getJustify());
+
+        // Keep UTN's context bar in step with the text object being edited.
+        auto* tools = this->control->getToolHandler();
+        tools->setTextUnderline(this->textElement->isUnderlined());
+        tools->setTextStrikethrough(this->textElement->isStrikethrough());
+        tools->setTextLineSpacing(this->textElement->getLineSpacing());
+
         Color c = this->textElement->getColor();
         c.alpha = 0xff;
         db->setActionState(Action::TOOL_COLOR, c);
