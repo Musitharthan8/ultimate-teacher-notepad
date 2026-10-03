@@ -318,6 +318,20 @@ void ToolHandler::setTextJustify(bool j) { this->getTool(TOOL_TEXT).setTextJusti
 
 auto ToolHandler::getTextJustify() const -> bool { return this->getTool(TOOL_TEXT).getTextJustify(); }
 
+auto ToolHandler::getTextUnderline() const -> bool { return this->textUnderline; }
+
+void ToolHandler::setTextUnderline(bool enabled) { this->textUnderline = enabled; }
+
+auto ToolHandler::getTextStrikethrough() const -> bool { return this->textStrikethrough; }
+
+void ToolHandler::setTextStrikethrough(bool enabled) { this->textStrikethrough = enabled; }
+
+auto ToolHandler::getTextLineSpacing() const -> double { return this->textLineSpacing; }
+
+void ToolHandler::setTextLineSpacing(double spacing) {
+    this->textLineSpacing = std::clamp(spacing, 0.8, 2.5);
+}
+
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
 
@@ -656,6 +670,9 @@ void ToolHandler::saveSettings() const {
     utn.setDouble("answerBoxPadding", this->answerBoxPadding);
     utn.setDouble("answerBoxCornerRadius", this->answerBoxCornerRadius);
     utn.setIntHex("teacherStampColor", int(uint32_t(this->teacherStampColor)));
+    utn.setBool("textUnderline", this->textUnderline);
+    utn.setBool("textStrikethrough", this->textStrikethrough);
+    utn.setDouble("textLineSpacing", this->textLineSpacing);
 
     settings->customSettingsChanged();
 }
@@ -775,6 +792,17 @@ void ToolHandler::loadSettings() {
     }
     if (utn.getInt("teacherStampColor", intValue)) {
         this->teacherStampColor = Color(as_unsigned(intValue));
+    }
+
+    bool boolValue = false;
+    if (utn.getBool("textUnderline", boolValue)) {
+        this->textUnderline = boolValue;
+    }
+    if (utn.getBool("textStrikethrough", boolValue)) {
+        this->textStrikethrough = boolValue;
+    }
+    if (utn.getDouble("textLineSpacing", doubleValue)) {
+        this->textLineSpacing = std::clamp(doubleValue, 0.8, 2.5);
     }
 }
 
