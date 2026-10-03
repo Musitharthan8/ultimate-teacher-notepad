@@ -303,6 +303,10 @@ void SaveHandler::visitPage(XmlNode* root, ConstPageRef p, const Document* doc, 
     page->setAttrib(xoj::xml_attrs::WIDTH_STR, p->getWidth());
     page->setAttrib(xoj::xml_attrs::HEIGHT_STR, p->getHeight());
 
+    if (!p->getUtnPageLabel().empty()) {
+        page->setAttrib(xoj::xml_attrs::UTN_PAGE_LABEL_STR, p->getUtnPageLabel().c_str());
+    }
+
     auto* background = new XmlNode(TAG_NAMES[TagType::BACKGROUND]);
     page->addChild(background);
 
