@@ -8,6 +8,7 @@
 
 #include "ToolAnswerBox.h"
 
+#include <array>
 #include <utility>
 
 #include "control/Control.h"
@@ -66,6 +67,56 @@ auto ToolAnswerBox::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_box_append(row, widget);
         gtk_box_append(panel, GTK_WIDGET(row));
     };
+
+    GtkWidget* presetTitle = gtk_label_new(_("Presets"));
+    gtk_widget_set_halign(presetTitle, GTK_ALIGN_START);
+    gtk_box_append(panel, presetTitle);
+
+    GtkBox* presetBox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4));
+    struct Preset {
+        const char* label;
+        Color background;
+        Color border;
+    };
+
+    const std::array<Preset, 4> presets{{
+            {_("Model Answer"), Color{255U, 248U, 214U, 230U}, Color{180U, 140U, 20U, 255U}},
+            {_("Definition"), Color{224U, 240U, 255U, 230U}, Color{50U, 110U, 180U, 255U}},
+            {_("Warning"), Color{255U, 228U, 232U, 235U}, Color{190U, 55U, 70U, 255U}},
+            {_("Note"), Color{232U, 247U, 232U, 230U}, Color{60U, 135U, 75U, 255U}},
+    }};
+
+    for (const auto& preset: presets) {
+        GtkWidget* button = gtk_button_new_with_label(preset.label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+
+        auto* backgroundData = new Color(preset.background);
+        auto* borderData = new Color(preset.border);
+        g_object_set_data_full(G_OBJECT(button), "utn-background", backgroundData,
+                               +[](gpointer data) { delete static_cast<Color*>(data); });
+        g_object_set_data_full(G_OBJECT(button), "utn-border", borderData,
+                               +[](gpointer data) { delete static_cast<Color*>(data); });
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto* background = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-background"));
+                    auto* border = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-border"));
+
+                    auto* tools = ctrl->getToolHandler();
+                    tools->setAnswerBoxBackgroundColor(*background);
+                    tools->setAnswerBoxBorderColor(*border);
+                    tools->setAnswerBoxBorderWidth(1.2);
+                    tools->setAnswerBoxPadding(6.0);
+                    tools->setAnswerBoxCornerRadius(5.0);
+                }),
+                nullptr);
+
+        gtk_box_append(presetBox, button);
+    }
+    gtk_box_append(panel, GTK_WIDGET(presetBox));
 
     GdkRGBA background = Util::argb_to_GdkRGBA(tools->getAnswerBoxBackgroundColor());
     GtkWidget* backgroundButton = gtk_color_button_new_with_rgba(&background);
