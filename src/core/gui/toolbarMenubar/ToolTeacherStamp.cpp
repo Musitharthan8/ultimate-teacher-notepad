@@ -1,7 +1,7 @@
 /*
  * Ultimate Teacher Notepad
  *
- * Teacher stamp toolbar item
+ * Teacher feedback bank
  *
  * Based on Xournal++ GPLv2+
  */
@@ -24,59 +24,56 @@ struct StampEntry {
     const char* text;
 };
 
-constexpr std::array<StampEntry, 8> STAMPS{{
+constexpr std::array<StampEntry, 5> QUICK_STAMPS{{
         {"✓", "✓"},
         {"✗", "✗"},
         {"?", "?"},
-        {"Evidence?", "Evidence?"},
-        {"Explain", "Explain"},
         {"Good", "Good"},
+        {"Great", "Great"},
+}};
+
+constexpr std::array<StampEntry, 6> WRITING_STAMPS{{
         {"PEEL", "PEEL"},
         {"MEET", "MEET"},
+        {"Evidence?", "Evidence?"},
+        {"Explain further", "Explain further"},
+        {"Develop example", "Develop your example"},
+        {"Link back", "Link back to the question"},
 }};
-}  // namespace
 
-ToolTeacherStamp::ToolTeacherStamp(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::TOOLS), control(control) {}
+constexpr std::array<StampEntry, 5> LANGUAGE_STAMPS{{
+        {"Tense", "Check tense"},
+        {"SVA", "Check subject-verb agreement"},
+        {"Spelling", "Check spelling"},
+        {"Punctuation", "Check punctuation"},
+        {"Word choice", "Improve word choice"},
+}};
 
-auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+constexpr std::array<StampEntry, 5> COMPREHENSION_STAMPS{{
+        {"Answer question", "Answer the question"},
+        {"Use evidence", "Use evidence from the text"},
+        {"Inference?", "What can you infer?"},
+        {"Explain why", "Explain why"},
+        {"Good inference", "Good inference"},
+}};
 
-    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
-    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
-    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+template <size_t N>
+GtkWidget* createStampGrid(Control* control, GtkPopover* popover, const std::array<StampEntry, N>& stamps) {
+    GtkGrid* grid = GTK_GRID(gtk_grid_new());
+    gtk_grid_set_row_spacing(grid, 4);
+    gtk_grid_set_column_spacing(grid, 4);
+    gtk_widget_set_margin_start(GTK_WIDGET(grid), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(grid), 6);
+    gtk_widget_set_margin_top(GTK_WIDGET(grid), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(grid), 6);
 
-    GtkBox* colourRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
-    GtkWidget* colourLabel = gtk_label_new(_("Stamp colour"));
-    gtk_widget_set_hexpand(colourLabel, true);
-    gtk_widget_set_halign(colourLabel, GTK_ALIGN_START);
+    int column = 0;
+    int row = 0;
 
-    GdkRGBA stampColour = Util::argb_to_GdkRGBA(control->getToolHandler()->getTeacherStampColor());
-    GtkWidget* colourButton = gtk_color_button_new_with_rgba(&stampColour);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(colourButton), false);
-    g_signal_connect(
-            colourButton,
-            "color-set",
-            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                GdkRGBA colour{};
-                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &colour);
-                ctrl->getToolHandler()->setTeacherStampColor(Util::GdkRGBA_to_argb(colour));
-            }),
-            control);
-
-    gtk_box_append(colourRow, colourLabel);
-    gtk_box_append(colourRow, colourButton);
-    gtk_box_append(panel, GTK_WIDGET(colourRow));
-    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-
-    for (const auto& stamp: STAMPS) {
+    for (const auto& stamp: stamps) {
         GtkWidget* button = gtk_button_new_with_label(stamp.label);
         gtk_widget_set_can_focus(button, false);
+        gtk_widget_set_hexpand(button, true);
 
         g_object_set_data(G_OBJECT(button), "utn-control", control);
         g_object_set_data_full(G_OBJECT(button), "utn-stamp-text", g_strdup(stamp.text), g_free);
@@ -98,20 +95,79 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 }),
                 popover);
 
-        gtk_box_append(panel, button);
+        gtk_grid_attach(grid, button, column, row, 1, 1);
+
+        if (++column == 2) {
+            column = 0;
+            ++row;
+        }
     }
 
-    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    return GTK_WIDGET(grid);
+}
+}  // namespace
 
-    GtkWidget* customLabel = gtk_label_new(_("Custom stamp"));
+ToolTeacherStamp::ToolTeacherStamp(std::string id, Control* control):
+        AbstractToolItem(std::move(id), Category::TOOLS), control(control) {}
+
+auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    GtkBox* colourRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    GtkWidget* colourLabel = gtk_label_new(_("Feedback colour"));
+    gtk_widget_set_hexpand(colourLabel, true);
+    gtk_widget_set_halign(colourLabel, GTK_ALIGN_START);
+
+    GdkRGBA stampColour = Util::argb_to_GdkRGBA(control->getToolHandler()->getTeacherStampColor());
+    GtkWidget* colourButton = gtk_color_button_new_with_rgba(&stampColour);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(colourButton), false);
+    g_signal_connect(
+            colourButton,
+            "color-set",
+            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                GdkRGBA colour{};
+                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &colour);
+                ctrl->getToolHandler()->setTeacherStampColor(Util::GdkRGBA_to_argb(colour));
+            }),
+            control);
+
+    gtk_box_append(colourRow, colourLabel);
+    gtk_box_append(colourRow, colourButton);
+    gtk_box_append(panel, GTK_WIDGET(colourRow));
+
+    GtkNotebook* notebook = GTK_NOTEBOOK(gtk_notebook_new());
+    gtk_widget_set_size_request(GTK_WIDGET(notebook), 360, 210);
+
+    gtk_notebook_append_page(notebook, createStampGrid(control, popover, QUICK_STAMPS), gtk_label_new(_("Quick")));
+    gtk_notebook_append_page(notebook, createStampGrid(control, popover, WRITING_STAMPS), gtk_label_new(_("Writing")));
+    gtk_notebook_append_page(notebook, createStampGrid(control, popover, LANGUAGE_STAMPS), gtk_label_new(_("Language")));
+    gtk_notebook_append_page(notebook, createStampGrid(control, popover, COMPREHENSION_STAMPS),
+                             gtk_label_new(_("Comprehension")));
+
+    GtkBox* custom = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_start(GTK_WIDGET(custom), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(custom), 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(custom), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(custom), 8);
+
+    GtkWidget* customLabel = gtk_label_new(_("Type any feedback, then place it with one tap."));
     gtk_widget_set_halign(customLabel, GTK_ALIGN_START);
-    gtk_box_append(panel, customLabel);
+    gtk_box_append(custom, customLabel);
 
     GtkWidget* customEntry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(customEntry), _("Type feedback, e.g. Check tense"));
-    gtk_box_append(panel, customEntry);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(customEntry), _("e.g. Great inference"));
+    gtk_box_append(custom, customEntry);
 
-    GtkWidget* customButton = gtk_button_new_with_label(_("Use Custom Stamp"));
+    GtkWidget* customButton = gtk_button_new_with_label(_("Use Custom Feedback"));
     g_object_set_data(G_OBJECT(customButton), "utn-control", control);
     g_object_set_data(G_OBJECT(customButton), "utn-entry", customEntry);
 
@@ -134,7 +190,10 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             }),
             popover);
 
-    gtk_box_append(panel, customButton);
+    gtk_box_append(custom, customButton);
+    gtk_notebook_append_page(notebook, GTK_WIDGET(custom), gtk_label_new(_("Custom")));
+
+    gtk_box_append(panel, GTK_WIDGET(notebook));
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
@@ -148,9 +207,9 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 }
 
 auto ToolTeacherStamp::getToolDisplayName() const -> std::string {
-    return _("Teacher Stamp");
+    return _("Feedback Bank");
 }
 
 auto ToolTeacherStamp::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new("✓");
+    return gtk_label_new(_("Feedback"));
 }
