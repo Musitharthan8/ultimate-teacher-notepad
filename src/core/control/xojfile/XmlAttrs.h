@@ -50,6 +50,7 @@ constexpr auto TOOL_STR = u8"tool";
 constexpr auto PRESSURES_STR = u8"pressures";
 constexpr auto FILL_STR = u8"fill";
 constexpr auto CAPSTYLE_STR = u8"capStyle";
+constexpr auto UTN_HIGHLIGHTER_GROUP_STR = u8"utnHighlighterGroup";
 
 // text
 constexpr auto FONT_STR = u8"font";  // also in link
