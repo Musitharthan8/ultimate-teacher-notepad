@@ -51,15 +51,40 @@ auto ToolClear::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             control);
     gtk_box_append(panel, clearLayer);
 
+    GtkWidget* clearPageMenu = gtk_button_new_with_label(_("Clear Page Annotations"));
+    g_signal_connect(
+            clearPageMenu,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->clearCurrentPageAnnotations();
+            }),
+            control);
+    gtk_box_append(panel, clearPageMenu);
+
+    // Main button is intentionally the common classroom action: clear this page.
+    GtkWidget* clearPage = gtk_button_new_with_label(_("Clear"));
+    gtk_widget_set_can_focus(clearPage, false);
+    gtk_widget_set_tooltip_text(clearPage, _("Clear all annotations on this page (Undo available)"));
+    g_signal_connect(
+            clearPage,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->clearCurrentPageAnnotations();
+            }),
+            control);
+
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
-    gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("More clear options"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
 
+    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
+    gtk_box_append(box, clearPage);
+    gtk_box_append(box, GTK_WIDGET(menuButton));
+
     gtk_widget_show_all(GTK_WIDGET(panel));
-    return xoj::util::WidgetSPtr(GTK_WIDGET(menuButton), xoj::util::adopt);
+    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
 }
 
 auto ToolClear::getToolDisplayName() const -> std::string {
