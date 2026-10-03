@@ -330,7 +330,11 @@ void ToolUtnContextBar::appendTextControls() {
             "font-set",
             G_CALLBACK(+[](GtkFontButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                XojFont font(gtk_font_button_get_font_name(button));
+                XojFont chosen(gtk_font_button_get_font_name(button));
+                XojFont font = ctrl->getSettings()->getFont();
+
+                // Keep the explicit UTN size control authoritative when changing families/styles.
+                font.setName(chosen.getName());
                 ctrl->fontChanged(font);
             }),
             control);
@@ -351,6 +355,59 @@ void ToolUtnContextBar::appendTextControls() {
             }),
             control);
     gtk_box_append(box, size);
+
+    appendSeparator();
+
+    PangoFontDescription* currentDesc = pango_font_description_from_string(current.asString().c_str());
+    const bool currentBold = pango_font_description_get_weight(currentDesc) >= PANGO_WEIGHT_SEMIBOLD;
+    const bool currentItalic = pango_font_description_get_style(currentDesc) != PANGO_STYLE_NORMAL;
+    pango_font_description_free(currentDesc);
+
+    GtkWidget* bold = gtk_toggle_button_new_with_label("B");
+    gtk_widget_set_tooltip_text(bold, _("Bold"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bold), currentBold);
+    g_signal_connect(
+            bold,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                XojFont font = ctrl->getSettings()->getFont();
+                PangoFontDescription* desc = pango_font_description_from_string(font.asString().c_str());
+
+                pango_font_description_set_weight(
+                        desc, gtk_toggle_button_get_active(button) ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+
+                gchar* value = pango_font_description_to_string(desc);
+                XojFont updated(value);
+                g_free(value);
+                pango_font_description_free(desc);
+                ctrl->fontChanged(updated);
+            }),
+            control);
+    gtk_box_append(box, bold);
+
+    GtkWidget* italic = gtk_toggle_button_new_with_label("I");
+    gtk_widget_set_tooltip_text(italic, _("Italic"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(italic), currentItalic);
+    g_signal_connect(
+            italic,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                XojFont font = ctrl->getSettings()->getFont();
+                PangoFontDescription* desc = pango_font_description_from_string(font.asString().c_str());
+
+                pango_font_description_set_style(
+                        desc, gtk_toggle_button_get_active(button) ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+
+                gchar* value = pango_font_description_to_string(desc);
+                XojFont updated(value);
+                g_free(value);
+                pango_font_description_free(desc);
+                ctrl->fontChanged(updated);
+            }),
+            control);
+    gtk_box_append(box, italic);
 
     appendSeparator();
 
