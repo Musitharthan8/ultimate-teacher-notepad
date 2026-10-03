@@ -42,7 +42,7 @@ class TextAlignment;
 enum SelectedTool { active, toolbar };
 
 // UTN smart highlighter snapping behaviour
-enum class SmartHighlighterSnapMode { Straight, Word, Line };
+enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough };
 
 class ToolListener {
 public:
