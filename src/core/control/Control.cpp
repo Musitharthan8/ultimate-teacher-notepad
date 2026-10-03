@@ -40,7 +40,8 @@
 #include "control/xojfile/LoadHandler.h"                         // for Load...
 #include "control/zoom/ZoomControl.h"                            // for Zoom...
 #include "gui/FloatingToolbox.h"                                 // for Floa...
-#include "gui/MainWindow.h"                                      // for Main...
+#include "gui/MainWindow.h"
+#include "gui/StudentViewWindow.h"                                      // for Main...
 #include "gui/PageView.h"                                        // for XojP...
 #include "gui/PdfFloatingToolbox.h"                              // for PdfF...
 #include "gui/SearchBar.h"                                       // for Sear...
@@ -179,6 +180,8 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
 Control::~Control() {
     g_source_remove(this->changeTimout);
     this->enableAutosave(false);
+
+    this->studentViewWindow.reset();
 
     deleteLastAutosaveFile();
     this->scheduler->stop();
@@ -1110,6 +1113,37 @@ void Control::setViewLayoutB2T(bool b2t) {
     settings->setViewLayoutB2T(b2t);
     win->getXournal()->layoutPages();
     scrollHandler->scrollToPage(getCurrentPageNo());
+}
+
+void Control::showStudentView() {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->show();
+}
+
+void Control::hideStudentView() {
+    if (this->studentViewWindow) {
+        this->studentViewWindow->hide();
+    }
+}
+
+void Control::setStudentViewFullscreen(bool enabled) {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->show();
+    this->studentViewWindow->setFullscreen(enabled);
+}
+
+void Control::refreshStudentView() {
+    if (this->studentViewWindow) {
+        this->studentViewWindow->refresh();
+    }
+}
+
+auto Control::isStudentViewVisible() const -> bool {
+    return this->studentViewWindow && this->studentViewWindow->isVisible();
 }
 
 auto Control::getCurrentPageNo() const -> size_t {
