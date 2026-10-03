@@ -10,6 +10,7 @@
 #include "util/raii/CairoWrappers.h"
 #include "util/raii/GObjectSPtr.h"
 #include "view/View.h"            // for Context, OPACITY_NO_AUDIO, view
+#include "view/TextBoxRendering.h"  // for drawAnswerBox
 
 #include "filesystem.h"  // for path
 
@@ -35,6 +36,11 @@ void TextView::draw(const Context& ctx) const {
 
     xoj::util::CairoSaveGuard saveGuard(ctx.cr);
 
+    text->getTransformation().transformCairo(ctx.cr);
+
+    // UTN: draw the answer box behind its text
+    drawAnswerBox(ctx.cr, text, text->getBoxBounds());
+
     // make elements without audio translucent when highlighting elements with audio
     if (ctx.fadeOutNonAudio && text->getAudioFilename().empty()) {
         cairo_set_operator(ctx.cr, CAIRO_OPERATOR_OVER);
@@ -43,8 +49,6 @@ void TextView::draw(const Context& ctx) const {
         cairo_set_operator(ctx.cr, CAIRO_OPERATOR_SOURCE);
         Util::cairo_set_source_rgbi(ctx.cr, text->getColor());
     }
-
-    text->getTransformation().transformCairo(ctx.cr);
 
     auto layout = initPango(ctx.cr, text);
     const std::string& content = text->getText();

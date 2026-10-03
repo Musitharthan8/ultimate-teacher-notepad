@@ -87,7 +87,7 @@ private:
     // interface for XmlParser
     void addDocument(std::u8string creator, int fileVersion) override;
     void finalizeDocument() override;
-    void addPage(double width, double height) override;
+    void addPage(double width, double height, std::string utnPageLabel) override;
     void finalizePage() override;
     void addAudioAttachment(const fs::path& filename) override;
     void setBgName(const std::string& name) override;
@@ -99,11 +99,14 @@ private:
     void addLayer(const std::optional<std::string_view>& name) override;
     void finalizeLayer() override;
     void addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
-                   const LineStyle& lineStyle, fs::path filename, size_t timestamp) override;
+                   const LineStyle& lineStyle, uint64_t highlighterGroupId,
+                   fs::path filename, size_t timestamp) override;
     void setStrokePoints(std::vector<Point> pointVector, bool hasPressure) override;
     void finalizeStroke() override;
     void addText(std::string font, double size, xoj::util::Matrix matrix, Color color, std::optional<double> wrap,
-                 std::optional<TextAlignment> align, bool justify, fs::path filename, size_t timestamp) override;
+                 std::optional<TextAlignment> align, bool justify, bool boxEnabled, Color boxBackground,
+                 Color boxBorder, double boxBorderWidth, double boxPadding, double boxRadius,
+                 fs::path filename, size_t timestamp) override;
     void setTextContents(std::string contents) override;
     void finalizeText() override;
     void addImageLegacy(double left, double top, double right, double bottom,

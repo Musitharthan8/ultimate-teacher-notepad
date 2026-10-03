@@ -1,7 +1,10 @@
 #include "EraseUndoAction.h"
 
-#include <memory>  // for __shared_ptr_access, __shar...
-#include <vector>  // for vector
+#include <atomic>   // for atomic
+#include <chrono>   // for system_clock
+#include <cstdint>  // for uint64_t
+#include <memory>   // for __shared_ptr_access, __shar...
+#include <vector>   // for vector
 
 #include "control/Control.h"
 #include "model/Document.h"
@@ -11,6 +14,17 @@
 #include "model/eraser/ErasableStroke.h"  // for ErasableStroke
 #include "undo/UndoAction.h"              // for UndoAction
 #include "util/i18n.h"                    // for _
+
+namespace {
+auto nextHighlighterGroupId() -> uint64_t {
+    static std::atomic<uint64_t> counter{1};
+
+    const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    return static_cast<uint64_t>(now) * 4096ULL + (counter.fetch_add(1, std::memory_order_relaxed) & 0xfffULL);
+}
+}  // namespace
 
 
 EraseUndoAction::EraseUndoAction(const PageRef& page): UndoAction("EraseUndoAction") { this->page = page; }
@@ -43,6 +57,13 @@ void EraseUndoAction::finalize() {
             entry.elementOwn = std::move(own);
 
             ErasableStroke* e = entry.element->getErasable();
+
+            // UTN: keep fragments of one highlighter stroke in the same render group
+            if (entry.element->getToolType() == StrokeTool::HIGHLIGHTER && entry.element->getFill() == -1 &&
+                entry.element->getHighlighterGroupId() == 0) {
+                entry.element->setHighlighterGroupId(nextHighlighterGroupId());
+            }
+
             std::vector<std::unique_ptr<Stroke>> strokeList = e->getStrokes();
             for (auto& stroke: strokeList) {
                 // TODO (Marmare314): should use unique_ptr in layer

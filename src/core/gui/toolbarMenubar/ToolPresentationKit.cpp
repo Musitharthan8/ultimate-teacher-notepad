@@ -1,0 +1,105 @@
+/*
+ * Ultimate Teacher Notepad
+ *
+ * Classroom presentation toolkit
+ *
+ * Based on Xournal++ GPLv2+
+ */
+
+#include "ToolPresentationKit.h"
+
+#include <utility>
+
+#include "control/Control.h"
+#include "control/ToolHandler.h"
+#include "control/actions/ActionDatabase.h"
+#include "enums/Action.enum.h"
+#include "util/gtk4_helper.h"
+#include "util/i18n.h"
+
+ToolPresentationKit::ToolPresentationKit(std::string id, Control* control):
+        AbstractToolItem(std::move(id), Category::MISC), control(control) {}
+
+auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    auto addToolButton = [this, panel, popover](const char* label, ToolType tool) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-tool", GINT_TO_POINTER(static_cast<int>(tool)));
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto tool = static_cast<ToolType>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-tool")));
+                    ctrl->getToolHandler()->selectTool(tool);
+                    ctrl->getToolHandler()->fireToolChanged();
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+
+        gtk_box_append(panel, button);
+    };
+
+    addToolButton(_("Temporary Ink"), TOOL_LASER_POINTER_PEN);
+    addToolButton(_("Temporary Highlight"), TOOL_LASER_POINTER_HIGHLIGHTER);
+    addToolButton(_("Return to Pen"), TOOL_PEN);
+
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    auto addModeButton = [this, panel, popover](const char* label, Action action, bool enabled) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-action", GINT_TO_POINTER(static_cast<int>(action)));
+        g_object_set_data(G_OBJECT(button), "utn-state", GINT_TO_POINTER(enabled ? 1 : 0));
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto action =
+                            static_cast<Action>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-action")));
+                    bool enabled = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-state")) != 0;
+
+                    ctrl->getActionDatabase()->fireChangeActionState(action, enabled);
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+
+        gtk_box_append(panel, button);
+    };
+
+    addModeButton(_("Presentation Mode"), Action::PRESENTATION_MODE, true);
+    addModeButton(_("Exit Presentation Mode"), Action::PRESENTATION_MODE, false);
+    addModeButton(_("Fullscreen"), Action::FULLSCREEN, true);
+    addModeButton(_("Exit Fullscreen"), Action::FULLSCREEN, false);
+
+    GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
+    gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+    gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    return xoj::util::WidgetSPtr(GTK_WIDGET(menuButton), xoj::util::adopt);
+}
+
+auto ToolPresentationKit::getToolDisplayName() const -> std::string {
+    return _("Presentation Tools");
+}
+
+auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {
+    return gtk_label_new("▶");
+}

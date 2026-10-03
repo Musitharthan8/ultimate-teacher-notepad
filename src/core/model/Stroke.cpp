@@ -95,6 +95,7 @@ void Stroke::applyStyleFrom(const Stroke* other) {
     setFill(other->getFill());
     setStrokeCapStyle(other->getStrokeCapStyle());
     setLineStyle(other->getLineStyle());
+    setHighlighterGroupId(other->getHighlighterGroupId());
 
     static_cast<AudioContent&>(*this) = *other;
 }
@@ -110,6 +111,11 @@ auto Stroke::cloneStroke() const -> std::unique_ptr<Stroke> {
 }
 
 auto Stroke::clone() const -> ElementPtr { return this->cloneStroke(); }
+
+auto Stroke::getHighlighterGroupId() const -> uint64_t { return this->highlighterGroupId; }
+
+void Stroke::setHighlighterGroupId(uint64_t groupId) { this->highlighterGroupId = groupId; }
+
 
 std::unique_ptr<Stroke> Stroke::cloneSection(const PathParameter& lowerBound, const PathParameter& upperBound) const {
     xoj_assert(lowerBound.isValid() && upperBound.isValid());
