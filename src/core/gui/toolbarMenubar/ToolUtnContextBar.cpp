@@ -100,7 +100,9 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     clearBox(box);
 
     const char* title = toolTitle(tool);
-    if (tool == TOOL_TEXT && control->getToolHandler()->hasTeacherStamp()) {
+    if (tool == TOOL_PEN && control->getToolHandler()->getDrawingType() != DRAWING_TYPE_DEFAULT) {
+        title = _("Shape");
+    } else if (tool == TOOL_TEXT && control->getToolHandler()->hasTeacherStamp()) {
         title = _("Feedback");
     } else if (tool == TOOL_TEXT && control->getToolHandler()->isAnswerBoxEnabled()) {
         title = _("Answer Box");
@@ -111,6 +113,11 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
 
     switch (tool) {
         case TOOL_PEN: {
+            if (control->getToolHandler()->getDrawingType() != DRAWING_TYPE_DEFAULT) {
+                appendShapeControls(control->getToolHandler()->getDrawingType());
+                break;
+            }
+
             appendLabel(_("Profile"));
 
             struct ProfileEntry {
@@ -538,6 +545,66 @@ void ToolUtnContextBar::appendTextControls() {
         gtk_widget_add_css_class(badge, "utn-context-badge");
         gtk_box_append(box, badge);
     }
+}
+
+void ToolUtnContextBar::appendShapeControls(DrawingType type) {
+    const char* name = _("Shape");
+    switch (type) {
+        case DRAWING_TYPE_LINE:
+            name = _("Line");
+            break;
+        case DRAWING_TYPE_RECTANGLE:
+            name = _("Rectangle");
+            break;
+        case DRAWING_TYPE_ELLIPSE:
+            name = _("Ellipse");
+            break;
+        case DRAWING_TYPE_ARROW:
+            name = _("Arrow");
+            break;
+        case DRAWING_TYPE_DOUBLE_ARROW:
+            name = _("Double Arrow");
+            break;
+        case DRAWING_TYPE_COORDINATE_SYSTEM:
+            name = _("Coordinate System");
+            break;
+        case DRAWING_TYPE_SHAPE_RECOGNIZER:
+            name = _("Smart Shape");
+            break;
+        case DRAWING_TYPE_SPLINE:
+            name = _("Spline");
+            break;
+        default:
+            break;
+    }
+
+    appendLabel(name);
+    appendSeparator();
+    appendColorButton();
+    appendSizeButtons(TOOL_PEN);
+
+    GtkWidget* fill = gtk_toggle_button_new_with_label(_("Fill"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fill), control->getToolHandler()->getPenFillEnabled());
+    g_signal_connect(
+            fill,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                static_cast<Control*>(data)->setFill(gtk_toggle_button_get_active(button));
+            }),
+            control);
+    gtk_box_append(box, fill);
+
+    GtkWidget* freehand = gtk_button_new_with_label(_("Back to Pen"));
+    g_signal_connect(
+            freehand,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                ctrl->setToolDrawingType(DRAWING_TYPE_DEFAULT);
+                ctrl->getToolHandler()->fireToolChanged();
+            }),
+            control);
+    gtk_box_append(box, freehand);
 }
 
 void ToolUtnContextBar::appendSelectionControls() {
