@@ -574,7 +574,12 @@ static auto intersectStrokeWithPaddedCircle(const std::vector<Point>& points, co
         }
 
         Interval<PathParameter> current{{index, outer->min}, {index, outer->max}};
-        if (!intervals.empty() && intervals.back().max == current.min) {
+        bool joinsPrevious = !intervals.empty() &&
+                             (intervals.back().max == current.min ||
+                              (intervals.back().max.index + 1 == current.min.index &&
+                               intervals.back().max.t == 1.0 && current.min.t == 0.0));
+
+        if (joinsPrevious) {
             intervals.back().max = current.max;
         } else {
             intervals.emplace_back(current);
