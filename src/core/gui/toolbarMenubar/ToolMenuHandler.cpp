@@ -53,6 +53,7 @@
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
 #include "ToolStudentView.h"         // for ToolStudentView
 #include "ToolTeacherStamp.h"       // for ToolTeacherStamp
+#include "ToolTeachingKit.h"        // for ToolTeachingKit       // for ToolTeacherStamp
 #include "ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
@@ -436,6 +437,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN clean student-facing preview
     emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
+
+    // UTN consolidated shapes, STEM and classroom utilities
+    emplaceItem<ToolTeachingKit>("TEACHING_KIT", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
