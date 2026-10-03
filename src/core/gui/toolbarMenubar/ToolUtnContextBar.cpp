@@ -409,6 +409,8 @@ void ToolUtnContextBar::appendMarkupControls() {
     addMode(_("Straight"), SmartHighlighterSnapMode::Straight);
     addMode(_("Word"), SmartHighlighterSnapMode::Word);
     addMode(_("Line"), SmartHighlighterSnapMode::Line);
+    addMode(_("Underline"), SmartHighlighterSnapMode::Underline);
+    addMode(_("Strike"), SmartHighlighterSnapMode::Strikethrough);
 }
 
 void ToolUtnContextBar::appendTextControls() {
