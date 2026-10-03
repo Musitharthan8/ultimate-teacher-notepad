@@ -1095,6 +1095,15 @@ void TextEditor::updateBoxes() {
     this->boxes = Text::computeBoxesForLayout(getUpToDateLayout(), this->currentWrapWidth);
     auto edBounds = boxes.effectiveBounds;
     edBounds.width = std::max(edBounds.width, boxes.theoreticalSize.width);
+
+    if (this->textElement->isBoxEnabled()) {
+        double extra = this->textElement->getBoxPadding() + 0.5 * this->textElement->getBoxBorderWidth();
+        edBounds.x -= extra;
+        edBounds.y -= extra;
+        edBounds.width += 2.0 * extra;
+        edBounds.height += 2.0 * extra;
+    }
+
     this->previousBoundingBox = Range(this->textElement->getTransformation() * edBounds);
 }
 
@@ -1247,6 +1256,7 @@ void TextEditor::initializeEditionAt(double x, double y) {
                 xoj::util::Matrix::TRANSLATION(x, y - this->textElement->getBoundingBox().height / 2));
         this->textElement->setAlignment(h->getTextAlignment());
         this->textElement->setJustify(h->getTextJustify());
+        this->textElement->setBoxEnabled(h->isAnswerBoxEnabled());
 
 #ifdef ENABLE_AUDIO
         if (auto audioController = control->getAudioController(); audioController && audioController->isRecording()) {
