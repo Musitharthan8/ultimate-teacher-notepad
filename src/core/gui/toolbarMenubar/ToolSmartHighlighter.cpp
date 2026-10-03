@@ -88,7 +88,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Smart Highlighter Mode"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Markup mode"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
 
@@ -101,7 +101,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
 }
 
 auto ToolSmartHighlighter::getToolDisplayName() const -> std::string {
-    return _("Smart Highlighter");
+    return _("Markup");
 }
 
 auto ToolSmartHighlighter::getNewToolIcon() const -> GtkWidget* {
