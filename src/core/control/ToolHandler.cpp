@@ -347,6 +347,18 @@ void ToolHandler::setEraserThickness(double thickness) {
     }
 }
 
+auto ToolHandler::getEraserShape() const -> UtnEraserShape {
+    return this->eraserShape;
+}
+
+void ToolHandler::setEraserShape(UtnEraserShape shape) {
+    this->eraserShape = shape;
+
+    if (this->activeTool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        this->stateChangeListener->toolSizeChanged();
+    }
+}
+
 auto ToolHandler::isSmartHighlighterEnabled() const -> bool {
     return this->smartHighlighterEnabled;
 }
