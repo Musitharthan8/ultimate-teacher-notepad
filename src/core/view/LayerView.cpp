@@ -55,7 +55,6 @@ void LayerView::draw(const Context& ctx) const {
             if (drawnHighlighterGroups.contains(groupId)) {
                 continue;
             }
-            drawnHighlighterGroups.insert(groupId);
 
             std::vector<const Stroke*> group;
             bool groupIntersectsClip = false;
@@ -80,6 +79,7 @@ void LayerView::draw(const Context& ctx) const {
             }
 
             if (styleMatches && group.size() > 1 && groupIntersectsClip) {
+                drawnHighlighterGroups.insert(groupId);
                 cairo_save(ctx.cr);
                 cairo_push_group_with_content(ctx.cr, CAIRO_CONTENT_ALPHA);
 
