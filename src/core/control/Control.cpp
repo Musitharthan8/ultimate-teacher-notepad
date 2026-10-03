@@ -1136,6 +1136,13 @@ void Control::setStudentViewFullscreen(bool enabled) {
     this->studentViewWindow->setFullscreen(enabled);
 }
 
+void Control::projectStudentViewToSecondaryDisplay() {
+    if (!this->studentViewWindow) {
+        this->studentViewWindow = std::make_unique<StudentViewWindow>(this);
+    }
+    this->studentViewWindow->projectToSecondaryDisplay();
+}
+
 void Control::refreshStudentView() {
     if (this->studentViewWindow) {
         this->studentViewWindow->refresh();
