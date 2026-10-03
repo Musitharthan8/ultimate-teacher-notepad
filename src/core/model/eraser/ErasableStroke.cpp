@@ -1,6 +1,7 @@
 #include "ErasableStroke.h"
 
 #include <algorithm>  // for max, min, copy, lower_bound
+#include <cmath>
 #include <cstddef>    // for size_t, ptrdiff_t
 #include <iterator>   // for next
 #include <optional>   // for optional
