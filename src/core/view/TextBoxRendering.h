@@ -29,12 +29,14 @@ inline void appendRoundedRectangle(cairo_t* cr, const xoj::util::Rectangle<doubl
 
     const double x2 = box.x + box.width;
     const double y2 = box.y + box.height;
+    constexpr double PI = 3.14159265358979323846;
+    constexpr double HALF_PI = PI / 2.0;
 
     cairo_new_sub_path(cr);
-    cairo_arc(cr, x2 - radius, box.y + radius, radius, -M_PI_2, 0);
-    cairo_arc(cr, x2 - radius, y2 - radius, radius, 0, M_PI_2);
-    cairo_arc(cr, box.x + radius, y2 - radius, radius, M_PI_2, M_PI);
-    cairo_arc(cr, box.x + radius, box.y + radius, radius, M_PI, 3 * M_PI_2);
+    cairo_arc(cr, x2 - radius, box.y + radius, radius, -HALF_PI, 0);
+    cairo_arc(cr, x2 - radius, y2 - radius, radius, 0, HALF_PI);
+    cairo_arc(cr, box.x + radius, y2 - radius, radius, HALF_PI, PI);
+    cairo_arc(cr, box.x + radius, box.y + radius, radius, PI, 3.0 * HALF_PI);
     cairo_close_path(cr);
 }
 
