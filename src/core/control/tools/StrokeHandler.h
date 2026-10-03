@@ -26,6 +26,8 @@ class Layer;
 class PositionInputData;
 class Stroke;
 
+class Range;
+
 namespace xoj::util {
 template <class T>
 class DispatchPool;
@@ -87,6 +89,9 @@ protected:
 
     /// Finalizes the stroke using the provided pressure as last point
     void finalizeStroke(double pressure);
+
+    // UTN: snap rough horizontal highlights to a straight line
+    bool straightenSmartHighlighterStroke(Range& repaintRange);
 
 protected:
     Point buttonDownPoint;  // used for tapSelect and filtering - never snapped to grid.
