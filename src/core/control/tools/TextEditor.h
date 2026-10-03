@@ -79,6 +79,13 @@ public:
     void setStrikethrough(bool enabled);
     void setLineSpacing(double spacing);
 
+    // UTN Answer Box live styling
+    void setBoxBackgroundColor(Color color);
+    void setBoxBorderColor(Color color);
+    void setBoxBorderWidth(double width);
+    void setBoxPadding(double padding);
+    void setBoxCornerRadius(double radius);
+
     PangoLayout* getUpToDateLayout() const;
 
     const std::shared_ptr<xoj::util::DispatchPool<xoj::view::TextEditionView>>& getViewPool() const;
