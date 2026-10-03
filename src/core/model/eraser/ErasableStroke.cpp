@@ -23,6 +23,31 @@ using xoj::util::Rectangle;
 ErasableStroke::ErasableStroke(const Stroke& stroke): stroke(stroke) {
     const auto& pts = this->stroke.getPointVector();
     closedStroke = pts.size() >= 3 && pts.front().lineLengthTo(pts.back()) < CLOSED_STROKE_DISTANCE;
+
+    if (this->stroke.getToolType() == StrokeTool::HIGHLIGHTER && pts.size() >= 3) {
+        const double spanX = std::abs(pts.back().x - pts.front().x);
+        const double spanY = std::abs(pts.back().y - pts.front().y);
+        const bool horizontal = spanX >= spanY;
+        const double span = horizontal ? spanX : spanY;
+
+        if (span > 1.0) {
+            double backwardsTravel = 0.0;
+            const double direction = horizontal ? pts.back().x - pts.front().x : pts.back().y - pts.front().y;
+
+            for (size_t i = 1; i < pts.size(); ++i) {
+                const double previous = horizontal ? pts[i - 1].x : pts[i - 1].y;
+                const double current = horizontal ? pts[i].x : pts[i].y;
+                const double delta = current - previous;
+
+                if ((direction >= 0.0 && delta < 0.0) || (direction < 0.0 && delta > 0.0)) {
+                    backwardsTravel += std::abs(delta);
+                }
+            }
+
+            // Typical classroom highlights are monotonic. Their split pieces cannot overlap each other.
+            trackHighlighterOverlaps = backwardsTravel > span * 0.08;
+        }
+    }
 }
 
 ErasableStroke::~ErasableStroke() = default;
@@ -71,10 +96,10 @@ void ErasableStroke::beginErasure(const IntersectionParametersContainer& paddedI
                 // The stroke was split in two or more (and possibly shrank). Need to rerender its entire box.
                 range = range.unite(Range(this->stroke.getBoundingBox()));
             }
-        } else if (subsections.size() > 1) {
+        } else if (subsections.size() > 1 && trackHighlighterOverlaps) {
             /**
-             * Highlighter and the stroke has been split in two or more subsections.
-             * Rerender wherever those subsections overlap
+             * Complex highlighter and the stroke has been split in two or more subsections.
+             * Rerender wherever those subsections overlap.
              */
             addOverlapsToRange(subsections, range);
         }
@@ -208,9 +233,9 @@ void ErasableStroke::erase(const PaddedBox& box, Range& range) {
                     break;
                 }
                 // Necessarily highlighter and not filled
-                if (subsections.size() > 1) {
+                if (subsections.size() > 1 && trackHighlighterOverlaps) {
                     /**
-                     * The section has been split in two (or more).
+                     * Complex highlighter section split in two (or more).
                      * Rerender wherever those subsections overlap.
                      */
                     addOverlapsToRange(subsections, range);
