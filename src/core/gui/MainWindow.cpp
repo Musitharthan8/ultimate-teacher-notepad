@@ -242,7 +242,9 @@ void MainWindow::updateColorscheme() {
     }
     auto props = getThemeProperties(this->window);
 
-    this->darkMode = (props.dark && variant != THEME_VARIANT_FORCE_LIGHT) || variant == THEME_VARIANT_FORCE_DARK;
+    const bool highContrast = variant == THEME_VARIANT_HIGH_CONTRAST;
+    this->darkMode = highContrast || (props.dark && variant != THEME_VARIANT_FORCE_LIGHT) ||
+                     variant == THEME_VARIANT_FORCE_DARK;
 
     // Set up icons
     {
@@ -289,6 +291,12 @@ void MainWindow::updateColorscheme() {
             g_object_set(gtk_widget_get_settings(this->window), "gtk-theme-name", props.rootname.c_str(), nullptr);
             modifiedGtkSettingsTheme = true;
         }
+    }
+
+    if (highContrast) {
+        gtk_style_context_add_class(context, "utnHighContrast");
+    } else {
+        gtk_style_context_remove_class(context, "utnHighContrast");
     }
 
     {
@@ -653,6 +661,15 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 
     this->clearToolbar();
     this->loadToolbar(d);
+
+    // UTN uses a dedicated shell style while Classic layouts stay untouched.
+    GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
+    const bool utnShell = d->getId() == "UTN Teacher" || d->getId() == "UTN Teacher Tablet";
+    if (utnShell) {
+        gtk_style_context_add_class(context, "utnShell");
+    } else {
+        gtk_style_context_remove_class(context, "utnShell");
+    }
 }
 
 auto MainWindow::clearToolbar() -> const ToolbarData* {
