@@ -12,6 +12,8 @@
 
 #include <gtk/gtk.h>
 
+#include "control/ToolEnums.h"
+
 #include "AbstractToolItem.h"
 
 class Control;
