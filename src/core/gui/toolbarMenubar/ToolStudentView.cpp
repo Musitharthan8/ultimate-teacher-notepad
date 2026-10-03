@@ -68,9 +68,14 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* fullscreen = gtk_button_new_with_label(_("Fullscreen Student View"));
     GtkWidget* windowed = gtk_button_new_with_label(_("Windowed Student View"));
     GtkWidget* hide = gtk_button_new_with_label(_("Hide Student View"));
+    GtkWidget* spotlightOn = gtk_button_new_with_label(_("Spotlight On"));
+    GtkWidget* spotlightOff = gtk_button_new_with_label(_("Spotlight Off"));
+    GtkWidget* curtainOn = gtk_button_new_with_label(_("Curtain On"));
+    GtkWidget* curtainOff = gtk_button_new_with_label(_("Curtain Off"));
     GtkWidget* notes = gtk_button_new_with_label(_("Create Teacher Notes Layer"));
 
-    const std::array<GtkWidget*, 5> buttons{open, fullscreen, windowed, hide, notes};
+    const std::array<GtkWidget*, 9> buttons{
+            open, fullscreen, windowed, hide, spotlightOn, spotlightOff, curtainOn, curtainOff, notes};
     for (GtkWidget* button: buttons) {
         gtk_widget_set_can_focus(button, false);
         g_object_set_data(G_OBJECT(button), "utn-control", control);
@@ -117,6 +122,44 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             popover);
 
     g_signal_connect(
+            spotlightOn,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                ctrl->setStudentSpotlightEnabled(true);
+                ctrl->showStudentView();
+            }),
+            nullptr);
+
+    g_signal_connect(
+            spotlightOff,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                ctrl->setStudentSpotlightEnabled(false);
+            }),
+            nullptr);
+
+    g_signal_connect(
+            curtainOn,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                ctrl->setStudentCurtainEnabled(true);
+                ctrl->showStudentView();
+            }),
+            nullptr);
+
+    g_signal_connect(
+            curtainOff,
+            "clicked",
+            G_CALLBACK(+[](GtkButton* button, gpointer) {
+                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                ctrl->setStudentCurtainEnabled(false);
+            }),
+            nullptr);
+
+    g_signal_connect(
             notes,
             "clicked",
             G_CALLBACK(+[](GtkButton* button, gpointer data) {
@@ -130,6 +173,27 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_box_append(panel, fullscreen);
     gtk_box_append(panel, windowed);
     gtk_box_append(panel, hide);
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(panel, spotlightOn);
+    gtk_box_append(panel, spotlightOff);
+    gtk_box_append(panel, curtainOn);
+    gtk_box_append(panel, curtainOff);
+
+    GtkWidget* curtainReveal = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.05, 1.0, 0.05);
+    gtk_range_set_value(GTK_RANGE(curtainReveal), control->getStudentCurtainReveal());
+    gtk_scale_set_draw_value(GTK_SCALE(curtainReveal), true);
+    gtk_scale_set_digits(GTK_SCALE(curtainReveal), 2);
+    gtk_widget_set_tooltip_text(curtainReveal, _("Curtain reveal amount"));
+    gtk_widget_set_size_request(curtainReveal, 180, -1);
+    g_signal_connect(
+            curtainReveal,
+            "value-changed",
+            G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                static_cast<Control*>(data)->setStudentCurtainReveal(gtk_range_get_value(range));
+            }),
+            control);
+    gtk_box_append(panel, curtainReveal);
+
     gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(panel, notes);
 
