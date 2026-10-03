@@ -42,6 +42,7 @@
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
+#include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
@@ -470,6 +471,9 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+
+    // UTN continuous eraser size slider
+    emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
 
     emplaceItem<ToolZoomSlider>("ZOOM_SLIDER", zoom, iconNameHelper, *control->getActionDatabase());
 
