@@ -1252,6 +1252,11 @@ void TextEditor::initializeEditionAt(double x, double y) {
         this->textElement = std::make_unique<Text>();
         this->textElement->setColor(h->getColor());
         this->textElement->setFont(control->getSettings()->getFont());
+
+        if (h->hasTeacherStamp()) {
+            this->textElement->setText(h->getTeacherStampText());
+        }
+
         this->textElement->setTransformation(
                 xoj::util::Matrix::TRANSLATION(x, y - this->textElement->getBoundingBox().height / 2));
         this->textElement->setAlignment(h->getTextAlignment());
