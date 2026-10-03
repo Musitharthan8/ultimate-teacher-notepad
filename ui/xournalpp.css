@@ -394,3 +394,85 @@ window.utnShell.utnTouch #tbTop2 {
     padding-top: 8px;
     padding-bottom: 8px;
 }
+
+
+/* UTN 0.2 visual hierarchy -------------------------------------------------
+ * Keep the workspace quiet: stronger structure in the chrome, less visual
+ * noise around the worksheet itself.
+ */
+
+window.utnShell #tbTop1 button {
+    margin: 0 2px;
+    min-height: 28px;
+}
+
+window.utnShell #tbTop1 button:hover,
+window.utnShell #tbTop2 button:hover,
+window.utnShell #tbLeft1 button:hover,
+window.utnShell #tbBottom1 button:hover {
+    background-color: alpha(#4f7cff, 0.10);
+}
+
+window.utnShell #tbLeft1 {
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+window.utnShell #tbLeft1 button {
+    border-radius: 10px;
+    min-width: 30px;
+    min-height: 30px;
+}
+
+window.utnShell #tbBottom1 {
+    font-size: 0.94em;
+}
+
+window.utnShell #utnContextBar {
+    min-height: 32px;
+}
+
+window.utnShell #utnContextBar combobox button,
+window.utnShell #utnContextBar spinbutton,
+window.utnShell #utnContextBar colorbutton {
+    min-height: 28px;
+    border-radius: 7px;
+}
+
+window.utnShell #utnContextBar scale {
+    min-height: 24px;
+}
+
+window.utnShell .utn-context-title {
+    font-size: 1.02em;
+}
+
+window.utnShell popover.toolbar {
+    border-radius: 10px;
+}
+
+window.utnShell popover.toolbar button {
+    margin: 1px;
+}
+
+window.utnShell button:focus,
+window.utnShell combobox:focus,
+window.utnShell spinbutton:focus {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-offset: 1px;
+    outline-color: alpha(#4f7cff, 0.70);
+}
+
+window.utnShell.darkMode #tbTop1 button:hover,
+window.utnShell.darkMode #tbTop2 button:hover,
+window.utnShell.darkMode #tbLeft1 button:hover,
+window.utnShell.darkMode #tbBottom1 button:hover {
+    background-color: alpha(#7da0ff, 0.16);
+}
+
+window.utnShell.utnHighContrast button:focus,
+window.utnShell.utnHighContrast combobox:focus,
+window.utnShell.utnHighContrast spinbutton:focus {
+    outline-color: #ffffff;
+}
