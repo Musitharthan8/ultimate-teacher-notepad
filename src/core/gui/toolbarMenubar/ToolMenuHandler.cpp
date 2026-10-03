@@ -40,6 +40,7 @@
 #include "ToolButton.h"              // for ToolButton
 #include "ToolAnswerBox.h"           // for ToolAnswerBox
 #include "ToolPageLayer.h"           // for ToolPageLayer
+#include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPrepareReveal.h"        // for ToolPrepareReveal
 #include "ToolProfileSelector.h"      // for ToolProfileSelector
@@ -416,6 +417,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN teacher tool profiles
     emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
+
+    // UTN classroom page labels
+    emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
