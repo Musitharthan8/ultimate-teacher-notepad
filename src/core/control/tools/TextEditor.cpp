@@ -1250,7 +1250,16 @@ void TextEditor::initializeEditionAt(double x, double y) {
         lock.unlock();
         ToolHandler* h = this->control->getToolHandler();
         this->textElement = std::make_unique<Text>();
-        this->textElement->setColor(h->getColor());
+
+        // UTN special text tools keep their own colours instead of inheriting the last pen/text colour.
+        if (h->hasTeacherStamp()) {
+            this->textElement->setColor(h->getTeacherStampColor());
+        } else if (h->isAnswerBoxEnabled()) {
+            this->textElement->setColor(h->getAnswerBoxTextColor());
+        } else {
+            this->textElement->setColor(h->getColor());
+        }
+
         this->textElement->setFont(control->getSettings()->getFont());
 
         if (h->hasTeacherStamp()) {
