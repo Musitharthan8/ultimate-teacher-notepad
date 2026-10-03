@@ -41,6 +41,7 @@
 #include "ToolAnswerBox.h"           // for ToolAnswerBox
 #include "ToolPageLayer.h"           // for ToolPageLayer
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
+#include "ToolPrepareReveal.h"        // for ToolPrepareReveal
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
 #include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
@@ -408,6 +409,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN teacher stamps
     emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control);
+
+    // UTN prepared answer layers
+    emplaceItem<ToolPrepareReveal>("PREPARE_REVEAL", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
