@@ -45,7 +45,7 @@ ToolStudentView::~ToolStudentView() {
 auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* button = gtk_button_new_with_label(_("Student View"));
     gtk_widget_set_can_focus(button, false);
-    gtk_widget_set_tooltip_text(button, getToolDisplayName().c_str());
+    gtk_widget_set_tooltip_text(button, _("Open or focus the clean student-facing display"));
 
     g_signal_connect(
             button,
@@ -55,7 +55,69 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             }),
             this);
 
-    return xoj::util::WidgetSPtr(button, xoj::util::adopt);
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 4));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    GtkWidget* freeze = gtk_toggle_button_new_with_label(_("Freeze Student View"));
+    g_signal_connect(
+            freeze,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                static_cast<ToolStudentView*>(data)->setFrozen(gtk_toggle_button_get_active(button));
+            }),
+            this);
+    gtk_box_append(panel, freeze);
+
+    GtkWidget* blank = gtk_toggle_button_new_with_label(_("Blank Student View"));
+    g_signal_connect(
+            blank,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                static_cast<ToolStudentView*>(data)->setBlanked(gtk_toggle_button_get_active(button));
+            }),
+            this);
+    gtk_box_append(panel, blank);
+
+    GtkWidget* fullscreenButton = gtk_button_new_with_label(_("Fullscreen Student View"));
+    g_signal_connect(
+            fullscreenButton,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* self = static_cast<ToolStudentView*>(data);
+                self->setStudentFullscreen(true);
+            }),
+            this);
+    gtk_box_append(panel, fullscreenButton);
+
+    GtkWidget* close = gtk_button_new_with_label(_("Close Student View"));
+    g_signal_connect(
+            close,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<ToolStudentView*>(data)->closeStudentView();
+            }),
+            this);
+    gtk_box_append(panel, close);
+
+    GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Student View controls"));
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+    gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+
+    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
+    gtk_box_append(box, button);
+    gtk_box_append(box, GTK_WIDGET(menuButton));
+
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
 }
 
 void ToolStudentView::showStudentView() {
@@ -84,6 +146,54 @@ void ToolStudentView::showStudentView() {
     gtk_widget_show_all(window);
 }
 
+void ToolStudentView::setFrozen(bool enabled) {
+    showStudentView();
+
+    if (enabled && !frozen) {
+        PageRef sourcePage = control->getCurrentPage();
+        if (sourcePage) {
+            auto* doc = control->getDocument();
+            std::shared_lock lock(*doc);
+            frozenPage = PageRef(sourcePage->clone());
+            lock.unlock();
+
+            for (Layer* layer: frozenPage->getLayers()) {
+                if (isTeacherOnlyLayer(layer)) {
+                    layer->setVisible(false);
+                }
+            }
+            frozen = true;
+        }
+    } else if (!enabled) {
+        frozen = false;
+        frozenPage.reset();
+    }
+
+    if (drawingArea != nullptr) {
+        gtk_widget_queue_draw(drawingArea);
+    }
+}
+
+void ToolStudentView::setBlanked(bool enabled) {
+    showStudentView();
+    blanked = enabled;
+
+    if (drawingArea != nullptr) {
+        gtk_widget_queue_draw(drawingArea);
+    }
+}
+
+void ToolStudentView::setStudentFullscreen(bool enabled) {
+    showStudentView();
+    fullscreen = enabled;
+
+    if (enabled) {
+        gtk_window_fullscreen(GTK_WINDOW(window));
+    } else {
+        gtk_window_unfullscreen(GTK_WINDOW(window));
+    }
+}
+
 void ToolStudentView::closeStudentView() {
     if (refreshTimer != 0) {
         g_source_remove(refreshTimer);
@@ -100,20 +210,33 @@ void ToolStudentView::closeStudentView() {
 
 gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data) {
     auto* self = static_cast<ToolStudentView*>(data);
-    PageRef sourcePage = self->control->getCurrentPage();
-    if (!sourcePage) {
+
+    if (self->blanked) {
+        cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+        cairo_paint(cr);
         return FALSE;
     }
 
-    auto* doc = self->control->getDocument();
-    std::shared_lock lock(*doc);
-    PageRef studentPage(sourcePage->clone());
-    lock.unlock();
+    PageRef studentPage;
 
-    // Teacher-only layers stay visible on the teacher screen but not here
-    for (Layer* layer: studentPage->getLayers()) {
-        if (isTeacherOnlyLayer(layer)) {
-            layer->setVisible(false);
+    if (self->frozen && self->frozenPage) {
+        studentPage = self->frozenPage;
+    } else {
+        PageRef sourcePage = self->control->getCurrentPage();
+        if (!sourcePage) {
+            return FALSE;
+        }
+
+        auto* doc = self->control->getDocument();
+        std::shared_lock lock(*doc);
+        studentPage = PageRef(sourcePage->clone());
+        lock.unlock();
+
+        // Teacher-only layers stay visible on the teacher screen but not here
+        for (Layer* layer: studentPage->getLayers()) {
+            if (isTeacherOnlyLayer(layer)) {
+                layer->setVisible(false);
+            }
         }
     }
 
@@ -160,12 +283,7 @@ gboolean ToolStudentView::studentViewKeyPressed(GtkWidget*, GdkEventKey* event, 
     auto* self = static_cast<ToolStudentView*>(data);
 
     if (event->keyval == GDK_KEY_F11) {
-        self->fullscreen = !self->fullscreen;
-        if (self->fullscreen) {
-            gtk_window_fullscreen(GTK_WINDOW(self->window));
-        } else {
-            gtk_window_unfullscreen(GTK_WINDOW(self->window));
-        }
+        self->setStudentFullscreen(!self->fullscreen);
         return TRUE;
     }
 
@@ -189,6 +307,9 @@ void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
     self->window = nullptr;
     self->drawingArea = nullptr;
     self->fullscreen = false;
+    self->frozen = false;
+    self->blanked = false;
+    self->frozenPage.reset();
 }
 
 auto ToolStudentView::getToolDisplayName() const -> std::string {
