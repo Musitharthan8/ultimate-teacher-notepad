@@ -47,6 +47,7 @@
 #include "ToolProfileSelector.h"      // for ToolProfileSelector
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
+#include "ToolEraserShapeSelector.h" // for ToolEraserShapeSelector
 #include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
 #include "ToolTeacherStamp.h"       // for ToolTeacherStamp
@@ -499,6 +500,9 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+
+    // UTN eraser shape selector
+    emplaceItem<ToolEraserShapeSelector>("ERASER_SHAPE", control);
 
     // UTN continuous eraser size slider
     emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
