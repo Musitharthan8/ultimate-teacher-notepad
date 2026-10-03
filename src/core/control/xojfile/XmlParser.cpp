@@ -2,7 +2,8 @@
 
 #include <algorithm>    // for all_of
 #include <cctype>       // for isspace
-#include <cstddef>      // for size_t
+#include <cstddef>
+#include <cstdint>      // for size_t
 #include <ranges>       // for all_of, reverse_view
 #include <stdexcept>    // for domain_error
 #include <string>       // for stod, string
@@ -394,6 +395,11 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     const auto lineStyle =
             XmlParserHelper::getAttribMandatory<LineStyle>(xoj::xml_attrs::STYLE_STR, attributeMap, {}, false);
 
+    // UTN highlighter fragment group
+    const uint64_t highlighterGroupId =
+            XmlParserHelper::getAttribMandatory<uint64_t>(xoj::xml_attrs::UTN_HIGHLIGHTER_GROUP_STR, attributeMap,
+                                                          0ULL, false);
+
     // audio filename and timestamp
     const auto optFilename = XmlParserHelper::getAttrib<fs::path>(xoj::xml_attrs::AUDIO_FILENAME_STR, attributeMap);
     if (optFilename && !optFilename->empty()) {
@@ -406,8 +412,8 @@ void XmlParser::parseStrokeTag(const XmlParserHelper::AttributeMap& attributeMap
     }
 
     // forward data to builder
-    this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, std::move(this->tempFilename),
-                            this->tempTimestamp);
+    this->builder.addStroke(tool, color, width, fill, capStyle, lineStyle, highlighterGroupId,
+                            std::move(this->tempFilename), this->tempTimestamp);
 
     // Reset timestamp, filename was already moved from
     this->tempTimestamp = 0;
