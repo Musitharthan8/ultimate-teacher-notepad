@@ -214,6 +214,15 @@ auto XournalView::onKeyPressEvent(const KeyEvent& event) -> bool {
             control->getScrollHandler()->goToPreviousPage();
             return true;
         }
+
+        // UTN: quick continuous eraser sizing
+        if (control->getToolHandler()->getToolType() == TOOL_ERASER &&
+            (keyval == GDK_KEY_bracketleft || keyval == GDK_KEY_bracketright)) {
+            auto* tools = control->getToolHandler();
+            double delta = keyval == GDK_KEY_bracketleft ? -0.5 : 0.5;
+            tools->setEraserThickness(tools->getEraserThickness() + delta);
+            return true;
+        }
     }
 
     if (keyval == GDK_KEY_space) {
