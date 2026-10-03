@@ -227,6 +227,20 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
                 text->setAttrib(xoj::xml_attrs::JUSTIFY_STR, xoj::xml_values::TRUE_STR);
             }
 
+            if (t->isBoxEnabled()) {
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_STR, xoj::xml_values::TRUE_STR);
+
+                Color background = t->getBoxBackgroundColor();
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_BACKGROUND_STR,
+                                getColorStr(background, background.alpha).c_str());
+
+                Color border = t->getBoxBorderColor();
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_BORDER_STR, getColorStr(border, border.alpha).c_str());
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_BORDER_WIDTH_STR, t->getBoxBorderWidth());
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_PADDING_STR, t->getBoxPadding());
+                text->setAttrib(xoj::xml_attrs::UTN_BOX_RADIUS_STR, t->getBoxCornerRadius());
+            }
+
             writeAudio(text, *t);
         } else if (e->getType() == ELEMENT_IMAGE) {
             auto* i = dynamic_cast<const Image*>(e);
