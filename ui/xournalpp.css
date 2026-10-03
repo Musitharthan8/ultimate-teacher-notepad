@@ -368,3 +368,9 @@ window.utnShell.utnHighContrast .utn-context-badge {
     color: #000000;
     border-color: #ffffff;
 }
+
+
+window.utnShell .utn-popover-title {
+    font-weight: bold;
+    padding: 4px 2px;
+}
