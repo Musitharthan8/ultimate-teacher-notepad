@@ -199,6 +199,10 @@ public:
      */
     double getThickness() const;
 
+    // UTN: continuous eraser thickness
+    double getEraserThickness() const;
+    void setEraserThickness(double thickness);
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -391,6 +395,9 @@ protected:
 
 private:
     std::array<std::unique_ptr<Tool>, TOOL_COUNT> tools;
+
+    // UTN: continuous eraser size
+    double eraserThickness = 8.50;
 
     /**
      * @brief Get the Button Tool pointer based on enum
