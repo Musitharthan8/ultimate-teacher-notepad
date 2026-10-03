@@ -560,6 +560,32 @@ void ToolUtnContextBar::appendTextControls() {
             control);
     gtk_box_append(box, lineSpacing);
 
+    GtkWidget* bullets = gtk_button_new_with_label("• List");
+    gtk_widget_set_tooltip_text(bullets, _("Toggle bullet list"));
+    g_signal_connect(
+            bullets,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                if (auto* editor = static_cast<Control*>(data)->getTextEditor(); editor) {
+                    editor->toggleBulletList();
+                }
+            }),
+            control);
+    gtk_box_append(box, bullets);
+
+    GtkWidget* numbers = gtk_button_new_with_label("1. List");
+    gtk_widget_set_tooltip_text(numbers, _("Toggle numbered list"));
+    g_signal_connect(
+            numbers,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                if (auto* editor = static_cast<Control*>(data)->getTextEditor(); editor) {
+                    editor->toggleNumberedList();
+                }
+            }),
+            control);
+    gtk_box_append(box, numbers);
+
     appendSeparator();
 
     struct AlignEntry {
