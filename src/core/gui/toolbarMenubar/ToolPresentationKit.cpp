@@ -14,8 +14,31 @@
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
 #include "enums/Action.enum.h"
+#include "gui/MainWindow.h"
+#include "gui/PageView.h"
+#include "gui/XournalView.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
+
+namespace {
+void repaintPresentationOverlay(Control* control) {
+    if (auto* window = control->getWindow()) {
+        if (auto* xournal = window->getXournal()) {
+            if (auto* pageView = xournal->getViewFor(control->getCurrentPageNo())) {
+                pageView->repaintPage();
+            }
+        }
+    }
+}
+
+void selectTemporaryTool(Control* control, ToolType tool) {
+    auto* tools = control->getToolHandler();
+    tools->clearPresentationOverlay();
+    tools->selectTool(tool);
+    tools->fireToolChanged();
+    repaintPresentationOverlay(control);
+}
+}  // namespace
 
 ToolPresentationKit::ToolPresentationKit(std::string id, Control* control):
         AbstractToolItem(std::move(id), Category::MISC), control(control) {}
@@ -42,8 +65,7 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 G_CALLBACK(+[](GtkButton* button, gpointer data) {
                     auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                     auto tool = static_cast<ToolType>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-tool")));
-                    ctrl->getToolHandler()->selectTool(tool);
-                    ctrl->getToolHandler()->fireToolChanged();
+                    selectTemporaryTool(ctrl, tool);
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }),
                 popover);
@@ -53,7 +75,47 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     addToolButton(_("Temporary Ink"), TOOL_LASER_POINTER_PEN);
     addToolButton(_("Temporary Highlight"), TOOL_LASER_POINTER_HIGHLIGHTER);
-    addToolButton(_("Return to Pen"), TOOL_PEN);
+
+    GtkWidget* spotlight = gtk_button_new_with_label(_("Spotlight"));
+    g_signal_connect(
+            spotlight,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+                tools->setSpotlightEnabled(true);
+                tools->selectTool(TOOL_HAND);
+                tools->fireToolChanged();
+                repaintPresentationOverlay(ctrl);
+            }),
+            control);
+    gtk_box_append(panel, spotlight);
+
+    GtkWidget* curtain = gtk_button_new_with_label(_("Curtain Reveal"));
+    g_signal_connect(
+            curtain,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+                tools->setCurtainEnabled(true);
+                tools->selectTool(TOOL_HAND);
+                tools->fireToolChanged();
+                repaintPresentationOverlay(ctrl);
+            }),
+            control);
+    gtk_box_append(panel, curtain);
+
+    GtkWidget* returnToPen = gtk_button_new_with_label(_("Return to Pen"));
+    g_signal_connect(
+            returnToPen,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                selectTemporaryTool(ctrl, TOOL_PEN);
+            }),
+            control);
+    gtk_box_append(panel, returnToPen);
 
     gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
