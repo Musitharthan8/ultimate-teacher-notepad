@@ -301,12 +301,23 @@ bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
                     double top = std::min(bestRect->y1, bestRect->y2);
                     double bottom = std::max(bestRect->y1, bestRect->y2);
                     double centerY = 0.5 * (top + bottom);
+                    double targetY = centerY;
+                    double targetWidth = std::max(1.0, (bottom - top) * 0.85);
 
-                    Point snappedStart(dx >= 0.0 ? left : right, centerY);
-                    Point snappedEnd(dx >= 0.0 ? right : left, centerY);
+                    if (snapMode == SmartHighlighterSnapMode::Underline) {
+                        // Sit just above the text box bottom so the line follows the baseline visually.
+                        targetY = bottom - std::max(1.0, (bottom - top) * 0.08);
+                        targetWidth = std::clamp((bottom - top) * 0.10, 1.2, 3.0);
+                    } else if (snapMode == SmartHighlighterSnapMode::Strikethrough) {
+                        targetY = centerY;
+                        targetWidth = std::clamp((bottom - top) * 0.10, 1.2, 3.0);
+                    }
+
+                    Point snappedStart(dx >= 0.0 ? left : right, targetY);
+                    Point snappedEnd(dx >= 0.0 ? right : left, targetY);
 
                     stroke->setPointVector(std::vector<Point>{snappedStart, snappedEnd});
-                    stroke->setWidth(std::max(1.0, (bottom - top) * 0.85));
+                    stroke->setWidth(targetWidth);
 
                     repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
                     this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
