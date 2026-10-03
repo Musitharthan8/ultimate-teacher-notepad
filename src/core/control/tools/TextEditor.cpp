@@ -1258,6 +1258,14 @@ void TextEditor::initializeEditionAt(double x, double y) {
         this->textElement->setJustify(h->getTextJustify());
         this->textElement->setBoxEnabled(h->isAnswerBoxEnabled());
 
+        if (h->isAnswerBoxEnabled()) {
+            this->textElement->setBoxBackgroundColor(h->getAnswerBoxBackgroundColor());
+            this->textElement->setBoxBorderColor(h->getAnswerBoxBorderColor());
+            this->textElement->setBoxBorderWidth(h->getAnswerBoxBorderWidth());
+            this->textElement->setBoxPadding(h->getAnswerBoxPadding());
+            this->textElement->setBoxCornerRadius(h->getAnswerBoxCornerRadius());
+        }
+
 #ifdef ENABLE_AUDIO
         if (auto audioController = control->getAudioController(); audioController && audioController->isRecording()) {
             fs::path audioFilename = audioController->getAudioFilename();
