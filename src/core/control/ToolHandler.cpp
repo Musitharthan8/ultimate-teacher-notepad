@@ -355,6 +355,14 @@ void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
     this->smartHighlighterEnabled = enabled;
 }
 
+auto ToolHandler::isAnswerBoxEnabled() const -> bool {
+    return this->answerBoxEnabled;
+}
+
+void ToolHandler::setAnswerBoxEnabled(bool enabled) {
+    this->answerBoxEnabled = enabled;
+}
+
 void ToolHandler::setSize(ToolSize size) {
     ToolSize clippedSize = std::clamp(size, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK);
     if (clippedSize != size)
