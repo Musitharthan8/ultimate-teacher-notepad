@@ -1,6 +1,6 @@
 # UTN 0.2 — The Teacher Interface
 
-UTN 0.1 proved the classroom features. UTN 0.2 makes them feel like one deliberate teaching application.
+UTN 0.1 proved the classroom features. UTN 0.2 makes them feel like one deliberate teaching application rather than a collection of additions to Xournal++.
 
 ## Product principles
 
@@ -20,64 +20,149 @@ UTN 0.1 proved the classroom features. UTN 0.2 makes them feel like one delibera
 ## Shell layout
 
 ### Top app bar
-File actions, undo/redo, Clear, Student View, Presentation, Appearance.
+File actions, undo/redo, one-tap Clear, Student View, Presentation and Appearance.
 
 ### Left tool rail
-Pen, Eraser, Markup, Text, Answer Box, Feedback, Shapes/Draw, Select, Hand.
+Pen, Eraser, Markup, Text, Answer Box, Feedback, Prepare / Reveal, Teaching Tools, Select and Hand.
 
-### Context bar
-Tool-specific properties. UTN 0.2 begins with the existing controls arranged here; later revisions will dynamically change this bar when tools change.
+### Dynamic context bar
+The second toolbar changes with the active teaching tool.
 
-### Bottom status bar
-Page, page label, layer, navigation, zoom, presentation/student-view state.
+Implemented contexts include:
+- Pen: profiles, colour, size and pressure
+- Eraser: continuous size
+- Markup: colour, size, opacity and smart mode
+- Text: font, size, style, spacing, lists and alignment
+- Answer Box: text controls, presets, fill, border and box geometry
+- Shape: shape identity, colour, size and fill
+- Selection: editable properties, stacking order and delete
+
+### Bottom lesson bar
+A compact Lesson Navigator replaces the old page-spinner/page-label pair in the main UTN layouts. It shows the current page and classroom label, provides previous/next navigation, quick labels, previous/next labelled-page jumps and a scrollable lesson map.
+
+Classic Xournal++ toolbar layouts remain available.
 
 ## Markup
-Smart Highlighter becomes the primary markup tool. The legacy highlighter remains available in Classic layouts but is removed from the main UTN shell.
 
-Planned markup modes:
+Markup is UTN's primary highlighter/annotation tool. The legacy Highlighter remains available in Classic layouts.
+
+Implemented modes:
 - Freehand
 - Straighten
 - Snap to Word
 - Snap to Line
-- Underline
-- Strikethrough
+- Underline Text
+- Strikethrough Text
+
+Word/line/underline/strikethrough snapping uses selectable PDF text geometry. Image-only/scanned PDFs still need OCR before equivalent semantic snapping is possible.
 
 ## Text
-Text is a first-class teaching tool. Planned contextual controls:
+
+Text is a first-class teaching tool.
+
+Implemented contextual controls:
 - Font family
 - Font size
 - Bold / italic / underline / strikethrough
 - Text colour
 - Left / centre / right / justify
 - Line spacing
-- Lists
-- Background
-- Answer-box conversion
-- Border, padding and corner radius
+- Bullet list
+- Numbered list
+- Answer Box styling
+
+Underline, strikethrough and line spacing are stored as UTN text attributes in XOPP files. Existing Answer Boxes load their style into the context bar when edited.
+
+## Answer Boxes
+
+Answer Boxes are text objects with teacher-friendly presentation styling:
+- independent text colour
+- background colour
+- border colour
+- border width
+- padding
+- rounded corners
+- Model Answer / Definition / Warning / Note presets
+
+Style changes are reflected live while editing.
+
+## Feedback Bank
+
+The former stamp control is now a categorized Feedback Bank.
+
+Current groups:
+- Quick
+- Writing
+- Language
+- Comprehension
+- Custom
+
+Feedback has its own colour and places as a one-shot text object.
+
+## Student View
+
+Student View is a separate, clean display window that omits teacher-only layers.
+
+Implemented classroom controls:
+- Freeze Student View
+- Blank Student View
+- Fullscreen Student View
+- Close Student View
+
+Freeze allows the teacher to work ahead privately while students continue seeing the frozen frame.
+
+## Prepare / Reveal
+
+Prepared answers use layers prefixed with `UTN Reveal`. Teachers can prepare, hide and reveal them during a lesson. Student View hides both `UTN Reveal*` and `UTN Teacher*` layers.
+
+## Clear workflow
+
+The primary Clear button removes annotations from the current page as one undoable operation while preserving the page/PDF background.
+
+More granular options remain available:
+- Delete Selection
+- Clear Current Layer
+- Clear Page Annotations
+
+## Teaching Tools
+
+Less frequently used drawing and STEM controls are grouped instead of permanently occupying the main rail:
+- Line
+- Rectangle
+- Ellipse
+- Arrow
+- Double Arrow
+- Coordinate System
+- Smart Shape
+- Set Square
+- Compass
+- Equation / TeX
+- Image
 
 ## Appearance
+
 Supported shell appearances:
 - System
 - Light
 - Dark
 - High Contrast
 
-These affect only application chrome, toolbars, panels, popovers, sidebars and workspace framing. PDF pages, notebook pages, images and exports are never theme-inverted.
+A separate Touch-friendly controls option enlarges targets for stylus/tablet use. These settings affect only application chrome, toolbars, panels, popovers, sidebars and workspace framing. PDF pages, notebook pages, images and exports are never theme-inverted.
 
-## Clear workflow
-The Clear control should prioritise safe, undoable classroom cleanup:
-- Delete selection
-- Clear current layer
-- Later: clear page annotations across layers
-- Later: clear temporary presentation ink
-- Later: document-wide annotation cleanup with confirmation
+## Responsiveness and performance
 
-## Current 0.2 implementation goals
-- UTN shell layout
-- UTN-specific shell styling
-- shell appearance control
-- High Contrast shell mode
-- Clear control
-- remove legacy Highlighter from the primary UTN shell
-- keep Classic Xournal layouts available
-- preserve all UTN 0.1 features
+The main UTN layouts support desktop and tablet-oriented use. A targeted eraser optimisation skips expensive highlighter-overlap tracking for ordinary monotonic highlight strokes while preserving the full path for complex self-overlapping highlights.
+
+Ink responsiveness remains higher priority than decorative UI.
+
+## Still to do
+
+- final UTN iconography and visual polish
+- responsive/compact handling for very narrow context bars
+- true round/square/flat eraser geometry
+- further eraser/highlighter profiling after real classroom testing
+- richer pen engines rather than profile presets alone
+- temporary presentation-ink cleanup control
+- OCR for scanned PDFs
+- handwriting-to-text
+- packaging/installer and cross-platform release work
