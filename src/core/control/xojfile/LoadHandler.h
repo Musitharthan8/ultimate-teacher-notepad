@@ -103,9 +103,10 @@ private:
     void setStrokePoints(std::vector<Point> pointVector, bool hasPressure) override;
     void finalizeStroke() override;
     void addText(std::string font, double size, xoj::util::Matrix matrix, Color color, std::optional<double> wrap,
-                 std::optional<TextAlignment> align, bool justify, bool boxEnabled, Color boxBackground,
-                 Color boxBorder, double boxBorderWidth, double boxPadding, double boxRadius,
-                 fs::path filename, size_t timestamp) override;
+                 std::optional<TextAlignment> align, bool justify, bool underlined, bool strikethrough,
+                 double lineSpacing, bool boxEnabled, Color boxBackground, Color boxBorder,
+                 double boxBorderWidth, double boxPadding, double boxRadius, fs::path filename,
+                 size_t timestamp) override;
     void setTextContents(std::string contents) override;
     void finalizeText() override;
     void addImageLegacy(double left, double top, double right, double bottom,
