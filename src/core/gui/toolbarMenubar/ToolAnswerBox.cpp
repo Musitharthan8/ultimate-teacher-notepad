@@ -12,6 +12,8 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "util/Color.h"
+#include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
 ToolAnswerBox::ToolAnswerBox(std::string id, Control* control, IconNameHelper iconNameHelper):
@@ -20,19 +22,20 @@ ToolAnswerBox::ToolAnswerBox(std::string id, Control* control, IconNameHelper ic
         iconName(iconNameHelper.iconName("tool-text")) {}
 
 auto ToolAnswerBox::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkToolItem* item = gtk_toggle_tool_button_new();
-    gtk_tool_button_set_icon_widget(GTK_TOOL_BUTTON(item), getNewToolIcon());
-    gtk_widget_set_tooltip_text(GTK_WIDGET(item), getToolDisplayName().c_str());
+    auto* tools = control->getToolHandler();
 
-    gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(item), control->getToolHandler()->isAnswerBoxEnabled());
+    GtkWidget* toggle = gtk_toggle_button_new();
+    gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
+    gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->isAnswerBoxEnabled());
 
     // Enable answer box mode and switch directly to text
     g_signal_connect(
-            item,
+            toggle,
             "toggled",
-            G_CALLBACK(+[](GtkToggleToolButton* button, gpointer data) {
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                bool enabled = gtk_toggle_tool_button_get_active(button);
+                bool enabled = gtk_toggle_button_get_active(button);
 
                 auto* tools = ctrl->getToolHandler();
                 tools->setAnswerBoxEnabled(enabled);
@@ -44,7 +47,107 @@ auto ToolAnswerBox::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             }),
             control);
 
-    return xoj::util::WidgetSPtr(GTK_WIDGET(item), xoj::util::adopt);
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    auto appendRow = [panel](const char* label, GtkWidget* widget) {
+        GtkBox* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+        GtkWidget* text = gtk_label_new(label);
+        gtk_widget_set_halign(text, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(text, true);
+        gtk_box_append(row, text);
+        gtk_box_append(row, widget);
+        gtk_box_append(panel, GTK_WIDGET(row));
+    };
+
+    GdkRGBA background = Util::argb_to_GdkRGBA(tools->getAnswerBoxBackgroundColor());
+    GtkWidget* backgroundButton = gtk_color_button_new_with_rgba(&background);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(backgroundButton), true);
+    g_signal_connect(
+            backgroundButton,
+            "color-set",
+            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                GdkRGBA color{};
+                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
+                ctrl->getToolHandler()->setAnswerBoxBackgroundColor(Util::GdkRGBA_to_argb(color));
+            }),
+            control);
+    appendRow(_("Background"), backgroundButton);
+
+    GdkRGBA border = Util::argb_to_GdkRGBA(tools->getAnswerBoxBorderColor());
+    GtkWidget* borderButton = gtk_color_button_new_with_rgba(&border);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(borderButton), true);
+    g_signal_connect(
+            borderButton,
+            "color-set",
+            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                GdkRGBA color{};
+                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &color);
+                ctrl->getToolHandler()->setAnswerBoxBorderColor(Util::GdkRGBA_to_argb(color));
+            }),
+            control);
+    appendRow(_("Border"), borderButton);
+
+    GtkWidget* borderWidth = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 8.0, 0.2);
+    gtk_range_set_value(GTK_RANGE(borderWidth), tools->getAnswerBoxBorderWidth());
+    gtk_scale_set_digits(GTK_SCALE(borderWidth), 1);
+    gtk_widget_set_size_request(borderWidth, 140, -1);
+    g_signal_connect(
+            borderWidth,
+            "value-changed",
+            G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                static_cast<Control*>(data)->getToolHandler()->setAnswerBoxBorderWidth(gtk_range_get_value(range));
+            }),
+            control);
+    appendRow(_("Border width"), borderWidth);
+
+    GtkWidget* padding = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 24.0, 1.0);
+    gtk_range_set_value(GTK_RANGE(padding), tools->getAnswerBoxPadding());
+    gtk_scale_set_digits(GTK_SCALE(padding), 0);
+    gtk_widget_set_size_request(padding, 140, -1);
+    g_signal_connect(
+            padding,
+            "value-changed",
+            G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                static_cast<Control*>(data)->getToolHandler()->setAnswerBoxPadding(gtk_range_get_value(range));
+            }),
+            control);
+    appendRow(_("Padding"), padding);
+
+    GtkWidget* radius = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 24.0, 1.0);
+    gtk_range_set_value(GTK_RANGE(radius), tools->getAnswerBoxCornerRadius());
+    gtk_scale_set_digits(GTK_SCALE(radius), 0);
+    gtk_widget_set_size_request(radius, 140, -1);
+    g_signal_connect(
+            radius,
+            "value-changed",
+            G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                static_cast<Control*>(data)->getToolHandler()->setAnswerBoxCornerRadius(gtk_range_get_value(range));
+            }),
+            control);
+    appendRow(_("Corner radius"), radius);
+
+    GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Answer Box Style"));
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+    gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+
+    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
+    gtk_box_append(box, toggle);
+    gtk_box_append(box, GTK_WIDGET(menuButton));
+
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
 }
 
 auto ToolAnswerBox::getToolDisplayName() const -> std::string {
