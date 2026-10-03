@@ -2089,7 +2089,7 @@ void Control::updateWindowTitle() {
     }
     this->doc->unlock_shared();
 
-    title += " - Xournal++";
+    title += " - Ultimate Teacher Notepad";
 
     gtk_window_set_title(getGtkWindow(), title.c_str());
 }
