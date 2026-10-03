@@ -45,6 +45,7 @@
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
 #include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
+#include "ToolTeacherStamp.h"       // for ToolTeacherStamp
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
@@ -404,6 +405,9 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN answer box text mode
     emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
+
+    // UTN teacher stamps
+    emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
