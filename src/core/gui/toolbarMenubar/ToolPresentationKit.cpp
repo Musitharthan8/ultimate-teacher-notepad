@@ -163,5 +163,5 @@ auto ToolPresentationKit::getToolDisplayName() const -> std::string {
 }
 
 auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new("▶");
+    return gtk_label_new(_("Present"));
 }
