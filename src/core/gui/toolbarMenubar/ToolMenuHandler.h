@@ -35,6 +35,7 @@ class ToolButton;
 class ToolHandler;
 class ToolPageLayer;
 class ToolPageSpinner;
+class ToolLessonNavigator;
 class PageTypeMenu;
 class SpinPageAdapter;
 class ZoomControl;
@@ -122,6 +123,7 @@ private:
     std::vector<std::unique_ptr<AbstractToolItem>> toolItems;
 
     ToolPageSpinner* toolPageSpinner = nullptr;
+    ToolLessonNavigator* toolLessonNavigator = nullptr;
 
     Control* control = nullptr;
     ZoomControl* zoom = nullptr;
