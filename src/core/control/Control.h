@@ -258,6 +258,9 @@ public:
     // selection handling
     void clearSelection();
 
+    // UTN: remove all annotations from the current page as one undoable action
+    void clearCurrentPageAnnotations();
+
     void moveSelectionToLayer(size_t layerNo);
 
     void setCopyCutEnabled(bool enabled);
