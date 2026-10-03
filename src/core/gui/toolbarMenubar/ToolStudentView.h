@@ -12,6 +12,8 @@
 
 #include <gtk/gtk.h>
 
+#include "model/PageRef.h"
+
 #include "AbstractToolItem.h"
 
 class Control;
@@ -29,6 +31,9 @@ public:
 private:
     void showStudentView();
     void closeStudentView();
+    void setFrozen(bool frozen);
+    void setBlanked(bool blanked);
+    void setStudentFullscreen(bool enabled);
 
     static gboolean drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data);
     static gboolean refreshStudentView(gpointer data);
@@ -41,4 +46,7 @@ private:
     GtkWidget* drawingArea = nullptr;
     guint refreshTimer = 0;
     bool fullscreen = false;
+    bool frozen = false;
+    bool blanked = false;
+    PageRef frozenPage;
 };
