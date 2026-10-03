@@ -518,6 +518,77 @@ double Stroke::distanceTo(double x, double y) const {
     return distance;
 }
 
+static auto intersectLineSegmentWithCircle(const Point& p, const Point& q, const Point& center, double radius)
+        -> std::optional<Interval<double>> {
+    const double dx = q.x - p.x;
+    const double dy = q.y - p.y;
+    const double fx = p.x - center.x;
+    const double fy = p.y - center.y;
+
+    const double a = dx * dx + dy * dy;
+    if (a <= std::numeric_limits<double>::epsilon()) {
+        return std::hypot(fx, fy) <= radius ? std::optional<Interval<double>>(Interval<double>{0.0, 1.0}) :
+                                              std::nullopt;
+    }
+
+    const double b = 2.0 * (fx * dx + fy * dy);
+    const double cc = fx * fx + fy * fy - radius * radius;
+    const double discriminant = b * b - 4.0 * a * cc;
+
+    if (discriminant < 0.0) {
+        return std::nullopt;
+    }
+
+    const double root = std::sqrt(std::max(0.0, discriminant));
+    double t1 = (-b - root) / (2.0 * a);
+    double t2 = (-b + root) / (2.0 * a);
+    if (t1 > t2) {
+        std::swap(t1, t2);
+    }
+
+    const double lo = std::max(0.0, t1);
+    const double hi = std::min(1.0, t2);
+    if (lo >= hi) {
+        return std::nullopt;
+    }
+
+    return Interval<double>{lo, hi};
+}
+
+static auto intersectStrokeWithPaddedCircle(const std::vector<Point>& points, const PaddedBox& box, size_t firstIndex,
+                                             size_t lastIndex) -> IntersectionParametersContainer {
+    std::vector<Interval<PathParameter>> intervals;
+
+    for (size_t index = firstIndex; index <= lastIndex; ++index) {
+        const Point& p = points[index];
+        const Point& q = points[index + 1];
+
+        auto inner = intersectLineSegmentWithCircle(p, q, box.center, box.halfSize);
+        if (!inner) {
+            continue;
+        }
+
+        auto outer = intersectLineSegmentWithCircle(p, q, box.center, box.halfSizeWithPadding);
+        if (!outer) {
+            continue;
+        }
+
+        Interval<PathParameter> current{{index, outer->min}, {index, outer->max}};
+        if (!intervals.empty() && intervals.back().max == current.min) {
+            intervals.back().max = current.max;
+        } else {
+            intervals.emplace_back(current);
+        }
+    }
+
+    IntersectionParametersContainer result;
+    for (const auto& interval: intervals) {
+        result.emplace_back(interval.min);
+        result.emplace_back(interval.max);
+    }
+    return result;
+}
+
 /**
  * @brief Get the interval of length parameters where the line (pq) is in the rectangle.
  * @param p First point
@@ -589,11 +660,21 @@ static TinyVector<double, 2> intersectLineSegmentWithRectangle(const Point& p, c
 auto Stroke::intersectWithPaddedBox(const PaddedBox& box) const -> IntersectionParametersContainer {
     auto pointCount = this->points.size();
     if (pointCount < 2) {
-        if (pointCount == 1 && this->points.back().isInside(box.getInnerRectangle())) {
-            IntersectionParametersContainer result;
-            result.emplace_back(0U, 0.0);
-            result.emplace_back(0U, 0.0);
-            return result;
+        if (pointCount == 1) {
+            bool inside = false;
+            if (box.shape == UtnEraserShape::Round) {
+                inside = std::hypot(this->points.back().x - box.center.x, this->points.back().y - box.center.y) <=
+                         box.halfSize;
+            } else {
+                inside = this->points.back().isInside(box.getInnerRectangle());
+            }
+
+            if (inside) {
+                IntersectionParametersContainer result;
+                result.emplace_back(0U, 0.0);
+                result.emplace_back(0U, 0.0);
+                return result;
+            }
         }
         return IntersectionParametersContainer();
     }
@@ -603,6 +684,10 @@ auto Stroke::intersectWithPaddedBox(const PaddedBox& box) const -> IntersectionP
 auto Stroke::intersectWithPaddedBox(const PaddedBox& box, size_t firstIndex, size_t lastIndex) const
         -> IntersectionParametersContainer {
     xoj_assert(firstIndex <= lastIndex && lastIndex < this->points.size() - 1);
+
+    if (box.shape == UtnEraserShape::Round) {
+        return intersectStrokeWithPaddedCircle(this->points, box, firstIndex, lastIndex);
+    }
 
     const auto innerBox = box.getInnerRectangle();
     const auto outerBox = box.getOuterRectangle();
