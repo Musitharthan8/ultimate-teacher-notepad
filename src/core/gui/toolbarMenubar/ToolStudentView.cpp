@@ -8,6 +8,7 @@
 
 #include "ToolStudentView.h"
 
+#include <array>
 #include <string>
 #include <utility>
 
@@ -69,7 +70,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* hide = gtk_button_new_with_label(_("Hide Student View"));
     GtkWidget* notes = gtk_button_new_with_label(_("Create Teacher Notes Layer"));
 
-    for (GtkWidget* button: {open, fullscreen, windowed, hide, notes}) {
+    const std::array<GtkWidget*, 5> buttons{open, fullscreen, windowed, hide, notes};
+    for (GtkWidget* button: buttons) {
         gtk_widget_set_can_focus(button, false);
         g_object_set_data(G_OBJECT(button), "utn-control", control);
     }
