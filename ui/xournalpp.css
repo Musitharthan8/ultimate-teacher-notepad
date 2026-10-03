@@ -374,3 +374,23 @@ window.utnShell .utn-popover-title {
     font-weight: bold;
     padding: 4px 2px;
 }
+
+
+/* Larger targets for stylus/touch teaching without changing the document. */
+window.utnShell.utnTouch toolbar button,
+window.utnShell.utnTouch popover.toolbar button {
+    padding: 10px;
+    min-height: 28px;
+}
+
+window.utnShell.utnTouch #tbLeft1 button {
+    padding: 12px 10px;
+    min-width: 34px;
+    min-height: 34px;
+}
+
+window.utnShell.utnTouch #tbTop1,
+window.utnShell.utnTouch #tbTop2 {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
