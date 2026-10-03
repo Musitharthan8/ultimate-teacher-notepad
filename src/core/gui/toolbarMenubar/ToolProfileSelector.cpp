@@ -53,7 +53,8 @@ void applyProfile(Control* control, Profile profile) {
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_VERY_FINE);
-            tools->setColor(Colors::gray, false);
+            // Softer graphite-like pencil tone
+            tools->setColor(Color{92U, 92U, 92U, 175U}, false);
             break;
         case Profile::Brush:
             tools->selectTool(TOOL_PEN);
@@ -65,7 +66,8 @@ void applyProfile(Control* control, Profile profile) {
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_THICK);
-            tools->setColor(Colors::xopp_darkorange, false);
+            // Slightly translucent broad marker
+            tools->setColor(Color{255U, 128U, 0U, 220U}, false);
             break;
         case Profile::Highlighter:
             tools->selectTool(TOOL_HIGHLIGHTER);
