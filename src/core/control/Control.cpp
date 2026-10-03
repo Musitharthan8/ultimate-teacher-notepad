@@ -1149,6 +1149,14 @@ void Control::undoRedoPageChanged(PageRef page) {
 }
 
 void Control::selectTool(ToolType type) {
+    // UTN special modes use ToolHandler directly; ordinary toolbar choices reset them.
+    if (type == TOOL_TEXT) {
+        toolHandler->setAnswerBoxEnabled(false);
+    }
+    if (type == TOOL_HIGHLIGHTER) {
+        toolHandler->setSmartHighlighterEnabled(false);
+    }
+
     // keep text-selection when switching from text to seletion tool
     auto oldTool = getToolHandler()->getActiveTool();
     if (oldTool && win && isSelectToolType(type) && oldTool->getToolType() == ToolType::TOOL_TEXT &&
