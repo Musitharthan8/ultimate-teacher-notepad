@@ -32,6 +32,7 @@ private:
 
     static gboolean drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data);
     static gboolean refreshStudentView(gpointer data);
+    static gboolean studentViewKeyPressed(GtkWidget* widget, GdkEventKey* event, gpointer data);
     static void studentViewDestroyed(GtkWidget* widget, gpointer data);
 
 private:
@@ -39,4 +40,5 @@ private:
     GtkWidget* window = nullptr;
     GtkWidget* drawingArea = nullptr;
     guint refreshTimer = 0;
+    bool fullscreen = false;
 };
