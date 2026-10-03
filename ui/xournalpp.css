@@ -225,3 +225,113 @@ image.flying-icon.TL {
 image.flying-icon.TR {
     border-radius: 50% 50% 50% 0%;
 }
+
+
+/* -------------------------------------------------------------------------
+ * UTN teacher shell
+ * These rules style application chrome only. Document rendering is untouched.
+ * ------------------------------------------------------------------------- */
+
+window.utnShell menubar {
+    background-color: #f7f8fb;
+    border-bottom: 1px solid #dfe3e8;
+}
+
+window.utnShell #tbTop1 {
+    background-color: #f7f8fb;
+    border-bottom: 1px solid #dfe3e8;
+    padding: 6px 8px;
+}
+
+window.utnShell #tbTop2 {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e7e9ed;
+    padding: 5px 8px;
+}
+
+window.utnShell #tbLeft1 {
+    background-color: #f5f7fa;
+    border-right: 1px solid #dfe3e8;
+    padding: 8px 5px;
+}
+
+window.utnShell #tbBottom1 {
+    background-color: #f7f8fb;
+    border-top: 1px solid #dfe3e8;
+    padding: 3px 8px;
+}
+
+window.utnShell #sidebar {
+    background-color: #f7f8fb;
+    border-right: 1px solid #dfe3e8;
+}
+
+window.utnShell toolbar button,
+window.utnShell popover.toolbar button {
+    border-radius: 8px;
+    padding: 6px;
+}
+
+window.utnShell #tbLeft1 button {
+    padding: 9px;
+    margin: 1px 0;
+}
+
+window.utnShell toolbar button:checked,
+window.utnShell toolbar button:active {
+    background-color: alpha(#4f7cff, 0.18);
+    border-color: alpha(#4f7cff, 0.55);
+}
+
+window.utnShell toolbar separator {
+    margin: 4px;
+}
+
+/* Dark changes the shell only; pages/PDFs remain rendered by the document view. */
+window.utnShell.darkMode menubar,
+window.utnShell.darkMode #tbTop1,
+window.utnShell.darkMode #tbBottom1,
+window.utnShell.darkMode #sidebar {
+    background-color: #20242b;
+    color: #f5f7fa;
+    border-color: #343a44;
+}
+
+window.utnShell.darkMode #tbTop2,
+window.utnShell.darkMode #tbLeft1 {
+    background-color: #272c34;
+    color: #f5f7fa;
+    border-color: #343a44;
+}
+
+window.utnShell.darkMode toolbar button:checked,
+window.utnShell.darkMode toolbar button:active {
+    background-color: alpha(#7da0ff, 0.28);
+    border-color: #7da0ff;
+}
+
+/* High Contrast deliberately avoids subtle grey-on-grey states. */
+window.utnShell.utnHighContrast menubar,
+window.utnShell.utnHighContrast #tbTop1,
+window.utnShell.utnHighContrast #tbTop2,
+window.utnShell.utnHighContrast #tbLeft1,
+window.utnShell.utnHighContrast #tbBottom1,
+window.utnShell.utnHighContrast #sidebar {
+    background-color: #000000;
+    color: #ffffff;
+    border-color: #ffffff;
+}
+
+window.utnShell.utnHighContrast toolbar button {
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    box-shadow: none;
+}
+
+window.utnShell.utnHighContrast toolbar button:checked,
+window.utnShell.utnHighContrast toolbar button:active,
+window.utnShell.utnHighContrast toolbar button:hover {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+}
