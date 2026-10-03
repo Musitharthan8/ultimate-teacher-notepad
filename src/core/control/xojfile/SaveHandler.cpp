@@ -125,6 +125,10 @@ void SaveHandler::visitStroke(XmlPointNode* stroke, const Stroke* s) {
 
     stroke->setAttrib(xoj::xml_attrs::COLOR_STR, getColorStr(s->getColor(), alpha).c_str());
 
+    if (s->getHighlighterGroupId() != 0) {
+        stroke->setAttrib(xoj::xml_attrs::UTN_HIGHLIGHTER_GROUP_STR, s->getHighlighterGroupId());
+    }
+
     const auto& pts = s->getPointVector();
 
     stroke->setPoints(pts);
