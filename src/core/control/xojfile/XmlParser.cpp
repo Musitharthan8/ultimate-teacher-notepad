@@ -460,6 +460,13 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
     const bool justify =
             XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::JUSTIFY_STR, attributeMap, false, false);
 
+    const bool underlined =
+            XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::UTN_UNDERLINE_STR, attributeMap, false, false);
+    const bool strikethrough =
+            XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::UTN_STRIKETHROUGH_STR, attributeMap, false, false);
+    const double lineSpacing =
+            XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::UTN_LINE_SPACING_STR, attributeMap, 1.0, false);
+
     // UTN answer box attributes
     const bool boxEnabled =
             XmlParserHelper::getAttribMandatory<bool>(xoj::xml_attrs::UTN_BOX_STR, attributeMap, false, false);
@@ -506,9 +513,9 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
         matrix = xoj::util::Matrix::TRANSLATION(x, y);
     }
 
-    this->builder.addText(std::string{font}, size, matrix.value(), color, wrap, align, justify, boxEnabled,
-                          boxBackground, boxBorder, boxBorderWidth, boxPadding, boxRadius, std::move(tempFilename),
-                          tempTimestamp);
+    this->builder.addText(std::string{font}, size, matrix.value(), color, wrap, align, justify, underlined,
+                          strikethrough, lineSpacing, boxEnabled, boxBackground, boxBorder, boxBorderWidth, boxPadding,
+                          boxRadius, std::move(tempFilename), tempTimestamp);
 
     this->tempTimestamp = 0;
 }
