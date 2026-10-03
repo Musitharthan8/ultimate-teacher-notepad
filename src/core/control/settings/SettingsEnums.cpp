@@ -57,6 +57,9 @@ auto themeVariantFromString(const std::string& themeVariantStr) -> ThemeVariant 
     if (themeVariantStr == "forceDark") {
         return THEME_VARIANT_FORCE_DARK;
     }
+    if (themeVariantStr == "highContrast") {
+        return THEME_VARIANT_HIGH_CONTRAST;
+    }
     g_warning("Settings::Unknown theme variant: %s\n", themeVariantStr.c_str());
     return THEME_VARIANT_USE_SYSTEM;
 }
