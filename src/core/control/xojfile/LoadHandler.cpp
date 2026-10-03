@@ -304,7 +304,8 @@ void LoadHandler::finalizeLayer() {
 }
 
 void LoadHandler::addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
-                            const LineStyle& lineStyle, fs::path filename, size_t timestamp) {
+                            const LineStyle& lineStyle, uint64_t highlighterGroupId,
+                            fs::path filename, size_t timestamp) {
     xoj_assert(!this->stroke);
     this->stroke = std::make_unique<Stroke>();
 
@@ -314,6 +315,7 @@ void LoadHandler::addStroke(StrokeTool tool, Color color, double width, int fill
     this->stroke->setFill(fill);
     this->stroke->setStrokeCapStyle(capStyle);
     this->stroke->setLineStyle(lineStyle);
+    this->stroke->setHighlighterGroupId(highlighterGroupId);
 
     setAudioAttributes(*this->stroke, std::move(filename), timestamp);
 }
