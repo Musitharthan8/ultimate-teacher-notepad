@@ -25,6 +25,7 @@ public:
     void show();
     void hide();
     void setFullscreen(bool enabled);
+    void projectToSecondaryDisplay();
     void refresh();
 
     bool isVisible() const;
