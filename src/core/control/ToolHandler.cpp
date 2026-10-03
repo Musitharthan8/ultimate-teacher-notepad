@@ -320,12 +320,31 @@ auto ToolHandler::getTextJustify() const -> bool { return this->getTool(TOOL_TEX
 
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
+
+    // UTN: use continuous thickness for the toolbar eraser
+    if (tool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        return this->eraserThickness;
+    }
+
     if (tool->thickness) {
         return tool->thickness.value()[tool->getSize()];
     }
 
     g_warning("Request size of \"%s\"", tool->getName().c_str());
     return 0;
+}
+
+auto ToolHandler::getEraserThickness() const -> double {
+    return this->eraserThickness;
+}
+
+void ToolHandler::setEraserThickness(double thickness) {
+    // Clamp eraser thickness to a usable range
+    this->eraserThickness = std::clamp(thickness, 0.5, 30.0);
+
+    if (this->activeTool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        this->stateChangeListener->toolSizeChanged();
+    }
 }
 
 void ToolHandler::setSize(ToolSize size) {
