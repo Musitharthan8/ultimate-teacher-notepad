@@ -239,8 +239,10 @@ void XmlParser::parseMrWriterTag(const XmlParserHelper::AttributeMap& attributeM
 void XmlParser::parsePageTag(const XmlParserHelper::AttributeMap& attributeMap) {
     const auto width = XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::WIDTH_STR, attributeMap);
     const auto height = XmlParserHelper::getAttribMandatory<double>(xoj::xml_attrs::HEIGHT_STR, attributeMap);
+    const auto pageLabel =
+            XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_PAGE_LABEL_STR, attributeMap);
 
-    this->builder.addPage(width, height);
+    this->builder.addPage(width, height, pageLabel ? std::string{*pageLabel} : std::string{});
 }
 
 void XmlParser::parseAudioTag(const XmlParserHelper::AttributeMap& attributeMap) {
