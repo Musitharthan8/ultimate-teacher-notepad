@@ -16,6 +16,7 @@
 #include "util/StringUtils.h"
 #include "util/matrix/RectangleMultiply.h"
 #include "util/raii/GObjectSPtr.h"
+#include "util/raii/PangoSPtr.h"
 #include "util/safe_casts.h"                      // for round_cast
 #include "util/serializing/ObjectInputStream.h"   // for ObjectInputStream
 #include "util/serializing/ObjectOutputStream.h"  // for ObjectOutputStream
