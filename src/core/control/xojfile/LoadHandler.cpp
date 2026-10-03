@@ -354,8 +354,9 @@ void LoadHandler::finalizeStroke() {
 
 void LoadHandler::addText(std::string font, double size, xoj::util::Matrix matrix, Color color,
                           std::optional<double> wrap, std::optional<TextAlignment> align, bool justify,
-                          bool boxEnabled, Color boxBackground, Color boxBorder, double boxBorderWidth,
-                          double boxPadding, double boxRadius, fs::path filename, size_t timestamp) {
+                          bool underlined, bool strikethrough, double lineSpacing, bool boxEnabled,
+                          Color boxBackground, Color boxBorder, double boxBorderWidth, double boxPadding,
+                          double boxRadius, fs::path filename, size_t timestamp) {
     xoj_assert(!this->text);
     this->text = std::make_unique<Text>();
 
@@ -367,6 +368,9 @@ void LoadHandler::addText(std::string font, double size, xoj::util::Matrix matri
     this->text->setWrap(wrap.value_or(Text::NO_WRAP));
     this->text->setAlignment(align.value_or(TextAlignment::LEFT));
     this->text->setJustify(justify);
+    this->text->setUnderlined(underlined);
+    this->text->setStrikethrough(strikethrough);
+    this->text->setLineSpacing(lineSpacing);
     this->text->setBoxEnabled(boxEnabled);
     this->text->setBoxBackgroundColor(boxBackground);
     this->text->setBoxBorderColor(boxBorder);
