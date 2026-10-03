@@ -15,7 +15,9 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"
+#include "control/tools/TextEditor.h"
 #include "model/Font.h"
 #include "model/TextAlignment.h"
 #include "util/Color.h"
@@ -497,6 +499,59 @@ void ToolUtnContextBar::appendTextControls() {
             control);
     gtk_box_append(box, italic);
 
+    GtkWidget* underline = gtk_toggle_button_new_with_label("U");
+    gtk_widget_set_tooltip_text(underline, _("Underline"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(underline), control->getToolHandler()->getTextUnderline());
+    g_signal_connect(
+            underline,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                bool enabled = gtk_toggle_button_get_active(button);
+                ctrl->getToolHandler()->setTextUnderline(enabled);
+                if (auto* editor = ctrl->getTextEditor(); editor) {
+                    editor->setUnderline(enabled);
+                }
+            }),
+            control);
+    gtk_box_append(box, underline);
+
+    GtkWidget* strike = gtk_toggle_button_new_with_label("S");
+    gtk_widget_set_tooltip_text(strike, _("Strikethrough"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(strike), control->getToolHandler()->getTextStrikethrough());
+    g_signal_connect(
+            strike,
+            "toggled",
+            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                bool enabled = gtk_toggle_button_get_active(button);
+                ctrl->getToolHandler()->setTextStrikethrough(enabled);
+                if (auto* editor = ctrl->getTextEditor(); editor) {
+                    editor->setStrikethrough(enabled);
+                }
+            }),
+            control);
+    gtk_box_append(box, strike);
+
+    appendLabel(_("Spacing"));
+    GtkWidget* lineSpacing = gtk_spin_button_new_with_range(0.8, 2.5, 0.1);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(lineSpacing), 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(lineSpacing), control->getToolHandler()->getTextLineSpacing());
+    gtk_widget_set_tooltip_text(lineSpacing, _("Line spacing"));
+    g_signal_connect(
+            lineSpacing,
+            "value-changed",
+            G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                double spacing = gtk_spin_button_get_value(spin);
+                ctrl->getToolHandler()->setTextLineSpacing(spacing);
+                if (auto* editor = ctrl->getTextEditor(); editor) {
+                    editor->setLineSpacing(spacing);
+                }
+            }),
+            control);
+    gtk_box_append(box, lineSpacing);
+
     appendSeparator();
 
     struct AlignEntry {
@@ -522,7 +577,7 @@ void ToolUtnContextBar::appendTextControls() {
                     auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                     auto alignment = static_cast<TextAlignment::Value>(
                             GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-align")));
-                    ctrl->getToolHandler()->setTextAlignment(TextAlignment{alignment});
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::TEXT_ALIGNMENT, alignment);
                 }),
                 nullptr);
 
@@ -535,8 +590,9 @@ void ToolUtnContextBar::appendTextControls() {
             justify,
             "toggled",
             G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
-                static_cast<Control*>(data)->getToolHandler()->setTextJustify(
-                        gtk_toggle_button_get_active(button));
+                auto* ctrl = static_cast<Control*>(data);
+                ctrl->getActionDatabase()->fireChangeActionState(
+                        Action::TEXT_JUSTIFY, gtk_toggle_button_get_active(button));
             }),
             control);
     gtk_box_append(box, justify);
