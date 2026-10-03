@@ -397,8 +397,6 @@ auto XournalppCursor::getResizeCursor(double deltaAngle) -> GdkCursor* {
 }
 
 auto XournalppCursor::getEraserCursor() -> GdkCursor* {
-
-    // Eraser's size follow a quadratic increment, so the cursor will do the same
     double cursorSize = control->getToolHandler()->getThickness() * 2.0 * control->getZoomControl()->getZoom();
     gulong flavour = static_cast<gulong>(64 * cursorSize);
 
@@ -408,18 +406,25 @@ auto XournalppCursor::getEraserCursor() -> GdkCursor* {
     this->currentCursor = CRSR_ERASER;
     this->currentCursorFlavour = flavour;
 
-    cairo_surface_t* surface =
-            cairo_image_surface_create(CAIRO_FORMAT_ARGB32, ceil_cast<int>(cursorSize), ceil_cast<int>(cursorSize));
+    // UTN: transparent eraser cursor with a high-contrast outline
+    double surfaceSize = std::max(3.0, std::ceil(cursorSize) + 2.0);
+    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, ceil_cast<int>(surfaceSize),
+                                                           ceil_cast<int>(surfaceSize));
     cairo_t* cr = cairo_create(surface);
-    cairo_rectangle(cr, 0, 0, cursorSize, cursorSize);
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_fill(cr);
-    cairo_rectangle(cr, 0, 0, cursorSize, cursorSize);
-    cairo_set_source_rgb(cr, 0, 0, 0);
+    double inset = (surfaceSize - cursorSize) / 2.0;
+
+    cairo_rectangle(cr, inset, inset, cursorSize, cursorSize);
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
+    cairo_set_line_width(cr, 3.0);
+    cairo_stroke_preserve(cr);
+
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.95);
+    cairo_set_line_width(cr, 1.0);
     cairo_stroke(cr);
+
     cairo_destroy(cr);
     GdkCursor* cursor =
-            gdk_cursor_new_from_surface(gdk_display_get_default(), surface, cursorSize / 2.0, cursorSize / 2.0);
+            gdk_cursor_new_from_surface(gdk_display_get_default(), surface, surfaceSize / 2.0, surfaceSize / 2.0);
     cairo_surface_destroy(surface);
     return cursor;
 }

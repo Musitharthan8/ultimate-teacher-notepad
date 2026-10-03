@@ -254,6 +254,11 @@ private:
 
     std::unique_ptr<LaserPointerHandler> laserPointer;
 
+    // UTN presentation overlay pointer position
+    double presentationPointerX = 0.0;
+    double presentationPointerY = 0.0;
+    bool presentationPointerInitialized = false;
+
     /**
      * For keeping old text changes to undo!
      */
