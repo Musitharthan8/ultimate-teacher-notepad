@@ -559,8 +559,14 @@ auto XojPageView::onMotionNotifyEvent(const PositionInputData& pos) -> bool {
     double x = pos.x / zoom;
     double y = pos.y / zoom;
 
-    ToolHandler* h = xournal->getControl()->getToolHandler();
-    auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+    Control* control = xournal->getControl();
+    ToolHandler* h = control->getToolHandler();
+    auto* pdfToolbox = control->getWindow()->getPdfToolbox();
+
+    // UTN: let the projector spotlight follow the teacher's pointer
+    if (control->isStudentSpotlightEnabled() && control->isStudentViewVisible()) {
+        control->updateStudentPresentationPointer(control->getCurrentPageNo(), x, y);
+    }
 
     if (this->inputHandler && this->inputHandler->onMotionNotifyEvent(pos, zoom)) {
         // input handler used this event
