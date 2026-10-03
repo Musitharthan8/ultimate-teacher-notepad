@@ -13,6 +13,8 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "util/Color.h"
+#include "util/Util.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
@@ -47,6 +49,30 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
     gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
     gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    GtkBox* colourRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    GtkWidget* colourLabel = gtk_label_new(_("Stamp colour"));
+    gtk_widget_set_hexpand(colourLabel, true);
+    gtk_widget_set_halign(colourLabel, GTK_ALIGN_START);
+
+    GdkRGBA stampColour = Util::argb_to_GdkRGBA(control->getToolHandler()->getTeacherStampColor());
+    GtkWidget* colourButton = gtk_color_button_new_with_rgba(&stampColour);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(colourButton), false);
+    g_signal_connect(
+            colourButton,
+            "color-set",
+            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                GdkRGBA colour{};
+                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &colour);
+                ctrl->getToolHandler()->setTeacherStampColor(Util::GdkRGBA_to_argb(colour));
+            }),
+            control);
+
+    gtk_box_append(colourRow, colourLabel);
+    gtk_box_append(colourRow, colourButton);
+    gtk_box_append(panel, GTK_WIDGET(colourRow));
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
     for (const auto& stamp: STAMPS) {
         GtkWidget* button = gtk_button_new_with_label(stamp.label);
