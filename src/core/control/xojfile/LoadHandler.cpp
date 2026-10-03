@@ -98,10 +98,11 @@ void LoadHandler::finalizeDocument() {
     this->parsingComplete = true;
 }
 
-void LoadHandler::addPage(double width, double height) {
+void LoadHandler::addPage(double width, double height, std::string utnPageLabel) {
     xoj_assert(!this->page);
 
     this->page = std::make_shared<XojPage>(width, height, /*suppressLayerCreation*/ true);
+    this->page->setUtnPageLabel(std::move(utnPageLabel));
     this->pages.emplace_back(this->page);
 }
 
