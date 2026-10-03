@@ -524,8 +524,50 @@ void ToolUtnContextBar::appendTextControls() {
             control);
     gtk_box_append(box, underline);
 
-    GtkWidget* strike = gtk_toggle_button_new_with_label("S");
-    gtk_widget_set_tooltip_text(strike, _("Strikethrough"));
+    appendSeparator();
+
+    appendLabel(_("Align"));
+    GtkWidget* alignment = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Left"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Centre"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Right"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Justify"));
+
+    int alignmentIndex = control->getToolHandler()->getTextJustify() ?
+                                 3 :
+                                 static_cast<int>(control->getToolHandler()->getTextAlignment());
+    gtk_combo_box_set_active(GTK_COMBO_BOX(alignment), alignmentIndex);
+
+    g_signal_connect(
+            alignment,
+            "changed",
+            G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                int active = gtk_combo_box_get_active(combo);
+
+                if (active == 3) {
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::TEXT_ALIGNMENT, TextAlignment::LEFT);
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::TEXT_JUSTIFY, true);
+                } else if (active >= 0 && active <= 2) {
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::TEXT_JUSTIFY, false);
+                    ctrl->getActionDatabase()->fireChangeActionState(
+                            Action::TEXT_ALIGNMENT, static_cast<TextAlignment::Value>(active));
+                }
+            }),
+            control);
+    gtk_box_append(box, alignment);
+
+    GtkPopover* morePopover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(morePopover), "toolbar");
+
+    GtkBox* morePanel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_start(GTK_WIDGET(morePanel), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(morePanel), 8);
+    gtk_widget_set_margin_top(GTK_WIDGET(morePanel), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(morePanel), 8);
+    gtk_popover_set_child(morePopover, GTK_WIDGET(morePanel));
+
+    GtkWidget* strike = gtk_toggle_button_new_with_label(_("Strikethrough"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(strike), control->getToolHandler()->getTextStrikethrough());
     g_signal_connect(
             strike,
@@ -539,13 +581,15 @@ void ToolUtnContextBar::appendTextControls() {
                 }
             }),
             control);
-    gtk_box_append(box, strike);
+    gtk_box_append(morePanel, strike);
 
-    appendLabel(_("Spacing"));
+    GtkBox* spacingRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    GtkWidget* spacingLabel = gtk_label_new(_("Line spacing"));
+    gtk_widget_set_halign(spacingLabel, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(spacingLabel, true);
     GtkWidget* lineSpacing = gtk_spin_button_new_with_range(0.8, 2.5, 0.1);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(lineSpacing), 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(lineSpacing), control->getToolHandler()->getTextLineSpacing());
-    gtk_widget_set_tooltip_text(lineSpacing, _("Line spacing"));
     g_signal_connect(
             lineSpacing,
             "value-changed",
@@ -558,10 +602,11 @@ void ToolUtnContextBar::appendTextControls() {
                 }
             }),
             control);
-    gtk_box_append(box, lineSpacing);
+    gtk_box_append(spacingRow, spacingLabel);
+    gtk_box_append(spacingRow, lineSpacing);
+    gtk_box_append(morePanel, GTK_WIDGET(spacingRow));
 
-    GtkWidget* bullets = gtk_button_new_with_label("• List");
-    gtk_widget_set_tooltip_text(bullets, _("Toggle bullet list"));
+    GtkWidget* bullets = gtk_button_new_with_label(_("Bullet list"));
     g_signal_connect(
             bullets,
             "clicked",
@@ -571,10 +616,9 @@ void ToolUtnContextBar::appendTextControls() {
                 }
             }),
             control);
-    gtk_box_append(box, bullets);
+    gtk_box_append(morePanel, bullets);
 
-    GtkWidget* numbers = gtk_button_new_with_label("1. List");
-    gtk_widget_set_tooltip_text(numbers, _("Toggle numbered list"));
+    GtkWidget* numbers = gtk_button_new_with_label(_("Numbered list"));
     g_signal_connect(
             numbers,
             "clicked",
@@ -584,52 +628,15 @@ void ToolUtnContextBar::appendTextControls() {
                 }
             }),
             control);
-    gtk_box_append(box, numbers);
+    gtk_box_append(morePanel, numbers);
 
-    appendSeparator();
-
-    struct AlignEntry {
-        const char* label;
-        TextAlignment::Value alignment;
-    };
-
-    constexpr std::array<AlignEntry, 3> alignments{{
-            {"L", TextAlignment::LEFT},
-            {"C", TextAlignment::CENTER},
-            {"R", TextAlignment::RIGHT},
-    }};
-
-    for (const auto& entry: alignments) {
-        GtkWidget* button = gtk_button_new_with_label(entry.label);
-        g_object_set_data(G_OBJECT(button), "utn-control", control);
-        g_object_set_data(G_OBJECT(button), "utn-align", GINT_TO_POINTER(static_cast<int>(entry.alignment)));
-
-        g_signal_connect(
-                button,
-                "clicked",
-                G_CALLBACK(+[](GtkButton* button, gpointer) {
-                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                    auto alignment = static_cast<TextAlignment::Value>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-align")));
-                    ctrl->getActionDatabase()->fireChangeActionState(Action::TEXT_ALIGNMENT, alignment);
-                }),
-                nullptr);
-
-        gtk_box_append(box, button);
-    }
-
-    GtkWidget* justify = gtk_toggle_button_new_with_label(_("Justify"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(justify), control->getToolHandler()->getTextJustify());
-    g_signal_connect(
-            justify,
-            "toggled",
-            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                ctrl->getActionDatabase()->fireChangeActionState(
-                        Action::TEXT_JUSTIFY, gtk_toggle_button_get_active(button));
-            }),
-            control);
-    gtk_box_append(box, justify);
+    GtkMenuButton* more = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_button_set_label(GTK_BUTTON(more), _("More"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(more), _("More text formatting"));
+    gtk_menu_button_set_popover(more, GTK_WIDGET(morePopover));
+    gtk_menu_button_set_direction(more, GTK_ARROW_DOWN);
+    gtk_box_append(box, GTK_WIDGET(more));
+    gtk_widget_show_all(GTK_WIDGET(morePanel));
 
     if (control->getToolHandler()->isAnswerBoxEnabled()) {
         appendSeparator();
