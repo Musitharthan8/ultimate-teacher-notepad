@@ -63,6 +63,14 @@ public:
     inline void setJustify(bool j) { this->justify = j; }
     inline bool getJustify() const { return justify; }
 
+    // UTN classroom text styling
+    bool isUnderlined() const;
+    void setUnderlined(bool enabled);
+    bool isStrikethrough() const;
+    void setStrikethrough(bool enabled);
+    double getLineSpacing() const;
+    void setLineSpacing(double spacing);
+
     // UTN answer box styling
     bool isBoxEnabled() const;
     void setBoxEnabled(bool enabled);
@@ -121,6 +129,11 @@ private:
     double wrapWidth = NO_WRAP;  ///< NO_WRAP for no wrap
     TextAlignment align = TextAlignment::LEFT;
     bool justify = false;  ///< Stretch whitespaces to make all complete lines have the same width
+
+    // UTN classroom text style
+    bool underlined = false;
+    bool strikethrough = false;
+    double lineSpacing = 1.0;
 
     // UTN answer box style
     bool boxEnabled = false;
