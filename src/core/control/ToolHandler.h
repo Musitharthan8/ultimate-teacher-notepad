@@ -14,6 +14,7 @@
 #include <array>       // for array
 #include <functional>  // for function
 #include <memory>      // for unique_ptr
+#include <string>      // for string
 #include <vector>      // for vector
 
 #include "control/ToolEnums.h"               // for ToolSize, ToolType, Draw...
@@ -222,6 +223,12 @@ public:
     double getAnswerBoxCornerRadius() const;
     void setAnswerBoxCornerRadius(double radius);
 
+    // UTN: one-shot teacher stamps
+    bool hasTeacherStamp() const;
+    const std::string& getTeacherStampText() const;
+    void setTeacherStampText(std::string text);
+    void clearTeacherStamp();
+
     void setLineStyle(const LineStyle& style);
 
     ToolSize getPenSize() const;
@@ -428,6 +435,9 @@ private:
     double answerBoxBorderWidth = 1.2;
     double answerBoxPadding = 6.0;
     double answerBoxCornerRadius = 5.0;
+
+    // UTN: selected one-shot teacher stamp
+    std::string teacherStampText;
 
     /**
      * @brief Get the Button Tool pointer based on enum
