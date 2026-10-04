@@ -179,6 +179,9 @@ public:  // event handler
 
     void deleteLaserPointerHandler();
 
+    /// Remove temporary presentation strokes without changing document annotations.
+    void clearTemporaryPresentationInk();
+
     void setGridCoordinates(xoj::util::Point<int> pos);
     xoj::util::Point<int> getGridCoordinates() const;
 

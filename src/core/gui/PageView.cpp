@@ -231,6 +231,18 @@ void XojPageView::deleteLaserPointerHandler() {
     laserPointer.reset();
 }
 
+void XojPageView::clearTemporaryPresentationInk() {
+    if (!laserPointer) {
+        return;
+    }
+
+    // Destroy views before their handler, including any active stroke view.
+    // Resetting the handler also cancels its pending fadeout timer.
+    eraseViewsOf(overlayViews, laserPointer.get());
+    laserPointer.reset();
+    repaintPage();
+}
+
 auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
     if (currentSequenceDeviceId) {
         // An input sequence is already under way from another device

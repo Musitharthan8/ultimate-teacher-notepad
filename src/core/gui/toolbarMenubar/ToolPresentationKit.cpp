@@ -106,6 +106,38 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             control);
     gtk_box_append(panel, curtain);
 
+    auto addCleanupButton = [this, panel, popover](const char* label, const char* tooltip, bool clearInk) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        gtk_widget_set_tooltip_text(button, tooltip);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-clear-ink", GINT_TO_POINTER(clearInk ? 1 : 0));
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-clear-ink"))) {
+                        if (auto* window = ctrl->getWindow()) {
+                            if (auto* xournal = window->getXournal()) {
+                                for (const auto& pageView: xournal->getViewPages()) {
+                                    pageView->clearTemporaryPresentationInk();
+                                }
+                            }
+                        }
+                    } else {
+                        ctrl->getToolHandler()->clearPresentationOverlay();
+                        repaintPresentationOverlay(ctrl);
+                    }
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+        gtk_box_append(panel, button);
+    };
+
+    addCleanupButton(_("Clear Temporary Ink"),
+                     _("Remove temporary ink and highlights from all pages; saved annotations are preserved"), true);
+    addCleanupButton(_("Dismiss Spotlight / Curtain"), _("Show the full page without changing the active tool"), false);
+
     GtkWidget* returnToPen = gtk_button_new_with_label(_("Return to Pen"));
     g_signal_connect(
             returnToPen,

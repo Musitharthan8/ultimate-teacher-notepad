@@ -111,6 +111,12 @@ Implemented classroom controls:
 
 Freeze allows the teacher to work ahead privately while students continue seeing the frozen frame.
 
+## Presentation cleanup
+
+Presentation Tools includes **Clear Temporary Ink**, which immediately removes temporary laser-pen and laser-highlighter strokes from all pages without changing saved annotations or the active tool. Pending fadeout timers are cancelled with the removed ink.
+
+**Dismiss Spotlight / Curtain** restores the full page while preserving the selected tool and temporary ink.
+
 ## Prepare / Reveal
 
 Prepared answers use layers prefixed with `UTN Reveal`. Teachers can prepare, hide and reveal them during a lesson. Student View hides both `UTN Reveal*` and `UTN Teacher*` layers.
@@ -162,7 +168,6 @@ Ink responsiveness remains higher priority than decorative UI.
 - true round/square/flat eraser geometry
 - further eraser/highlighter profiling after real classroom testing
 - richer pen engines rather than profile presets alone
-- temporary presentation-ink cleanup control
 - OCR for scanned PDFs
 - handwriting-to-text
 - packaging/installer and cross-platform release work
