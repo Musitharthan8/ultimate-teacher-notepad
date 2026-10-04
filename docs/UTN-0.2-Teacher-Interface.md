@@ -173,3 +173,9 @@ Ink responsiveness remains higher priority than decorative UI.
 - OCR for scanned PDFs
 - handwriting-to-text
 - packaging/installer and cross-platform release work
+
+## Expanded classroom workflow roadmap
+
+The approved next scope includes GIF/media support, scanned-document marking, word meanings and vocabulary cards, spelling suggestions/optional autocorrect, pasted pictures and image editing, PDF page organisation, scan cleanup/OCR, comment pins, rubrics, student marking queues and explicit student/teacher/marked exports.
+
+These capabilities are planned. See [Classroom workflow roadmap](UTN-Classroom-Workflow-Roadmap.md) for delivery order, dependencies and acceptance criteria. Existing-tool stability, ink responsiveness and Student View privacy remain the foundation.
