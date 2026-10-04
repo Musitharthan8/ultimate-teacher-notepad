@@ -87,6 +87,10 @@ auto ObjectInputStream::getNextObjectName() -> std::string {
     return name;
 }
 
+bool ObjectInputStream::hasNextObject(const char* name) {
+    return istream.peek() == '{' && getNextObjectName() == name;
+}
+
 void ObjectInputStream::endObject() { checkType('}'); }
 
 auto ObjectInputStream::readInt() -> int {

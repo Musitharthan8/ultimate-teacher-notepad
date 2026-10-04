@@ -262,6 +262,21 @@ void Text::serialize(ObjectOutputStream& out) const {
     out.writeInt(static_cast<int>(this->align));
     out.writeInt(this->justify);
 
+    // Plain text keeps the upstream clipboard format.
+    if (underlined || strikethrough || lineSpacing != 1.0 || boxEnabled) {
+        out.writeObject("UTNTextStyle");
+        out.writeInt(underlined);
+        out.writeInt(strikethrough);
+        out.writeDouble(lineSpacing);
+        out.writeInt(boxEnabled);
+        out.writeUInt(uint32_t(boxBackgroundColor));
+        out.writeUInt(uint32_t(boxBorderColor));
+        out.writeDouble(boxBorderWidth);
+        out.writeDouble(boxPadding);
+        out.writeDouble(boxCornerRadius);
+        out.endObject();
+    }
+
     out.endObject();
 }
 
@@ -279,6 +294,31 @@ void Text::readSerialized(ObjectInputStream& in) {
     this->align = static_cast<TextAlignment::Value>(in.readInt());
     this->align.validate();
     this->justify = in.readInt() != 0;
+
+    // Older clipboard payloads end here and use the default UTN style.
+    const Text defaults;
+    setUnderlined(defaults.isUnderlined());
+    setStrikethrough(defaults.isStrikethrough());
+    setLineSpacing(defaults.getLineSpacing());
+    setBoxEnabled(defaults.isBoxEnabled());
+    setBoxBackgroundColor(defaults.getBoxBackgroundColor());
+    setBoxBorderColor(defaults.getBoxBorderColor());
+    setBoxBorderWidth(defaults.getBoxBorderWidth());
+    setBoxPadding(defaults.getBoxPadding());
+    setBoxCornerRadius(defaults.getBoxCornerRadius());
+    if (in.hasNextObject("UTNTextStyle")) {
+        in.readObject("UTNTextStyle");
+        setUnderlined(in.readInt() != 0);
+        setStrikethrough(in.readInt() != 0);
+        setLineSpacing(in.readDouble());
+        setBoxEnabled(in.readInt() != 0);
+        setBoxBackgroundColor(Color(in.readUInt()));
+        setBoxBorderColor(Color(in.readUInt()));
+        setBoxBorderWidth(in.readDouble());
+        setBoxPadding(in.readDouble());
+        setBoxCornerRadius(in.readDouble());
+        in.endObject();
+    }
 
     in.endObject();
 }
