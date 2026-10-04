@@ -30,6 +30,7 @@ TEST(ScanPageImport, embedsWorksheetAndPreservesAspectRatio) {
     SaveHandler save;
     save.prepareSave(&doc, path);
     ASSERT_NO_THROW(save.saveTo(path));
+    ASSERT_TRUE(save.getErrorMessage().empty()) << save.getErrorMessage();
     auto reloaded = LoadHandler{}.loadDocument(path);
     ASSERT_TRUE(reloaded);
     EXPECT_EQ(reloaded->getPageCount(), 1U);

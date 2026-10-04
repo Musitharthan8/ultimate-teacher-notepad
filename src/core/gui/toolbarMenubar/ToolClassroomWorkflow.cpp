@@ -112,7 +112,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
 
     auto* materials = makePanel(tabs, _("Materials"));
     addCommand(materials, popover, control, _("Add Scan / Photo Page"),
-               _("Insert an embedded worksheet image after this page; the original file is preserved"), Command::SCAN);
+               _("Insert a worksheet image after this page; a copy is saved alongside the journal"), Command::SCAN);
     addCommand(materials, popover, control, _("Paste Picture"), _("Paste only the clipboard image onto this page"),
                Command::PASTE_IMAGE);
     addCommand(materials, popover, control, _("Place Image from File"),
@@ -120,7 +120,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     addAction(materials, popover, _("Open PDF for Annotation"),
               _("Open a PDF using the existing save-before-open workflow"),
               Action::ANNOTATE_PDF);
-    addHint(materials, _("Scans remain image pages. Text selection and word lookup need OCR."));
+    addHint(materials, _("Keep the journal and its attached image files together. Scans need OCR for text selection."));
 
     auto* pages = makePanel(tabs, _("Pages"));
     addAction(pages, popover, _("Insert Working Page"), _("Insert a page after the current worksheet"),

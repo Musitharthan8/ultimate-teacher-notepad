@@ -4,6 +4,16 @@ Approved scope: 4 October 2026. These are planned capabilities, not claims about
 
 The workflow is: bring material in, prepare it, teach from it, mark it, and reuse it. Common actions should take one tap, one gesture, or one pen movement.
 
+## Implemented foundation
+
+- Classroom Workflow launcher with Materials, Pages and Marking tabs in the UTN teacher layouts.
+- Dedicated UTN Marking layout, editable written comment boxes, Feedback Bank access, and marked-copy save/export actions.
+- Explicit clipboard picture insertion and image-file placement.
+- Undoable scan/photo page insertion with aspect ratio and camera orientation handling. Image backgrounds use upstream attached sidecar files; keep `.xopp.bg_*.png` files with the journal.
+- Access to existing undoable page insertion, duplication, reordering and deletion, plus page-range export for manual PDF extraction/splitting.
+
+Animated GIF playback, scanner-device capture, OCR, word definitions, spelling correction, multi-source PDF merging, batch splitting, anchored comment pins and rubrics remain planned. The launcher does not imply those features are implemented.
+
 ## Delivery order
 
 | Stage | Scope | Completion gate |

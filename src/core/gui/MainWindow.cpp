@@ -671,7 +671,8 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 
     // UTN uses a dedicated shell style while Classic layouts stay untouched.
     GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
-    const bool utnShell = d->getId() == "UTN Teacher" || d->getId() == "UTN Teacher Tablet" || d->getId() == "UTN Marking";
+    const bool utnShell =
+            d->getId() == "UTN Teacher" || d->getId() == "UTN Teacher Tablet" || d->getId() == "UTN Marking";
     if (utnShell) {
         gtk_style_context_add_class(context, "utnShell");
     } else {

@@ -1,6 +1,6 @@
 /*
  * Ultimate Teacher Notepad
- * Embedded worksheet import, based on Xournal++ GPLv2+.
+ * Attached worksheet import, based on Xournal++ GPLv2+.
  */
 #include "ScanPageImport.h"
 
