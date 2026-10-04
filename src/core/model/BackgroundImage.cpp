@@ -24,6 +24,9 @@ struct BackgroundImage::Content {
     Content(GInputStream* stream, fs::path path, GError** error):
             path(std::move(path)), pixbuf(gdk_pixbuf_new_from_stream(stream, nullptr, error)) {}
 
+    Content(fs::path path, GdkPixbuf* pixbuf, bool attached):
+            path(std::move(path)), pixbuf(pixbuf), attach(attached) {}
+
     ~Content() {
         if (this->pixbuf) {
             g_object_unref(this->pixbuf);
@@ -50,6 +53,15 @@ void BackgroundImage::loadFile(fs::path const& path, GError** error) {
 
 void BackgroundImage::loadFile(GInputStream* stream, fs::path const& path, GError** error) {
     this->img = std::make_shared<Content>(stream, path, error);
+}
+
+void BackgroundImage::applyEmbeddedOrientation() {
+    if (!img || !img->pixbuf) {
+        return;
+    }
+    if (auto* oriented = gdk_pixbuf_apply_embedded_orientation(img->pixbuf)) {
+        img = std::make_shared<Content>(img->path, oriented, img->attach);
+    }
 }
 
 auto BackgroundImage::getCloneId() const -> int { return this->img ? this->img->pageId : -1; }

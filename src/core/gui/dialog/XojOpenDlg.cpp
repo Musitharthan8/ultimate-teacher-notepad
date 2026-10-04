@@ -169,7 +169,7 @@ void xoj::OpenDlg::showAnnotatePdfDialog(GtkWindow* parent, Settings* settings,
 }
 
 void xoj::OpenDlg::showOpenImageDialog(GtkWindow* parent, Settings* settings,
-                                       std::function<void(fs::path, bool)> callback) {
+                                       std::function<void(fs::path, bool)> callback, bool offerAttachmentChoice) {
     auto popup = xoj::popup::PopupWindowWrapper<FileDlg>(_("Choose image file"),
                                                          [cb = std::move(callback), settings](fs::path p, bool attach) {
                                                              if (auto folder = p.parent_path(); !folder.empty()) {
@@ -187,7 +187,9 @@ void xoj::OpenDlg::showOpenImageDialog(GtkWindow* parent, Settings* settings,
         gtk_file_chooser_set_current_folder(fc, Util::toGFile(settings->getLastImagePath()).get(), nullptr);
     }
 
-    addAttachChoice(fc);
+    if (offerAttachmentChoice) {
+        addAttachChoice(fc);
+    }
 
     popup.show(parent);
 }

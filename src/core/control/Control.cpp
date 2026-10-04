@@ -16,6 +16,7 @@
 #include "control/CompassController.h"                           // for Comp...
 #include "control/NavigationHistory.h"                           // for Navi...
 #include "control/RecentManager.h"                               // for Rece...
+#include "control/ScanPageImport.h"
 #include "control/ScrollHandler.h"                               // for Scro...
 #include "control/SetsquareController.h"                         // for Sets...
 #include "control/Tool.h"                                        // for Tool
@@ -458,6 +459,11 @@ auto Control::paste() -> bool {
     return this->clipboardHandler->paste();
 }
 
+void Control::pasteImage() {
+    clearSelectionEndText();
+    clipboardHandler->pasteImage();
+}
+
 void Control::selectAlpha(OpacityFeature feature) {
     int alpha = 0;
 
@@ -748,6 +754,21 @@ void Control::deletePage() {
 
     scrollHandler->scrollToPage(pNr);
     this->win->getXournal()->forceUpdatePagenumbers();
+}
+
+void Control::askInsertScanPage() {
+    xoj::OpenDlg::showOpenImageDialog(getGtkWindow(), settings, [this](fs::path path, bool) {
+        auto current = getCurrentPage();
+        const double width = current ? current->getWidth() : 595.0;
+        auto result = xoj::utn::createScanPage(path, width);
+        if (auto* error = std::get_if<std::string>(&result)) {
+            XojMsgBox::showErrorToUser(getGtkWindow(), *error);
+            return;
+        }
+        clearSelectionEndText();
+        const size_t position = current ? getCurrentPageNo() + 1 : doc->getPageCount();
+        insertPage(std::get<PageRef>(result), position);
+    }, false);
 }
 
 void Control::duplicatePage() {

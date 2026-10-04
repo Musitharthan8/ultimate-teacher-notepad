@@ -232,6 +232,7 @@ public:
 
     void addDefaultPage(const std::optional<PageTemplateSettings>& pageTemplate, Document* doc = nullptr);
     void duplicatePage();
+    void askInsertScanPage();
     void insertNewPage(size_t position, bool automatedInsertion = false);
     void appendNewPdfPages();
     void insertPage(const PageRef& page, size_t position, bool shouldScrollToPage = true);
@@ -337,6 +338,7 @@ public:
     bool copy();
     bool cut();
     bool paste();
+    void pasteImage();
 
     void help();
 
