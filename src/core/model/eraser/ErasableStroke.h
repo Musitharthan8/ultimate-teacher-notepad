@@ -136,9 +136,6 @@ protected:
      */
     bool closedStroke;
 
-    // UTN: simple monotonic highlights cannot self-overlap after being split, so skip expensive overlap tracking.
-    bool trackHighlighterOverlaps = true;
-
     static constexpr double CLOSED_STROKE_DISTANCE = 0.3;
 
 #ifdef DEBUG_ERASABLE_STROKE_BOXES

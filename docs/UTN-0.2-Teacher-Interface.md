@@ -159,7 +159,7 @@ A separate Touch-friendly controls option enlarges targets for stylus/tablet use
 
 ## Responsiveness and performance
 
-The main UTN layouts support desktop and tablet-oriented use. A targeted eraser optimisation skips expensive highlighter-overlap tracking for ordinary monotonic highlight strokes while preserving the full path for complex self-overlapping highlights.
+The main UTN layouts support desktop and tablet-oriented use. Highlighter erasure retains geometric overlap checks even for small backtracks, so split highlights are repainted correctly. Subsection bounds use the existing point vector directly instead of copying the entire stroke on every cache miss.
 
 Ink responsiveness remains higher priority than decorative UI.
 
