@@ -19,13 +19,29 @@
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
 #include "model/Font.h"
+#include "model/Text.h"
 #include "model/TextAlignment.h"
 #include "util/Color.h"
 #include "util/Util.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
+#include "util/raii/GVariantSPtr.h"
 
 namespace {
+XojFont currentTextFont(Control* control) {
+    if (auto* editor = control->getTextEditor(); editor && editor->getTextElement()) {
+        return editor->getTextElement()->getFont();
+    }
+    auto action = control->getActionDatabase()->getAction(Action::FONT);
+    xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(action.get())), xoj::util::adopt);
+    return state ? XojFont(g_variant_get_string(state.get(), nullptr)) : control->getSettings()->getFont();
+}
+
+void applyTextFont(Control* control, const XojFont& font) {
+    control->fontChanged(font);
+    control->getActionDatabase()->setActionState(Action::FONT, font.asString().c_str());
+}
+
 const char* toolTitle(ToolType tool) {
     switch (tool) {
         case TOOL_PEN:
@@ -416,7 +432,7 @@ void ToolUtnContextBar::appendMarkupControls() {
 void ToolUtnContextBar::appendTextControls() {
     appendColorButton();
 
-    XojFont current = control->getSettings()->getFont();
+    XojFont current = currentTextFont(control);
 
     GtkWidget* fontButton = gtk_font_button_new_with_font(current.asString().c_str());
     gtk_font_button_set_use_size(GTK_FONT_BUTTON(fontButton), false);
@@ -429,11 +445,11 @@ void ToolUtnContextBar::appendTextControls() {
             G_CALLBACK(+[](GtkFontButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
                 XojFont chosen(gtk_font_button_get_font_name(button));
-                XojFont font = ctrl->getSettings()->getFont();
+                XojFont font = currentTextFont(ctrl);
 
                 // Keep the explicit UTN size control authoritative when changing families/styles.
                 font.setName(chosen.getName());
-                ctrl->fontChanged(font);
+                applyTextFont(ctrl, font);
             }),
             control);
     gtk_box_append(box, fontButton);
@@ -447,9 +463,9 @@ void ToolUtnContextBar::appendTextControls() {
             "value-changed",
             G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                XojFont font = ctrl->getSettings()->getFont();
+                XojFont font = currentTextFont(ctrl);
                 font.setSize(gtk_spin_button_get_value(spin));
-                ctrl->fontChanged(font);
+                applyTextFont(ctrl, font);
             }),
             control);
     gtk_box_append(box, size);
@@ -469,7 +485,7 @@ void ToolUtnContextBar::appendTextControls() {
             "toggled",
             G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                XojFont font = ctrl->getSettings()->getFont();
+                XojFont font = currentTextFont(ctrl);
                 PangoFontDescription* desc = pango_font_description_from_string(font.asString().c_str());
 
                 pango_font_description_set_weight(
@@ -479,7 +495,7 @@ void ToolUtnContextBar::appendTextControls() {
                 XojFont updated(value);
                 g_free(value);
                 pango_font_description_free(desc);
-                ctrl->fontChanged(updated);
+                applyTextFont(ctrl, updated);
             }),
             control);
     gtk_box_append(box, bold);
@@ -492,7 +508,7 @@ void ToolUtnContextBar::appendTextControls() {
             "toggled",
             G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                XojFont font = ctrl->getSettings()->getFont();
+                XojFont font = currentTextFont(ctrl);
                 PangoFontDescription* desc = pango_font_description_from_string(font.asString().c_str());
 
                 pango_font_description_set_style(
@@ -502,7 +518,7 @@ void ToolUtnContextBar::appendTextControls() {
                 XojFont updated(value);
                 g_free(value);
                 pango_font_description_free(desc);
-                ctrl->fontChanged(updated);
+                applyTextFont(ctrl, updated);
             }),
             control);
     gtk_box_append(box, italic);
