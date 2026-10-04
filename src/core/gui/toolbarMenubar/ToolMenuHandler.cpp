@@ -40,6 +40,7 @@
 #include "ToolButton.h"              // for ToolButton
 #include "ToolAppearance.h"          // for ToolAppearance
 #include "ToolAnswerBox.h"           // for ToolAnswerBox
+#include "ToolClassroomWorkflow.h"
 #include "ToolClear.h"               // for ToolClear
 #include "ToolLessonNavigator.h"     // for ToolLessonNavigator
 #include "ToolPageLayer.h"           // for ToolPageLayer
@@ -416,6 +417,7 @@ void ToolMenuHandler::initToolItems() {
     // UTN shell controls
     emplaceItem<ToolAppearance>("UTN_APPEARANCE", control, iconNameHelper);
     emplaceItem<ToolClear>("UTN_CLEAR", control);
+    emplaceItem<ToolClassroomWorkflow>("CLASSROOM_WORKFLOW", control, iconNameHelper);
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode
