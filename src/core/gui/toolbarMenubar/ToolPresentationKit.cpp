@@ -40,8 +40,10 @@ void selectTemporaryTool(Control* control, ToolType tool) {
 }
 }  // namespace
 
-ToolPresentationKit::ToolPresentationKit(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::MISC), control(control) {}
+ToolPresentationKit::ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper):
+        AbstractToolItem(std::move(id), Category::MISC),
+        control(control),
+        iconName(iconNameHelper.iconName("utn-presentation")) {}
 
 auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
@@ -195,5 +197,5 @@ auto ToolPresentationKit::getToolDisplayName() const -> std::string {
 }
 
 auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new(_("Present"));
+    return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
 }

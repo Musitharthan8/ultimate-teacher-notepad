@@ -41,8 +41,10 @@ void chooseDrawingTool(Control* control, DrawingType type) {
 }
 }  // namespace
 
-ToolTeachingKit::ToolTeachingKit(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::TOOLS), control(control) {}
+ToolTeachingKit::ToolTeachingKit(std::string id, Control* control, IconNameHelper iconNameHelper):
+        AbstractToolItem(std::move(id), Category::TOOLS),
+        control(control),
+        iconName(iconNameHelper.iconName("utn-teaching-tools")) {}
 
 auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
@@ -156,5 +158,5 @@ auto ToolTeachingKit::getToolDisplayName() const -> std::string {
 }
 
 auto ToolTeachingKit::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new("Tools");
+    return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
 }

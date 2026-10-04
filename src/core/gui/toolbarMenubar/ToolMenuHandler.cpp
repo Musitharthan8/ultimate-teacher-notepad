@@ -414,7 +414,7 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("TEXT", Cat::TOOLS, Action::SELECT_TOOL, TOOL_TEXT, "tool-text", _("Text"));
 
     // UTN shell controls
-    emplaceItem<ToolAppearance>("UTN_APPEARANCE", control);
+    emplaceItem<ToolAppearance>("UTN_APPEARANCE", control, iconNameHelper);
     emplaceItem<ToolClear>("UTN_CLEAR", control);
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
@@ -422,10 +422,10 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
 
     // UTN teacher stamps
-    emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control);
+    emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control, iconNameHelper);
 
     // UTN prepared answer layers
-    emplaceItem<ToolPrepareReveal>("PREPARE_REVEAL", control);
+    emplaceItem<ToolPrepareReveal>("PREPARE_REVEAL", control, iconNameHelper);
 
     // UTN teacher tool profiles
     emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
@@ -434,13 +434,13 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
 
     // UTN classroom presentation tools
-    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control);
+    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);
 
     // UTN clean student-facing preview
     emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
 
     // UTN consolidated shapes, STEM and classroom utilities
-    emplaceItem<ToolTeachingKit>("TEACHING_KIT", control);
+    emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));

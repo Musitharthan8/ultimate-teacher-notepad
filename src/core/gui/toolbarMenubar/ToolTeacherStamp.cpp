@@ -107,8 +107,10 @@ GtkWidget* createStampGrid(Control* control, GtkPopover* popover, const std::arr
 }
 }  // namespace
 
-ToolTeacherStamp::ToolTeacherStamp(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::TOOLS), control(control) {}
+ToolTeacherStamp::ToolTeacherStamp(std::string id, Control* control, IconNameHelper iconNameHelper):
+        AbstractToolItem(std::move(id), Category::TOOLS),
+        control(control),
+        iconName(iconNameHelper.iconName("utn-feedback")) {}
 
 auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
@@ -211,5 +213,5 @@ auto ToolTeacherStamp::getToolDisplayName() const -> std::string {
 }
 
 auto ToolTeacherStamp::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new(_("Feedback"));
+    return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
 }

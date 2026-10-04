@@ -13,12 +13,13 @@
 #include <gtk/gtk.h>
 
 #include "AbstractToolItem.h"
+#include "gui/IconNameHelper.h"
 
 class Control;
 
 class ToolTeacherStamp: public AbstractToolItem {
 public:
-    ToolTeacherStamp(std::string id, Control* control);
+    ToolTeacherStamp(std::string id, Control* control, IconNameHelper iconNameHelper);
     ~ToolTeacherStamp() override = default;
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
@@ -28,4 +29,5 @@ public:
 
 private:
     Control* control;
+    std::string iconName;
 };

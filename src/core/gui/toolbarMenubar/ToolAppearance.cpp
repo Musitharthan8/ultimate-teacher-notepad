@@ -32,8 +32,10 @@ constexpr std::array<AppearanceEntry, 4> APPEARANCES{{
 }};
 }  // namespace
 
-ToolAppearance::ToolAppearance(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::MISC), control(control) {}
+ToolAppearance::ToolAppearance(std::string id, Control* control, IconNameHelper iconNameHelper):
+        AbstractToolItem(std::move(id), Category::MISC),
+        control(control),
+        iconName(iconNameHelper.iconName("utn-appearance")) {}
 
 auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
@@ -116,5 +118,5 @@ auto ToolAppearance::getToolDisplayName() const -> std::string {
 }
 
 auto ToolAppearance::getNewToolIcon() const -> GtkWidget* {
-    return gtk_label_new(_("Theme"));
+    return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
 }

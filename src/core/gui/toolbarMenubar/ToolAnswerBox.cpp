@@ -20,7 +20,7 @@
 ToolAnswerBox::ToolAnswerBox(std::string id, Control* control, IconNameHelper iconNameHelper):
         AbstractToolItem(std::move(id), Category::TOOLS),
         control(control),
-        iconName(iconNameHelper.iconName("tool-text")) {}
+        iconName(iconNameHelper.iconName("utn-answer-box")) {}
 
 auto ToolAnswerBox::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     auto* tools = control->getToolHandler();

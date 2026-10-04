@@ -13,12 +13,13 @@
 #include <gtk/gtk.h>
 
 #include "AbstractToolItem.h"
+#include "gui/IconNameHelper.h"
 
 class Control;
 
 class ToolAppearance: public AbstractToolItem {
 public:
-    ToolAppearance(std::string id, Control* control);
+    ToolAppearance(std::string id, Control* control, IconNameHelper iconNameHelper);
     ~ToolAppearance() override = default;
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
@@ -28,4 +29,5 @@ public:
 
 private:
     Control* control;
+    std::string iconName;
 };

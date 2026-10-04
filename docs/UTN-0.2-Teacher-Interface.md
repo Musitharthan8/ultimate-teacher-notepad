@@ -40,6 +40,8 @@ Implemented contexts include:
 ### Bottom lesson bar
 A compact Lesson Navigator replaces the old page-spinner/page-label pair in the main UTN layouts. It shows the current page and classroom label, provides previous/next navigation, quick labels, previous/next labelled-page jumps and a scrollable lesson map.
 
+Dedicated scalable icons distinguish Answer Box, Feedback, Prepare / Reveal, Teaching Tools, Presentation and Appearance. Each icon is bundled in the light and dark variants of both icon themes.
+
 Classic Xournal++ toolbar layouts remain available.
 
 ## Markup
