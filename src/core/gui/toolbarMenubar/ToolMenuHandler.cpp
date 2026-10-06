@@ -115,7 +115,7 @@ void ToolMenuHandler::unloadToolbar(GtkWidget* toolbar) {
 
 namespace {
 GtkButton* firstToolbarButton(GtkWidget* widget) {
-    if (GTK_IS_BUTTON(widget) && !GTK_IS_MENU_BUTTON(widget)) {
+    if (GTK_IS_BUTTON(widget) && GTK_IS_IMAGE(gtk_bin_get_child(GTK_BIN(widget)))) {
         return GTK_BUTTON(widget);
     }
     if (!GTK_IS_CONTAINER(widget)) {

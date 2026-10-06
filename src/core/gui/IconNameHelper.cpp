@@ -19,7 +19,7 @@ auto IconNameHelper::iconName(const char* icon) const -> std::string {
         const std::array<std::pair<const char*, const char*>, 7> fallbacks{{
                 {"utn-appearance", "preferences-system"}, {"utn-answer-box", "tool-text"},
                 {"utn-feedback", "tool-text"}, {"utn-reveal", "sidebar-layerstack"},
-                {"utn-presentation", "presentation-mode"}, {"utn-teaching-tools", "draw-rectangle"},
+                {"utn-presentation", "presentation-mode"}, {"utn-teaching-tools", "draw-rect"},
                 {"utn-workflow", "document-open"}}};
         for (const auto& [utn, fallback]: fallbacks) {
             if (std::string(icon) == utn) {

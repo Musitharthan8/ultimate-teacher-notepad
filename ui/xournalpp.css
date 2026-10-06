@@ -478,7 +478,7 @@ window.utnShell.utnHighContrast spinbutton:focus {
 }
 
 /* Keep classroom tool names readable beside their icons. */
-window.utnShell #tbLeft1 button:not(menubutton) {
+window.utnShell #tbLeft1 button {
     padding: 6px 8px;
 }
 window.utnShell #tbLeft1 label {
