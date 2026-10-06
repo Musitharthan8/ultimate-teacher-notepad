@@ -108,7 +108,21 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     rebuild(control->getToolHandler()->getToolType());
     gtk_widget_show_all(GTK_WIDGET(box));
-    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+    if (!horizontal) {
+        return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+    }
+
+    // Keep long property rows from setting the minimum width of the lesson window.
+    GtkWidget* viewport = gtk_scrolled_window_new(nullptr, nullptr);
+    gtk_widget_set_name(viewport, "utnContextViewport");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewport), GTK_POLICY_ALWAYS, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(viewport), 48);
+    gtk_widget_set_hexpand(viewport, true);
+    gtk_widget_set_vexpand(viewport, false);
+    gtk_widget_set_tooltip_text(viewport, _("Tool properties. Scroll sideways to reach more settings."));
+    gtk_container_add(GTK_CONTAINER(viewport), GTK_WIDGET(box));
+    gtk_widget_show_all(viewport);
+    return xoj::util::WidgetSPtr(viewport, xoj::util::adopt);
 }
 
 void ToolUtnContextBar::rebuild(ToolType tool) {
@@ -148,6 +162,9 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
                 break;
             }
 
+            appendColorButton();
+            appendSizeButtons(TOOL_PEN);
+            appendSeparator();
             appendLabel(_("Profile"));
 
             GtkWidget* profile = gtk_combo_box_text_new();
@@ -196,8 +213,6 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
             gtk_box_append(box, profile);
 
             appendSeparator();
-            appendColorButton();
-            appendSizeButtons(TOOL_PEN);
 
             {
                 GtkWidget* pressure = gtk_toggle_button_new_with_label(_("Pressure"));
