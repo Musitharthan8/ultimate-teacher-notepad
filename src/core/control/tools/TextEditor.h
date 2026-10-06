@@ -68,6 +68,7 @@ public:
      * Use `updateTextElementContent` to sync them
      */
     Text* getTextElement() const;
+    const PageRef& getPage() const { return page; }
 
     bool bufferEmpty() const;
 

@@ -369,6 +369,7 @@ public:
     void clipboardPasteImage(GdkPixbuf* img) override;
     void clipboardPasteXournal(ObjectInputStream& in) override;
     void deleteSelection() override;
+    void deleteEditedAnswerBox();
 
     void clipboardPaste(ElementPtr e);
 

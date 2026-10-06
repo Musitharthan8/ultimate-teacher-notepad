@@ -5,6 +5,7 @@
 #include <exception>  // for exce...
 #include <functional>  // for bind
 #include <iterator>    // for end
+#include <mutex>
 #include <memory>      // for make...
 #include <optional>    // for opti...
 #include <regex>       // for regex
@@ -2561,6 +2562,38 @@ void Control::moveSelectionToLayer(size_t layerNo) {
     undoRedo->addUndoAction(std::move(moveSelUndo));
 
     getLayerController()->switchToLay(layerNo + 1, /*hideShow=*/false, /*clearSelection=*/false);
+}
+
+void Control::deleteEditedAnswerBox() {
+    auto* editor = getTextEditor();
+    if (!editor || !editor->getTextElement()->isBoxEnabled()) {
+        return;
+    }
+    PageRef page = editor->getPage();
+    auto* text = editor->getTextElement();
+    const bool empty = editor->bufferEmpty();
+    clearSelectionEndText();
+    if (empty) {
+        return;
+    }
+
+    auto undo = std::make_unique<DeleteUndoAction>(page, false);
+    bool removed = false;
+    {
+        std::unique_lock<Document> lock(*doc);
+        for (auto* layer: page->getLayers()) {
+            if (layer->indexOf(text) != Element::InvalidIndex) {
+                auto [element, position] = layer->removeElement(text);
+                undo->addElement(layer, std::move(element), position);
+                removed = true;
+                break;
+            }
+        }
+    }
+    if (removed) {
+        undoRedo->addUndoAction(std::move(undo));
+        page->firePageChanged();
+    }
 }
 
 void Control::deleteSelection() {

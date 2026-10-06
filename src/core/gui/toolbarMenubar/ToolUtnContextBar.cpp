@@ -130,6 +130,17 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     appendLabel(title);
     appendSeparator();
 
+    if (tool == TOOL_TEXT && control->getToolHandler()->isAnswerBoxEnabled()) {
+        GtkWidget* remove = gtk_button_new_with_label(_("Delete Box"));
+        gtk_widget_set_tooltip_text(remove, _("Delete the Answer Box being edited. Undo restores it."));
+        gtk_widget_set_can_focus(remove, false);
+        g_signal_connect(remove, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+            static_cast<Control*>(data)->deleteEditedAnswerBox();
+        }), control);
+        gtk_box_append(box, remove);
+        appendSeparator();
+    }
+
     switch (tool) {
         case TOOL_PEN: {
             if (control->getToolHandler()->getDrawingType() != DRAWING_TYPE_DEFAULT) {
@@ -365,6 +376,8 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_box_append(box, scale);
 
     appendLabel(_("[ / ] also resize"));
+    appendSeparator();
+    appendGenericMessage(_("Ink only. Select objects to delete them."));
 }
 
 void ToolUtnContextBar::appendMarkupControls() {
@@ -961,6 +974,7 @@ void ToolUtnContextBar::appendSelectionControls() {
                 static_cast<Control*>(data)->deleteSelection();
             }),
             control);
+    gtk_widget_set_tooltip_text(remove, _("Delete selected objects. Undo restores them."));
     gtk_box_append(box, remove);
 
     if (!tools->hasCapability(TOOL_CAP_COLOR) && !tools->hasCapability(TOOL_CAP_SIZE)) {
