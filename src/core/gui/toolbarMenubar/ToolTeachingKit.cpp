@@ -22,16 +22,17 @@ namespace {
 struct DrawingEntry {
     const char* label;
     DrawingType type;
+    const char* icon;
 };
 
 constexpr std::array<DrawingEntry, 7> DRAWING_TOOLS{{
-        {"Line", DRAWING_TYPE_LINE},
-        {"Rectangle", DRAWING_TYPE_RECTANGLE},
-        {"Ellipse", DRAWING_TYPE_ELLIPSE},
-        {"Arrow", DRAWING_TYPE_ARROW},
-        {"Double Arrow", DRAWING_TYPE_DOUBLE_ARROW},
-        {"Coordinate System", DRAWING_TYPE_COORDINATE_SYSTEM},
-        {"Smart Shape", DRAWING_TYPE_SHAPE_RECOGNIZER},
+        {"Line", DRAWING_TYPE_LINE, "draw-line"},
+        {"Rectangle", DRAWING_TYPE_RECTANGLE, "draw-rect"},
+        {"Ellipse", DRAWING_TYPE_ELLIPSE, "draw-ellipse"},
+        {"Arrow", DRAWING_TYPE_ARROW, "draw-arrow"},
+        {"Double Arrow", DRAWING_TYPE_DOUBLE_ARROW, "draw-double-arrow"},
+        {"Coordinate System", DRAWING_TYPE_COORDINATE_SYSTEM, "draw-coordinate-system"},
+        {"Smart Shape", DRAWING_TYPE_SHAPE_RECOGNIZER, "shape-recognizer"},
 }};
 
 void chooseDrawingTool(Control* control, DrawingType type) {
@@ -44,6 +45,7 @@ void chooseDrawingTool(Control* control, DrawingType type) {
 ToolTeachingKit::ToolTeachingKit(std::string id, Control* control, IconNameHelper iconNameHelper):
         AbstractToolItem(std::move(id), Category::TOOLS),
         control(control),
+        icons(iconNameHelper),
         iconName(iconNameHelper.iconName("utn-teaching-tools")) {}
 
 auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
@@ -57,7 +59,7 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
     gtk_popover_set_child(popover, GTK_WIDGET(panel));
 
-    GtkWidget* shapesTitle = gtk_label_new(_("Shapes"));
+    GtkWidget* shapesTitle = gtk_label_new(_("Shapes & Lines"));
     gtk_widget_set_halign(shapesTitle, GTK_ALIGN_START);
     gtk_widget_add_css_class(shapesTitle, "utn-popover-title");
     gtk_box_append(panel, shapesTitle);
@@ -69,7 +71,12 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     int column = 0;
     int row = 0;
     for (const auto& entry: DRAWING_TOOLS) {
-        GtkWidget* button = gtk_button_new_with_label(_(entry.label));
+        GtkWidget* button = gtk_button_new();
+        auto* content = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+        gtk_box_append(content, gtk_image_new_from_icon_name(icons.iconName(entry.icon).c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR));
+        gtk_box_append(content, gtk_label_new(_(entry.label)));
+        gtk_button_set_child(GTK_BUTTON(button), GTK_WIDGET(content));
+        gtk_widget_set_tooltip_text(button, _(entry.label));
         g_object_set_data(G_OBJECT(button), "utn-control", control);
         g_object_set_data(G_OBJECT(button), "utn-drawing-type", GINT_TO_POINTER(static_cast<int>(entry.type)));
 
@@ -95,7 +102,7 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_box_append(panel, GTK_WIDGET(shapeGrid));
     gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
-    GtkWidget* stemTitle = gtk_label_new(_("Teaching Tools"));
+    GtkWidget* stemTitle = gtk_label_new(_("More Tools"));
     gtk_widget_set_halign(stemTitle, GTK_ALIGN_START);
     gtk_widget_add_css_class(stemTitle, "utn-popover-title");
     gtk_box_append(panel, stemTitle);
@@ -154,7 +161,7 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 }
 
 auto ToolTeachingKit::getToolDisplayName() const -> std::string {
-    return _("Teaching Tools");
+    return _("Shapes & Lines");
 }
 
 auto ToolTeachingKit::getNewToolIcon() const -> GtkWidget* {

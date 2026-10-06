@@ -211,13 +211,14 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                         count++;
                         auto it = item->createToolItem(horizontal);
                         if (teacherLayout) {
-                            const std::string label = name == "TEACHING_KIT" ? _("Teaching Tools") :
+                            const std::string label = name == "TEACHING_KIT" ? _("Shapes & Lines") :
                                                       name == "TEACHER_STAMP" ? _("Feedback") :
                                                       name == "HAND" ? _("Move Page") :
-                                                      name == "SELECT" ? _("Select") : item->getToolDisplayName();
+                                                      name == "SELECT" ? _("Area Select") : item->getToolDisplayName();
                             gtk_widget_set_tooltip_text(it.get(), label.c_str());
                             if (!horizontal) {
                                 labelTeacherTool(it.get(), label);
+
                             }
                         }
                         gtk_toolbar_insert(GTK_TOOLBAR(toolbar), GTK_TOOL_ITEM(it.get()), -1);
@@ -554,6 +555,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("SELECT_MULTILAYER_RECTANGLE", Cat::SELECTION, Action::SELECT_TOOL,
                                 TOOL_SELECT_MULTILAYER_RECT, "select-multilayer-rect",
                                 _("Select Multi-Layer Rectangle"));
+    emplaceCustomItemWithTarget("UTN_SELECT", Cat::SELECTION, Action::SELECT_TOOL, TOOL_SELECT_OBJECT,
+                                "utn-select", _("Select"));
     emplaceCustomItemWithTarget("SELECT_OBJECT", Cat::SELECTION, Action::SELECT_TOOL, TOOL_SELECT_OBJECT,
                                 "object-select", _("Select Object"));
     emplaceCustomItemWithTarget("VERTICAL_SPACE", Cat::SELECTION, Action::SELECT_TOOL, TOOL_VERTICAL_SPACE,

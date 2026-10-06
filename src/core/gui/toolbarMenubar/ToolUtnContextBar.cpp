@@ -902,6 +902,18 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
 void ToolUtnContextBar::appendSelectionControls() {
     auto* tools = control->getToolHandler();
 
+    GtkWidget* remove = gtk_button_new_with_label(_("Delete"));
+    g_signal_connect(
+            remove,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                static_cast<Control*>(data)->deleteSelection();
+            }),
+            control);
+    gtk_widget_set_tooltip_text(remove, _("Delete selected objects. Undo restores them."));
+    gtk_box_append(box, remove);
+    appendSeparator();
+
     if (tools->hasCapability(TOOL_CAP_COLOR)) {
         appendColorButton();
     }
@@ -966,16 +978,7 @@ void ToolUtnContextBar::appendSelectionControls() {
     gtk_widget_set_tooltip_text(back, _("Send selection to back"));
     gtk_box_append(box, back);
 
-    GtkWidget* remove = gtk_button_new_with_label(_("Delete"));
-    g_signal_connect(
-            remove,
-            "clicked",
-            G_CALLBACK(+[](GtkButton*, gpointer data) {
-                static_cast<Control*>(data)->deleteSelection();
-            }),
-            control);
-    gtk_widget_set_tooltip_text(remove, _("Delete selected objects. Undo restores them."));
-    gtk_box_append(box, remove);
+
 
     if (!tools->hasCapability(TOOL_CAP_COLOR) && !tools->hasCapability(TOOL_CAP_SIZE)) {
         appendGenericMessage(_("Drag over an object to select it"));

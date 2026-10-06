@@ -29,5 +29,6 @@ public:
 
 private:
     Control* control;
+    IconNameHelper icons;
     std::string iconName;
 };
