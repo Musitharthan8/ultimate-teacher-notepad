@@ -333,6 +333,11 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
             this->inputHandler->onButtonPressEvent(pos, zoom);
         }
     } else if (h->getToolType() == TOOL_ERASER) {
+        if (this->inputHandler) {
+            this->inputHandler->onSequenceCancelEvent();
+            eraseViewsOf(this->overlayViews, this->inputHandler.get());
+            this->inputHandler.reset();
+        }
         this->eraser->erase(x, y);
         this->inEraser = true;
     } else if (h->getToolType() == TOOL_LASER_POINTER_PEN || h->getToolType() == TOOL_LASER_POINTER_HIGHLIGHTER) {

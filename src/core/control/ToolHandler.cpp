@@ -187,6 +187,13 @@ void ToolHandler::selectTool(ToolType type) {
         g_warning("unknown tool selected: %i\n", type);
         return;
     }
+    if (type != TOOL_HIGHLIGHTER) {
+        this->smartHighlighterEnabled = false;
+    }
+    if (type != TOOL_TEXT) {
+        this->answerBoxEnabled = false;
+        this->clearTeacherStamp();
+    }
     this->toolbarSelectedTool = &getTool(type);
     // set activeTool is necessary for fireToolChanged()
     // if called after this method

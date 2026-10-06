@@ -12,6 +12,9 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/actions/ActionDatabase.h"
+#include "util/GVariantTemplate.h"
+#include "util/raii/GVariantSPtr.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
@@ -26,23 +29,25 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     GtkWidget* toggle = gtk_toggle_button_new();
     gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
     gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->isSmartHighlighterEnabled());
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->getToolType() == TOOL_HIGHLIGHTER);
 
-    // Enable smart mode and switch directly to the highlighter
+    // Selection changes update the toggle without activating Markup again.
+    auto action = control->getActionDatabase()->getAction(Action::SELECT_TOOL);
+    g_signal_connect_object(
+            action.get(), "notify::state", G_CALLBACK(+[](GObject* action, GParamSpec*, gpointer toggle) {
+                xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(action)), xoj::util::adopt);
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle),
+                                             getGVariantValue<ToolType>(state.get()) == TOOL_HIGHLIGHTER);
+            }),
+            toggle, GConnectFlags(0));
     g_signal_connect(
-            toggle,
-            "toggled",
-            G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+            toggle, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                bool enabled = gtk_toggle_button_get_active(button);
-
+                ctrl->clearSelectionEndText();
                 auto* tools = ctrl->getToolHandler();
-                tools->setSmartHighlighterEnabled(enabled);
-
-                if (enabled) {
-                    tools->selectTool(TOOL_HIGHLIGHTER);
-                    tools->fireToolChanged();
-                }
+                tools->setSmartHighlighterEnabled(true);
+                tools->selectTool(TOOL_HIGHLIGHTER);
+                tools->fireToolChanged();
             }),
             control);
 

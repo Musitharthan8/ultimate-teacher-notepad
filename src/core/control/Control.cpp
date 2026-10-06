@@ -2604,10 +2604,7 @@ void Control::clearCurrentPageAnnotations() {
     }
 
     this->undoRedo->addUndoAction(std::move(undo));
-
-    if (this->win) {
-        this->win->getXournal()->repaintSelection(true);
-    }
+    page->firePageChanged();
 }
 
 void Control::setClipboardHandlerSelection(EditSelection* selection) {
