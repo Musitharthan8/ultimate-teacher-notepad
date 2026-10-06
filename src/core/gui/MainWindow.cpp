@@ -255,7 +255,8 @@ void MainWindow::updateColorscheme() {
 
     // Set up icons
     {
-        const auto uiPath = this->getGladeSearchPath()->getFirstSearchPath();
+        const auto themeFile = this->getGladeSearchPath()->findFile("iconsColor-light/hicolor", "index.theme");
+        const auto uiPath = themeFile.parent_path().parent_path().parent_path();
         const auto lightColorIcons = (uiPath / "iconsColor-light");
         const auto darkColorIcons = (uiPath / "iconsColor-dark");
         const auto lightLucideIcons = (uiPath / "iconsLucide-light");

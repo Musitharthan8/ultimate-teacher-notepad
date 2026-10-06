@@ -154,7 +154,11 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     auto* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menu), false);
     gtk_widget_set_tooltip_text(GTK_WIDGET(menu), getToolDisplayName().c_str());
-    gtk_button_set_child(GTK_BUTTON(menu), getNewToolIcon());
+    auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
+    gtk_box_append(heading, getNewToolIcon());
+    gtk_box_append(heading, gtk_label_new(_("Classroom")));
+    gtk_widget_show_all(GTK_WIDGET(heading));
+    gtk_button_set_child(GTK_BUTTON(menu), GTK_WIDGET(heading));
     gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menu, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
     gtk_widget_show_all(GTK_WIDGET(tabs));

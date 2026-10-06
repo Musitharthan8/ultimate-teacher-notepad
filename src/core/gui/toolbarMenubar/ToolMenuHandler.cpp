@@ -113,6 +113,46 @@ void ToolMenuHandler::unloadToolbar(GtkWidget* toolbar) {
     gtk_widget_hide(toolbar);
 }
 
+namespace {
+GtkButton* firstToolbarButton(GtkWidget* widget) {
+    if (GTK_IS_BUTTON(widget) && !GTK_IS_MENU_BUTTON(widget)) {
+        return GTK_BUTTON(widget);
+    }
+    if (!GTK_IS_CONTAINER(widget)) {
+        return nullptr;
+    }
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+    GtkButton* result = nullptr;
+    for (GList* child = children; child && !result; child = child->next) {
+        result = firstToolbarButton(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    return result;
+}
+
+void labelTeacherTool(GtkWidget* item, const std::string& label) {
+    auto* button = firstToolbarButton(item);
+    if (!button) {
+        return;
+    }
+    auto* icon = gtk_bin_get_child(GTK_BIN(button));
+    if (!icon || !GTK_IS_IMAGE(icon)) {
+        return;
+    }
+    g_object_ref(icon);
+    gtk_container_remove(GTK_CONTAINER(button), icon);
+    auto* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    gtk_box_append(row, icon);
+    g_object_unref(icon);
+    auto* text = gtk_label_new(label.c_str());
+    gtk_label_set_xalign(GTK_LABEL(text), 0);
+    gtk_widget_set_hexpand(text, true);
+    gtk_box_append(row, text);
+    gtk_button_set_child(button, GTK_WIDGET(row));
+    gtk_widget_show_all(GTK_WIDGET(row));
+}
+}  // namespace
+
 void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char* toolbarName, bool horizontal) {
     int count = 0;
     const auto palette = this->control->getPalette();
@@ -160,6 +200,18 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                     if (name == item->getId()) {
                         count++;
                         auto it = item->createToolItem(horizontal);
+                        const auto& layout = d->getId();
+                        const bool teacherLayout = layout == "UTN Teacher" || layout == "UTN Teacher Tablet" ||
+                                                   layout == "UTN Marking";
+                        if (teacherLayout) {
+                            const std::string label = name == "TEACHING_KIT" ? _("Teaching Tools") :
+                                                      name == "TEACHER_STAMP" ? _("Feedback") :
+                                                      name == "HAND" ? _("Move Page") : item->getToolDisplayName();
+                            gtk_widget_set_tooltip_text(it.get(), label.c_str());
+                            if (!horizontal) {
+                                labelTeacherTool(it.get(), label);
+                            }
+                        }
                         gtk_toolbar_insert(GTK_TOOLBAR(toolbar), GTK_TOOL_ITEM(it.get()), -1);
 
                         ToolitemDragDrop::attachMetadata(it.get(), dataItem.getId(), item.get());

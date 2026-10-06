@@ -476,3 +476,11 @@ window.utnShell.utnHighContrast combobox:focus,
 window.utnShell.utnHighContrast spinbutton:focus {
     outline-color: #ffffff;
 }
+
+/* Keep classroom tool names readable beside their icons. */
+window.utnShell #tbLeft1 button:not(menubutton) {
+    padding: 6px 8px;
+}
+window.utnShell #tbLeft1 label {
+    font-weight: 500;
+}
