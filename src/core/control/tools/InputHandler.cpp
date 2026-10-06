@@ -8,6 +8,7 @@
 #include "control/AudioController.h"  // for AudioController
 #include "control/Control.h"          // for Control
 #include "control/ToolEnums.h"        // for TOOL_ERASER, TOOL_HIGHLIGHTER
+#include "control/settings/Settings.h"
 #include "control/ToolHandler.h"      // for ToolHandler
 #include "model/Point.h"              // for Point, Point::NO_PRESSURE
 #include "model/Stroke.h"             // for Stroke, StrokeTool::ERASER, STR...
@@ -25,15 +26,10 @@ auto InputHandler::getStroke() const -> Stroke* { return stroke.get(); }
 auto InputHandler::createStroke(Control* control) -> std::unique_ptr<Stroke> {
     ToolHandler* h = control->getToolHandler();
 
-    auto s = std::make_unique<Stroke>();
-    s->setWidth(h->getThickness());
-    s->setColor(h->getColor());
-    s->setFill(h->getFill());
-    s->setLineStyle(h->getLineStyle());
-
+    const auto& layout = control->getSettings()->getSelectedToolbar();
+    const bool teacherLayout = layout == "UTN Teacher" || layout == "UTN Teacher Tablet" || layout == "UTN Marking";
+    auto s = createStroke(h, teacherLayout);
     if (h->getToolType() == TOOL_PEN) {
-        s->setToolType(StrokeTool::PEN);
-
 #ifdef ENABLE_AUDIO
         if (auto* audioController = control->getAudioController(); audioController && audioController->isRecording()) {
             fs::path audioFilename = audioController->getAudioFilename();
@@ -43,6 +39,21 @@ auto InputHandler::createStroke(Control* control) -> std::unique_ptr<Stroke> {
             s->setAudioFilename(audioFilename);
         }
 #endif
+    }
+    return s;
+}
+
+auto InputHandler::createStroke(ToolHandler* h, bool teacherLayout) -> std::unique_ptr<Stroke> {
+    auto s = std::make_unique<Stroke>();
+    s->setWidth(h->getThickness());
+    s->setColor(h->getColor());
+    const bool handwriting = teacherLayout && h->getDrawingType() == DRAWING_TYPE_DEFAULT;
+    // Shape fill and dashes must not carry over into teacher handwriting.
+    s->setFill(handwriting ? -1 : h->getFill());
+    s->setLineStyle(handwriting ? LineStyle{} : h->getLineStyle());
+
+    if (h->getToolType() == TOOL_PEN) {
+        s->setToolType(StrokeTool::PEN);
     } else if (h->getToolType() == TOOL_HIGHLIGHTER) {
         s->setToolType(StrokeTool::HIGHLIGHTER);
     } else if (h->getToolType() == TOOL_ERASER) {

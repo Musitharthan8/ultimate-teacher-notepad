@@ -6,6 +6,7 @@
 
 #include "control/ToolHandler.h"
 #include "control/tools/EraseHandler.h"
+#include "control/tools/InputHandler.h"
 #include "gui/LegacyRedrawable.h"
 #include "model/Document.h"
 #include "model/Layer.h"
@@ -79,4 +80,51 @@ TEST(TeacherTools, leavingMarkupClearsSpecialMode) {
     tools.selectTool(TOOL_PEN);
     tools.selectTool(TOOL_ERASER);
     EXPECT_EQ(tools.getToolType(), TOOL_ERASER);
+}
+
+namespace {
+class StrokeFactory: public InputHandler {
+public:
+    using InputHandler::createStroke;
+};
+
+void enableShapeStyle(ToolHandler& tools, ToolType type) {
+    tools.selectTool(type);
+    auto& tool = tools.getTool(type);
+    tool.setFill(true);
+    tool.setFillAlpha(128);
+    LineStyle dashed;
+    dashed.setDashes({4, 2});
+    tool.setLineStyle(dashed);
+}
+}  // namespace
+
+TEST(TeacherTools, handwritingDoesNotInheritShapeStyle) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    for (auto type: {TOOL_PEN, TOOL_HIGHLIGHTER}) {
+        enableShapeStyle(tools, type);
+        tools.setDrawingType(DRAWING_TYPE_DEFAULT);
+        auto stroke = StrokeFactory::createStroke(&tools, true);
+        EXPECT_EQ(stroke->getFill(), -1);
+        EXPECT_FALSE(stroke->getLineStyle().hasDashes());
+        EXPECT_TRUE(tools.getTool(type).getFill());
+    }
+}
+
+TEST(TeacherTools, shapesRetainFillAndDashes) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    enableShapeStyle(tools, TOOL_PEN);
+    tools.setDrawingType(DRAWING_TYPE_RECTANGLE);
+    auto stroke = StrokeFactory::createStroke(&tools, true);
+    EXPECT_EQ(stroke->getFill(), 128);
+    EXPECT_TRUE(stroke->getLineStyle().hasDashes());
+}
+
+TEST(TeacherTools, classicHandwritingRetainsUpstreamStyle) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    enableShapeStyle(tools, TOOL_PEN);
+    tools.setDrawingType(DRAWING_TYPE_DEFAULT);
+    auto stroke = StrokeFactory::createStroke(&tools, false);
+    EXPECT_EQ(stroke->getFill(), 128);
+    EXPECT_TRUE(stroke->getLineStyle().hasDashes());
 }

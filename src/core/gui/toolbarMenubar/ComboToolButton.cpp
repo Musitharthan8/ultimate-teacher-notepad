@@ -54,7 +54,19 @@ static void setProminentIconCallback(GObject* a, GParamSpec*, ComboToolInstanceD
     auto it = std::find_if(data->entries->begin(), data->entries->end(),
                            [s = state.get()](const auto& e) { return g_variant_equal(e.target.get(), s); });
     if (it != data->entries->end()) {
-        gtk_button_set_icon_name(data->btn, it->icon.c_str());
+        auto* child = gtk_bin_get_child(GTK_BIN(data->btn));
+        if (GTK_IS_BOX(child)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(child));
+            for (GList* entry = children; entry; entry = entry->next) {
+                if (GTK_IS_IMAGE(entry->data)) {
+                    gtk_image_set_from_icon_name(GTK_IMAGE(entry->data), it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
+                    break;
+                }
+            }
+            g_list_free(children);
+        } else {
+            gtk_button_set_child(data->btn, gtk_image_new_from_icon_name(it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR));
+        }
         gtk_widget_set_tooltip_text(GTK_WIDGET(data->btn), it->name.c_str());
         gtk_actionable_set_action_target_value(GTK_ACTIONABLE(data->btn), state.get());
         gtk_popover_popdown(data->popover);
@@ -84,7 +96,7 @@ auto ComboToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     {                                      // Create prominent button
         const Entry& e = entries.front();  // Select the first entry by default
         data->btn = GTK_BUTTON(createEmptyButton(gAction.get(), e));
-        gtk_button_set_icon_name(data->btn, e.icon.c_str());
+        gtk_button_set_child(data->btn, gtk_image_new_from_icon_name(e.icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR));
     }
 
     // Create item

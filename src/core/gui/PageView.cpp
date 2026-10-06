@@ -750,10 +750,7 @@ auto XojPageView::onButtonReleaseEvent(const PositionInputData& pos) -> bool {
 
     if (this->inEraser) {
         this->inEraser = false;
-        Document* doc = this->xournal->getControl()->getDocument();
-        doc->lock();
         this->eraser->finalize();
-        doc->unlock();
     }
     if (this->inLatex) {
         this->inLatex = false;

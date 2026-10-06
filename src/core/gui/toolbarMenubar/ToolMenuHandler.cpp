@@ -131,6 +131,11 @@ GtkButton* firstToolbarButton(GtkWidget* widget) {
 }
 
 void labelTeacherTool(GtkWidget* item, const std::string& label) {
+    gtk_widget_set_hexpand(item, false);
+    auto* child = gtk_bin_get_child(GTK_BIN(item));
+    if (GTK_IS_BOX(child)) {
+        gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+    }
     auto* button = firstToolbarButton(item);
     if (!button) {
         return;
@@ -146,7 +151,7 @@ void labelTeacherTool(GtkWidget* item, const std::string& label) {
     g_object_unref(icon);
     auto* text = gtk_label_new(label.c_str());
     gtk_label_set_xalign(GTK_LABEL(text), 0);
-    gtk_widget_set_hexpand(text, true);
+    gtk_widget_set_hexpand(text, false);
     gtk_box_append(row, text);
     gtk_button_set_child(button, GTK_WIDGET(row));
     gtk_widget_show_all(GTK_WIDGET(row));
@@ -157,6 +162,11 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
     int count = 0;
     const auto palette = this->control->getPalette();
 
+    const auto& layoutId = d->getId();
+    const bool teacherLayout = layoutId == "UTN Teacher" || layoutId == "UTN Teacher Tablet" || layoutId == "UTN Marking";
+    if (!horizontal) {
+        gtk_widget_set_hexpand(toolbar, false);
+    }
     const auto& recolorParams = control->getSettings()->getRecolorParameters();
     auto recolor = recolorParams.recolorizeMainView ? std::make_optional(recolorParams.recolor) : std::nullopt;
 
@@ -200,19 +210,29 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                     if (name == item->getId()) {
                         count++;
                         auto it = item->createToolItem(horizontal);
-                        const auto& layout = d->getId();
-                        const bool teacherLayout = layout == "UTN Teacher" || layout == "UTN Teacher Tablet" ||
-                                                   layout == "UTN Marking";
                         if (teacherLayout) {
                             const std::string label = name == "TEACHING_KIT" ? _("Teaching Tools") :
                                                       name == "TEACHER_STAMP" ? _("Feedback") :
-                                                      name == "HAND" ? _("Move Page") : item->getToolDisplayName();
+                                                      name == "HAND" ? _("Move Page") :
+                                                      name == "SELECT" ? _("Select") : item->getToolDisplayName();
                             gtk_widget_set_tooltip_text(it.get(), label.c_str());
                             if (!horizontal) {
                                 labelTeacherTool(it.get(), label);
                             }
                         }
                         gtk_toolbar_insert(GTK_TOOLBAR(toolbar), GTK_TOOL_ITEM(it.get()), -1);
+                        if (teacherLayout && !horizontal) {
+                            g_signal_connect(it.get(), "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* it, gpointer) {
+                                auto* child = gtk_bin_get_child(GTK_BIN(it));
+                                if (GTK_IS_BOX(child)) {
+                                    gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+                                }
+                            }), nullptr);
+                            auto* child = gtk_bin_get_child(GTK_BIN(it.get()));
+                            if (GTK_IS_BOX(child)) {
+                                gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+                            }
+                        }
 
                         ToolitemDragDrop::attachMetadata(it.get(), dataItem.getId(), item.get());
 
