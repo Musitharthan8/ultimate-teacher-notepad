@@ -265,6 +265,10 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     }
 
     gtk_widget_show_all(GTK_WIDGET(box));
+    if (auto* viewport = gtk_widget_get_ancestor(GTK_WIDGET(box), GTK_TYPE_SCROLLED_WINDOW)) {
+        auto* adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(viewport));
+        gtk_adjustment_set_value(adjustment, gtk_adjustment_get_lower(adjustment));
+    }
 }
 
 void ToolUtnContextBar::appendLabel(const char* text) {
