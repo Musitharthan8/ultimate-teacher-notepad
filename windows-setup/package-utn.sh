@@ -79,7 +79,8 @@ Keep scan background attachments beside their .xopp journals.
 README
 pacman -Q > "$setup_dir/DEPENDENCIES.txt"
 printf '%s\n' "$version" > "$setup_dir/UTN-VERSION.txt"
-git -C "$script_dir/.." rev-parse HEAD > "$setup_dir/SOURCE-COMMIT.txt"
+source_commit=${GITHUB_SHA:-$(git -C "$script_dir/.." rev-parse HEAD)}
+printf '%s\n' "$source_commit" > "$setup_dir/SOURCE-COMMIT.txt"
 makensis=${MAKENSIS:-}
 if [[ -z "$makensis" ]]; then
     makensis=$(command -v makensis || command -v makensis.exe || true)
@@ -95,5 +96,10 @@ MSYS2_ARG_CONV_EXCL='*' "$makensis" -NOCD \
     "-DLICENSE_FILE=$(cygpath -w "$setup_dir/LICENSE.txt")" \
     "-DICON_FILE=$(cygpath -w "$build_dir/src/win32/xournalpp.ico")" \
     "$(cygpath -w "$script_dir/utn.nsi")"
-(cd "$setup_dir" && 7z a -tzip "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" .)
+sevenzip=$(command -v 7z || command -v 7z.exe || true)
+if [[ -z "$sevenzip" && -f '/c/Program Files/7-Zip/7z.exe' ]]; then
+    sevenzip='/c/Program Files/7-Zip/7z.exe'
+fi
+[[ -n "$sevenzip" ]] || { echo 'Install 7-Zip.' >&2; exit 1; }
+(cd "$setup_dir" && "$sevenzip" a -tzip "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" .)
 (cd "$output_dir" && sha256sum ./*.exe ./*.zip > SHA256SUMS.txt)
