@@ -659,6 +659,21 @@ void Control::setToolDrawingType(DrawingType type) {
     }
 }
 
+void Control::selectTextMode(TextMode mode, const std::string& feedback) {
+    selectTool(TOOL_TEXT);  // finishes any edit and resets to plain text
+    switch (mode) {
+        case TextMode::AnswerBox:
+            this->toolHandler->setAnswerBoxEnabled(true);
+            break;
+        case TextMode::Feedback:
+            this->toolHandler->setTeacherStampText(feedback);
+            break;
+        case TextMode::Plain:
+            break;
+    }
+    this->toolHandler->fireToolChanged();
+}
+
 void Control::selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMode> mode) {
     clearSelectionEndText();
     selectTool(TOOL_HIGHLIGHTER);
@@ -1194,7 +1209,9 @@ void Control::undoRedoPageChanged(PageRef page) {
 void Control::selectTool(ToolType type) {
     // UTN special modes use ToolHandler directly; ordinary toolbar choices reset them.
     if (type == TOOL_TEXT) {
+        // Choosing Text gives plain text; Answer Box and Feedback are applied by selectTextMode afterwards
         toolHandler->setAnswerBoxEnabled(false);
+        toolHandler->clearTeacherStamp();
     }
     if (type == TOOL_HIGHLIGHTER) {
         toolHandler->setSmartHighlighterEnabled(false);

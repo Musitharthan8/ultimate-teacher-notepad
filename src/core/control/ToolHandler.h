@@ -44,6 +44,9 @@ enum SelectedTool { active, toolbar };
 // UTN smart highlighter snapping behaviour
 enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough };
 
+/// What the Text tool places with the next click (UTN)
+enum class TextMode { Plain, AnswerBox, Feedback };
+
 class ToolListener {
 public:
     /**
@@ -234,7 +237,11 @@ public:
 
     // UTN: answer box text mode
     bool isAnswerBoxEnabled() const;
+    /// Enabling Answer Box mode drops a pending Feedback comment; the two text modes are exclusive
     void setAnswerBoxEnabled(bool enabled);
+
+    /// The Text tool mode; Plain unless an Answer Box or Feedback comment is pending
+    TextMode getTextMode() const;
 
     Color getAnswerBoxTextColor() const;
     void setAnswerBoxTextColor(Color color);
@@ -252,6 +259,7 @@ public:
     // UTN: one-shot teacher stamps
     bool hasTeacherStamp() const;
     const std::string& getTeacherStampText() const;
+    /// A non-empty comment switches Answer Box mode off; the two text modes are exclusive
     void setTeacherStampText(std::string text);
     Color getTeacherStampColor() const;
     void setTeacherStampColor(Color color);
@@ -479,7 +487,7 @@ private:
     bool answerBoxEnabled = false;
     Color answerBoxTextColor{45U, 45U, 45U, 255U};
     Color answerBoxBackgroundColor{255U, 248U, 214U, 230U};
-    Color answerBoxBorderColor{80U, 80U, 80U, 255U};
+    Color answerBoxBorderColor{180U, 140U, 20U, 255U};  // matches the Model answer style
     double answerBoxBorderWidth = 1.2;
     double answerBoxPadding = 6.0;
     double answerBoxCornerRadius = 5.0;

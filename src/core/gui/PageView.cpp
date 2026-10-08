@@ -194,6 +194,8 @@ void XojPageView::startText(double x, double y) {
         if (tools->hasTeacherStamp()) {
             endText();
             tools->clearTeacherStamp();
+            // Back to plain Text: refresh the rail and properties bar so they stop showing Feedback
+            tools->fireToolChanged();
         }
     }
 }

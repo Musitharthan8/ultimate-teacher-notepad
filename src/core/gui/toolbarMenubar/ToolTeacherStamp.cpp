@@ -13,8 +13,6 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
-#include "util/Color.h"
-#include "util/Util.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
@@ -85,11 +83,7 @@ GtkWidget* createStampGrid(Control* control, GtkPopover* popover, const std::arr
                     auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                     auto* stamp = static_cast<const char*>(g_object_get_data(G_OBJECT(button), "utn-stamp-text"));
 
-                    auto* tools = ctrl->getToolHandler();
-                    tools->setAnswerBoxEnabled(false);
-                    tools->setTeacherStampText(stamp ? stamp : "");
-                    tools->selectTool(TOOL_TEXT);
-                    tools->fireToolChanged();
+                    ctrl->selectTextMode(TextMode::Feedback, stamp ? stamp : "");
 
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }),
@@ -122,29 +116,6 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_margin_top(GTK_WIDGET(panel), 8);
     gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
     gtk_popover_set_child(popover, GTK_WIDGET(panel));
-
-    GtkBox* colourRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
-    GtkWidget* colourLabel = gtk_label_new(_("Feedback colour"));
-    gtk_widget_set_hexpand(colourLabel, true);
-    gtk_widget_set_halign(colourLabel, GTK_ALIGN_START);
-
-    GdkRGBA stampColour = Util::argb_to_GdkRGBA(control->getToolHandler()->getTeacherStampColor());
-    GtkWidget* colourButton = gtk_color_button_new_with_rgba(&stampColour);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(colourButton), false);
-    g_signal_connect(
-            colourButton,
-            "color-set",
-            G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                GdkRGBA colour{};
-                gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &colour);
-                ctrl->getToolHandler()->setTeacherStampColor(Util::GdkRGBA_to_argb(colour));
-            }),
-            control);
-
-    gtk_box_append(colourRow, colourLabel);
-    gtk_box_append(colourRow, colourButton);
-    gtk_box_append(panel, GTK_WIDGET(colourRow));
 
     GtkNotebook* notebook = GTK_NOTEBOOK(gtk_notebook_new());
     gtk_widget_set_size_request(GTK_WIDGET(notebook), 360, 210);
@@ -182,16 +153,14 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 const char* text = gtk_editable_get_text(entry);
 
                 if (text != nullptr && text[0] != '\0') {
-                    auto* tools = ctrl->getToolHandler();
-                    tools->setAnswerBoxEnabled(false);
-                    tools->setTeacherStampText(text);
-                    tools->selectTool(TOOL_TEXT);
-                    tools->fireToolChanged();
+                    ctrl->selectTextMode(TextMode::Feedback, text);
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }
             }),
             popover);
 
+    // Enter in the comment box places the comment, like the button
+    g_signal_connect_swapped(customEntry, "activate", G_CALLBACK(gtk_button_clicked), customButton);
     gtk_box_append(custom, customButton);
     gtk_notebook_append_page(notebook, GTK_WIDGET(custom), gtk_label_new(_("Custom")));
 

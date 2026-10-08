@@ -41,12 +41,11 @@
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
 #include "ToolAppearance.h"          // for ToolAppearance
-#include "ToolAnswerBox.h"           // for ToolAnswerBox
+#include "ToolTextMode.h"            // for ToolTextMode
 #include "ToolClassroomWorkflow.h"
 #include "ToolClear.h"               // for ToolClear
 #include "ToolLessonNavigator.h"     // for ToolLessonNavigator
 #include "ToolPageLayer.h"           // for ToolPageLayer
-#include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPrepareReveal.h"        // for ToolPrepareReveal
 #include "ToolPresentationKit.h"      // for ToolPresentationKit
@@ -190,11 +189,11 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
         {"PEN", nullptr, N_("Write and draw freehand")},
         {"SMART_HIGHLIGHTER", nullptr, N_("Highlight text. The arrow chooses freehand, snapping or underline")},
         {"ERASER", nullptr, N_("Erase ink. Text and Answer Boxes stay; use Select to delete them")},
-        {"TEXT", nullptr, N_("Click the page to type")},
+        {"UTN_TEXT", nullptr, N_("Click the page to type")},
         {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
         {"TEACHER_STAMP", N_("Feedback"), N_("Place a comment from the Feedback Bank")},
         {"TEACHING_KIT", N_("Shapes & Lines"), N_("Lines, rectangles, arrows and maths tools")},
-        {"PREPARE_REVEAL", nullptr, N_("Prepare hidden content and reveal it during the lesson")},
+        {"PREPARE_REVEAL", nullptr, N_("Prepare answers in advance, hide them and reveal them during the lesson")},
         {"SELECT", N_("Area Select"), N_("Drag around several objects to select them")},
         {"HAND", N_("Move Page"), N_("Drag to move around the page")},
 };
@@ -204,7 +203,9 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
 void setTeacherTooltip(GtkWidget* item, const char* markup) {
     gtk_widget_set_tooltip_markup(item, markup);
     GtkWidget* child = GTK_IS_BIN(item) ? gtk_bin_get_child(GTK_BIN(item)) : nullptr;
-    if (child && GTK_IS_BOX(child)) {
+    if (child && GTK_IS_BUTTON(child)) {
+        gtk_widget_set_tooltip_markup(child, markup);
+    } else if (child && GTK_IS_BOX(child)) {
         GList* children = gtk_container_get_children(GTK_CONTAINER(child));
         if (children && GTK_IS_TOGGLE_BUTTON(children->data)) {
             gtk_widget_set_tooltip_markup(GTK_WIDGET(children->data), markup);
@@ -566,7 +567,9 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode
-    emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
+    // Teacher text modes: their rail buttons are selected only for their own mode
+    emplaceItem<ToolTextMode>("UTN_TEXT", control, iconNameHelper, TextMode::Plain);
+    emplaceItem<ToolTextMode>("ANSWER_BOX", control, iconNameHelper, TextMode::AnswerBox);
 
     // UTN teacher stamps
     emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control, iconNameHelper);
@@ -578,7 +581,6 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
 
     // UTN classroom page labels
-    emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
 
     // UTN classroom presentation tools
     emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);

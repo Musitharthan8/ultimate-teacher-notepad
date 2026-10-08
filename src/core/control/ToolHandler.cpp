@@ -413,6 +413,16 @@ auto ToolHandler::isAnswerBoxEnabled() const -> bool {
 
 void ToolHandler::setAnswerBoxEnabled(bool enabled) {
     this->answerBoxEnabled = enabled;
+    if (enabled) {
+        clearTeacherStamp();
+    }
+}
+
+auto ToolHandler::getTextMode() const -> TextMode {
+    if (hasTeacherStamp()) {
+        return TextMode::Feedback;
+    }
+    return this->answerBoxEnabled ? TextMode::AnswerBox : TextMode::Plain;
 }
 
 auto ToolHandler::getAnswerBoxTextColor() const -> Color {
@@ -473,6 +483,9 @@ auto ToolHandler::getTeacherStampText() const -> const std::string& {
 
 void ToolHandler::setTeacherStampText(std::string text) {
     this->teacherStampText = std::move(text);
+    if (!this->teacherStampText.empty()) {
+        this->answerBoxEnabled = false;
+    }
 }
 
 auto ToolHandler::getTeacherStampColor() const -> Color {

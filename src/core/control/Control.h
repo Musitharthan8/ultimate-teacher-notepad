@@ -208,6 +208,12 @@ public:
      */
     void selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMode> mode = std::nullopt);
 
+    /**
+     * @brief Activate the Text tool in a teacher text mode through the ordinary tool switch.
+     * @param feedback the comment to place with the next click (TextMode::Feedback only)
+     */
+    void selectTextMode(TextMode mode, const std::string& feedback = {});
+
     void paperTemplate();
     void paperFormat();
     void changePageBackgroundColor();

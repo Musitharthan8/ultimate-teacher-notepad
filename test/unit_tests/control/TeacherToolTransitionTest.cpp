@@ -192,3 +192,44 @@ TEST(TeacherToolTransitions, nonDrawingToolsDoNotRouteToDrawingHandlers) {
     tools.setEraserType(ERASER_TYPE_WHITEOUT);
     EXPECT_EQ(drawingHandlerRoute(tools), DrawingHandlerRoute::Stroke);
 }
+
+TEST(TeacherTextModes, answerBoxAndFeedbackAreExclusive) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.selectTool(TOOL_TEXT);
+    EXPECT_EQ(tools.getTextMode(), TextMode::Plain);
+
+    tools.setAnswerBoxEnabled(true);
+    EXPECT_EQ(tools.getTextMode(), TextMode::AnswerBox);
+
+    // Choosing a Feedback comment replaces Answer Box mode
+    tools.setTeacherStampText("Well done");
+    EXPECT_EQ(tools.getTextMode(), TextMode::Feedback);
+    EXPECT_FALSE(tools.isAnswerBoxEnabled());
+
+    // and choosing Answer Box drops a pending comment
+    tools.setAnswerBoxEnabled(true);
+    EXPECT_EQ(tools.getTextMode(), TextMode::AnswerBox);
+    EXPECT_FALSE(tools.hasTeacherStamp());
+}
+
+TEST(TeacherTextModes, leavingTextClearsSpecialModes) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.selectTool(TOOL_TEXT);
+    tools.setTeacherStampText("Check spelling");
+    tools.selectTool(TOOL_PEN);
+    tools.selectTool(TOOL_TEXT);
+    EXPECT_EQ(tools.getTextMode(), TextMode::Plain);
+
+    tools.setAnswerBoxEnabled(true);
+    tools.selectTool(TOOL_HIGHLIGHTER);
+    tools.selectTool(TOOL_TEXT);
+    EXPECT_EQ(tools.getTextMode(), TextMode::Plain);
+}
+
+TEST(TeacherTextModes, emptyFeedbackIsNotAMode) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.selectTool(TOOL_TEXT);
+    tools.setAnswerBoxEnabled(true);
+    tools.setTeacherStampText("");
+    EXPECT_EQ(tools.getTextMode(), TextMode::AnswerBox);
+}

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "HighlightModes.h"  // for HIGHLIGHT_MODES
+#include "UtnWidgets.h"      // for syncToggle
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
@@ -30,28 +31,30 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     GtkWidget* toggle = gtk_toggle_button_new();
     gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
     gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->getToolType() == TOOL_HIGHLIGHTER);
+    utn::syncToggle(GTK_TOGGLE_BUTTON(toggle), tools->getToolType() == TOOL_HIGHLIGHTER);
 
     // Selection changes update the toggle without activating Highlight again.
     auto action = control->getActionDatabase()->getAction(Action::SELECT_TOOL);
     g_signal_connect_object(
             action.get(), "notify::state", G_CALLBACK(+[](GObject* action, GParamSpec*, gpointer toggle) {
                 xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(action)), xoj::util::adopt);
-                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle),
-                                             getGVariantValue<ToolType>(state.get()) == TOOL_HIGHLIGHTER);
+                utn::syncToggle(GTK_TOGGLE_BUTTON(toggle), getGVariantValue<ToolType>(state.get()) == TOOL_HIGHLIGHTER);
             }),
             toggle, GConnectFlags(0));
     g_object_set_data(G_OBJECT(toggle), "utn-control", control);
     g_signal_connect(
             toggle, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                // Keeping the button in step with the active tool is not a click (GTK3 reports it as one)
+                if (utn::isSyncing(GTK_WIDGET(button))) {
+                    return;
+                }
                 auto* ctrl = static_cast<Control*>(data);
                 auto* tools = ctrl->getToolHandler();
                 // Re-selecting Highlight keeps the chosen Freehand/Smart mode; switching to it keeps it as well.
                 ctrl->selectHighlighter(tools->isSmartHighlighterEnabled() ||
                                         tools->getToolType() != TOOL_HIGHLIGHTER);
                 // A GtkToggleButton flips itself on every click; the selected state follows the active tool only.
-                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button),
-                                             tools->getToolType() == TOOL_HIGHLIGHTER);
+                utn::syncToggle(GTK_TOGGLE_BUTTON(button), tools->getToolType() == TOOL_HIGHLIGHTER);
             }),
             control);
 
@@ -89,7 +92,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
                             GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-mode-index")))];
 
                     ctrl->selectHighlighter(mode.snap.has_value(), mode.snap);
-                    gtk_toggle_button_set_active(toggle, true);
+                    utn::syncToggle(toggle, true);
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }),
                 popover);
