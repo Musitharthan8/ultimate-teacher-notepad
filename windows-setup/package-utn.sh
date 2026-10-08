@@ -50,11 +50,13 @@ for ((i=0; i<${#queue[@]}; i++)); do
 done
 
 # Runtime relocates the cache into UTN's user folder, so installs need no MSYS2 paths.
-cache=$(find "$setup_dir/lib/gdk-pixbuf-2.0" -name loaders.cache -print -quit)
-[[ -n "$cache" ]] || { echo 'Missing pixbuf loader cache.' >&2; exit 1; }
-awk '/\.dll"$/ { gsub(/\\/, "/"); gsub(/\/+/, "/"); sub(/^".*\/lib\/gdk-pixbuf/, "\"@UTN_ROOT@/lib/gdk-pixbuf") } { print }' "$cache" > "$setup_dir/share/utn-loaders.cache.in"
-grep -q '@UTN_ROOT@' "$setup_dir/share/utn-loaders.cache.in" || { echo 'Could not relocate pixbuf loaders.' >&2; exit 1; }
-rm "$cache"
+mapfile -d '' loaders < <(find "$setup_dir/lib/gdk-pixbuf-2.0" -name '*.dll' -print0)
+[[ ${#loaders[@]} -gt 0 ]] || { echo 'Missing pixbuf loaders.' >&2; exit 1; }
+"$prefix/bin/gdk-pixbuf-query-loaders.exe" "${loaders[@]}" > "$setup_dir/share/utn-loaders.cache.raw"
+awk '/\.dll"[[:space:]]*$/ { gsub(/\\/, "/"); gsub(/\/+/, "/"); sub(/^".*\/lib\/gdk-pixbuf/, "\"@UTN_ROOT@/lib/gdk-pixbuf") } { print }' "$setup_dir/share/utn-loaders.cache.raw" > "$setup_dir/share/utn-loaders.cache.in"
+grep -q '@UTN_ROOT@' "$setup_dir/share/utn-loaders.cache.in" || { cat "$setup_dir/share/utn-loaders.cache.raw"; echo 'Could not relocate pixbuf loaders.' >&2; exit 1; }
+rm "$setup_dir/share/utn-loaders.cache.raw"
+find "$setup_dir/lib/gdk-pixbuf-2.0" -name loaders.cache -delete
 mkdir -p "$setup_dir/etc/fonts"
 cat > "$setup_dir/etc/fonts/fonts.conf" <<'FONTS'
 <?xml version="1.0"?>
