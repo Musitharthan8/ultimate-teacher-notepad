@@ -1,7 +1,8 @@
 /*
  * Ultimate Teacher Notepad
  *
- * Context-sensitive teacher toolbar
+ * Properties bar for the active teaching tool. Every tool shows its settings in the same order:
+ * tool name, colour, size, then what is specific to that tool. Less common settings sit in labelled menus.
  *
  * Based on Xournal++ GPLv2+
  */
@@ -37,19 +38,27 @@ public:
     static GtkWidget* createPropertiesViewport(GtkWidget* content);
 
 private:
-    void rebuild(ToolType tool);
-    void appendLabel(const char* text);
-    void appendSeparator();
-    void appendColorButton();
-    void appendSizeButtons(ToolType tool);
-    void appendEraserControls();
-    void appendMarkupControls();
-    void appendTextControls();
-    void appendShapeControls(DrawingType type);
-    void appendSelectionControls();
-    void appendGenericMessage(const char* text);
+    enum class Palette { Ink, Highlight };
 
-private:
+    void rebuild(ToolType tool);
+
+    // Shared building blocks, used in this order by every tool
+    void appendBadge(const char* name);
+    void appendColourControls(Palette palette);
+    void appendSizeControls(ToolType tool);
+    void appendSeparator();
+    void appendHint(const char* text);
+    GtkWidget* appendButton(const char* label, const char* hint);
+
+    // One section per tool
+    void appendPenControls();
+    void appendShapeControls(DrawingType type);
+    void appendHighlightControls();
+    void appendEraserControls();
+    void appendTextControls();
+    void appendAnswerBoxStyleMenu();
+    void appendSelectionControls(ToolType tool);
+
     Control* control;
     GtkBox* box = nullptr;
 };
