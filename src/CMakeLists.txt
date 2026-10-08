@@ -124,7 +124,8 @@ if (WIN32)
     set (RESIZED_ICON ${PROJECT_BINARY_DIR}/xournalpp-icon-${SIZE}.png)
     add_custom_command (
                 OUTPUT ${RESIZED_ICON}
-                COMMAND rsvg-convert ${PROJECT_SOURCE_DIR}/ui/pixmaps/com.github.xournalpp.xournalpp.svg --width=${SIZE} --height=${SIZE} -o ${RESIZED_ICON}
+                COMMAND rsvg-convert ${PROJECT_SOURCE_DIR}/ui/pixmaps/utn.svg --width=${SIZE} --height=${SIZE} -o ${RESIZED_ICON}
+                DEPENDS ${PROJECT_SOURCE_DIR}/ui/pixmaps/utn.svg
 	)
   set (ICON_DEPS ${ICON_DEPS} ${RESIZED_ICON})
   unset (RESIZED_ICON)

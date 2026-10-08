@@ -10,6 +10,7 @@
 
 #include "model/Link.h"
 #include "model/Stroke.h"
+#include "model/Text.h"
 #include "model/TextAlignment.h"
 #include "util/StringUtils.h"
 #include "util/serializing/BinObjectEncoding.h"
@@ -455,4 +456,70 @@ TEST(UtilObjectIOStream, testReadLink) {
         std::cerr << "InputStreamException testing link " << i << ": " << e.what() << std::endl;
         FAIL();
     }
+}
+
+TEST(ObjectIOStream, classroomTextStyleRoundTrip) {
+    Text source;
+    source.setText("Model answer\nUse evidence.");
+    source.setUnderlined(true);
+    source.setStrikethrough(true);
+    source.setLineSpacing(1.5);
+    source.setBoxEnabled(true);
+    source.setBoxBackgroundColor(Color(20U, 40U, 60U, 100U));
+    source.setBoxBorderColor(Color(80U, 90U, 120U, 200U));
+    source.setBoxBorderWidth(2.5);
+    source.setBoxPadding(10);
+    source.setBoxCornerRadius(8);
+
+    ObjectOutputStream output(new BinObjectEncoding);
+    source.serialize(output);
+    auto* data = output.stealData();
+    ObjectInputStream input;
+    ASSERT_TRUE(input.read(data->str, data->len));
+    g_string_free(data, true);
+    Text result;
+    result.readSerialized(input);
+
+    EXPECT_EQ(result.getText(), source.getText());
+    EXPECT_TRUE(result.isUnderlined());
+    EXPECT_TRUE(result.isStrikethrough());
+    EXPECT_DOUBLE_EQ(result.getLineSpacing(), 1.5);
+    EXPECT_TRUE(result.isBoxEnabled());
+    EXPECT_EQ(uint32_t(result.getBoxBackgroundColor()), uint32_t(source.getBoxBackgroundColor()));
+    EXPECT_EQ(uint32_t(result.getBoxBorderColor()), uint32_t(source.getBoxBorderColor()));
+    EXPECT_DOUBLE_EQ(result.getBoxBorderWidth(), 2.5);
+    EXPECT_DOUBLE_EQ(result.getBoxPadding(), 10);
+    EXPECT_DOUBLE_EQ(result.getBoxCornerRadius(), 8);
+}
+
+TEST(ObjectIOStream, legacyTextClipboardResetsClassroomStyle) {
+    Text source;
+    source.setText("Classic text");
+    ObjectOutputStream output(new BinObjectEncoding);
+    // Write the original upstream Text payload without a UTN extension.
+    output.writeObject("Text");
+    source.RectangularElement::serialize(output);
+    source.AudioContent::serialize(output);
+    output.writeString(source.getText());
+    source.getFont().serialize(output);
+    output.writeDouble(source.getWrap());
+    output.writeInt(static_cast<int>(source.getAlign()));
+    output.writeInt(source.getJustify());
+    output.endObject();
+    auto* data = output.stealData();
+    ObjectInputStream input;
+    ASSERT_TRUE(input.read(data->str, data->len));
+    g_string_free(data, true);
+
+    Text result;
+    result.setUnderlined(true);
+    result.setStrikethrough(true);
+    result.setLineSpacing(2);
+    result.setBoxEnabled(true);
+    result.readSerialized(input);
+    EXPECT_EQ(result.getText(), "Classic text");
+    EXPECT_FALSE(result.isUnderlined());
+    EXPECT_FALSE(result.isStrikethrough());
+    EXPECT_DOUBLE_EQ(result.getLineSpacing(), 1);
+    EXPECT_FALSE(result.isBoxEnabled());
 }

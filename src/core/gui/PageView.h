@@ -179,6 +179,9 @@ public:  // event handler
 
     void deleteLaserPointerHandler();
 
+    /// Remove temporary presentation strokes without changing document annotations.
+    void clearTemporaryPresentationInk();
+
     void setGridCoordinates(xoj::util::Point<int> pos);
     xoj::util::Point<int> getGridCoordinates() const;
 
@@ -253,6 +256,11 @@ private:
     std::unique_ptr<ImageSizeSelection> imageSizeSelection;
 
     std::unique_ptr<LaserPointerHandler> laserPointer;
+
+    // UTN presentation overlay pointer position
+    double presentationPointerX = 0.0;
+    double presentationPointerY = 0.0;
+    bool presentationPointerInitialized = false;
 
     /**
      * For keeping old text changes to undo!

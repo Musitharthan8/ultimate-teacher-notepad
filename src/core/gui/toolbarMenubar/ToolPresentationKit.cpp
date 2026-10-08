@@ -1,0 +1,205 @@
+/*
+ * Ultimate Teacher Notepad
+ *
+ * Classroom presentation toolkit
+ *
+ * Based on Xournal++ GPLv2+
+ */
+
+#include "ToolPresentationKit.h"
+
+#include <utility>
+
+#include "control/Control.h"
+#include "control/ToolHandler.h"
+#include "control/actions/ActionDatabase.h"
+#include "enums/Action.enum.h"
+#include "gui/MainWindow.h"
+#include "gui/PageView.h"
+#include "gui/XournalView.h"
+#include "util/gtk4_helper.h"
+#include "util/i18n.h"
+
+namespace {
+void repaintPresentationOverlay(Control* control) {
+    if (auto* window = control->getWindow()) {
+        if (auto* xournal = window->getXournal()) {
+            if (auto* pageView = xournal->getViewFor(control->getCurrentPageNo())) {
+                pageView->repaintPage();
+            }
+        }
+    }
+}
+
+void selectTemporaryTool(Control* control, ToolType tool) {
+    auto* tools = control->getToolHandler();
+    tools->clearPresentationOverlay();
+    tools->selectTool(tool);
+    tools->fireToolChanged();
+    repaintPresentationOverlay(control);
+}
+}  // namespace
+
+ToolPresentationKit::ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper):
+        AbstractToolItem(std::move(id), Category::MISC),
+        control(control),
+        iconName(iconNameHelper.iconName("utn-presentation")) {}
+
+auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
+    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+
+    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
+    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
+    gtk_popover_set_child(popover, GTK_WIDGET(panel));
+
+    auto addToolButton = [this, panel, popover](const char* label, ToolType tool) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-tool", GINT_TO_POINTER(static_cast<int>(tool)));
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto tool = static_cast<ToolType>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-tool")));
+                    selectTemporaryTool(ctrl, tool);
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+
+        gtk_box_append(panel, button);
+    };
+
+    addToolButton(_("Temporary Ink"), TOOL_LASER_POINTER_PEN);
+    addToolButton(_("Temporary Highlight"), TOOL_LASER_POINTER_HIGHLIGHTER);
+
+    GtkWidget* spotlight = gtk_button_new_with_label(_("Spotlight"));
+    g_signal_connect(
+            spotlight,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+                tools->setSpotlightEnabled(true);
+                tools->selectTool(TOOL_HAND);
+                tools->fireToolChanged();
+                repaintPresentationOverlay(ctrl);
+            }),
+            control);
+    gtk_box_append(panel, spotlight);
+
+    GtkWidget* curtain = gtk_button_new_with_label(_("Curtain Reveal"));
+    g_signal_connect(
+            curtain,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                auto* tools = ctrl->getToolHandler();
+                tools->setCurtainEnabled(true);
+                tools->selectTool(TOOL_HAND);
+                tools->fireToolChanged();
+                repaintPresentationOverlay(ctrl);
+            }),
+            control);
+    gtk_box_append(panel, curtain);
+
+    auto addCleanupButton = [this, panel, popover](const char* label, const char* tooltip, bool clearInk) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        gtk_widget_set_tooltip_text(button, tooltip);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-clear-ink", GINT_TO_POINTER(clearInk ? 1 : 0));
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-clear-ink"))) {
+                        if (auto* window = ctrl->getWindow()) {
+                            if (auto* xournal = window->getXournal()) {
+                                for (const auto& pageView: xournal->getViewPages()) {
+                                    pageView->clearTemporaryPresentationInk();
+                                }
+                            }
+                        }
+                    } else {
+                        ctrl->getToolHandler()->clearPresentationOverlay();
+                        repaintPresentationOverlay(ctrl);
+                    }
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+        gtk_box_append(panel, button);
+    };
+
+    addCleanupButton(_("Clear Temporary Ink"),
+                     _("Remove temporary ink and highlights from all pages; saved annotations are preserved"), true);
+    addCleanupButton(_("Dismiss Spotlight / Curtain"), _("Show the full page without changing the active tool"), false);
+
+    GtkWidget* returnToPen = gtk_button_new_with_label(_("Return to Pen"));
+    g_signal_connect(
+            returnToPen,
+            "clicked",
+            G_CALLBACK(+[](GtkButton*, gpointer data) {
+                auto* ctrl = static_cast<Control*>(data);
+                selectTemporaryTool(ctrl, TOOL_PEN);
+            }),
+            control);
+    gtk_box_append(panel, returnToPen);
+
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    auto addModeButton = [this, panel, popover](const char* label, Action action, bool enabled) {
+        GtkWidget* button = gtk_button_new_with_label(label);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-action", GINT_TO_POINTER(static_cast<int>(action)));
+        g_object_set_data(G_OBJECT(button), "utn-state", GINT_TO_POINTER(enabled ? 1 : 0));
+
+        g_signal_connect(
+                button,
+                "clicked",
+                G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                    auto action =
+                            static_cast<Action>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-action")));
+                    bool enabled = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-state")) != 0;
+
+                    ctrl->getActionDatabase()->fireChangeActionState(action, enabled);
+                    gtk_popover_popdown(GTK_POPOVER(data));
+                }),
+                popover);
+
+        gtk_box_append(panel, button);
+    };
+
+    addModeButton(_("Presentation Mode"), Action::PRESENTATION_MODE, true);
+    addModeButton(_("Exit Presentation Mode"), Action::PRESENTATION_MODE, false);
+    addModeButton(_("Fullscreen"), Action::FULLSCREEN, true);
+    addModeButton(_("Exit Fullscreen"), Action::FULLSCREEN, false);
+
+    GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
+    auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
+    gtk_box_append(heading, getNewToolIcon());
+    gtk_box_append(heading, gtk_label_new(_("Present")));
+    gtk_widget_show_all(GTK_WIDGET(heading));
+    gtk_button_set_child(GTK_BUTTON(menuButton), GTK_WIDGET(heading));
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+    gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    return xoj::util::WidgetSPtr(GTK_WIDGET(menuButton), xoj::util::adopt);
+}
+
+auto ToolPresentationKit::getToolDisplayName() const -> std::string {
+    return _("Presentation Tools");
+}
+
+auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {
+    return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
+}

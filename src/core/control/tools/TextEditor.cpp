@@ -1,5 +1,6 @@
 #include "TextEditor.h"
 
+#include <cctype>
 #include <cstring>  // for strcmp, size_t
 #include <memory>   // for allocator, make_unique, __shared_p...
 #include <string>   // for std::string()
@@ -353,6 +354,171 @@ void TextEditor::setAlignment(TextAlignment al) {
 void TextEditor::setJustify(bool justify) {
     this->textElement->setJustify(justify);
     this->layoutStatus = LayoutStatus::NEEDS_PARAMETERS_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::setUnderline(bool enabled) {
+    this->textElement->setUnderlined(enabled);
+    this->layoutStatus = LayoutStatus::NEEDS_ATTRIBUTES_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::setStrikethrough(bool enabled) {
+    this->textElement->setStrikethrough(enabled);
+    this->layoutStatus = LayoutStatus::NEEDS_ATTRIBUTES_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::setLineSpacing(double spacing) {
+    this->textElement->setLineSpacing(spacing);
+    this->layoutStatus = LayoutStatus::NEEDS_PARAMETERS_UPDATE;
+    repaintEditor(true);
+}
+
+void TextEditor::toggleBulletList() {
+    std::string source = cloneToStdString(this->buffer.get());
+    bool removeBullets = true;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        if (end == std::string::npos) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty() && !line.starts_with("• ")) {
+            removeBullets = false;
+            break;
+        }
+
+        if (end == source.size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    std::string result;
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        bool hasNewline = end != std::string::npos;
+        if (!hasNewline) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty()) {
+            if (removeBullets && line.starts_with("• ")) {
+                line.remove_prefix(std::string_view("• ").size());
+            } else if (!removeBullets) {
+                result += "• ";
+            }
+        }
+
+        result.append(line);
+        if (hasNewline) {
+            result += '\n';
+            start = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    replaceBufferContent(result);
+    contentsChanged(true);
+    repaintEditor(true);
+}
+
+void TextEditor::toggleNumberedList() {
+    auto prefixLength = [](std::string_view line) -> size_t {
+        size_t i = 0;
+        while (i < line.size() && std::isdigit(static_cast<unsigned char>(line[i]))) {
+            ++i;
+        }
+        if (i > 0 && i + 1 < line.size() && line[i] == '.' && line[i + 1] == ' ') {
+            return i + 2;
+        }
+        return 0;
+    };
+
+    std::string source = cloneToStdString(this->buffer.get());
+    bool removeNumbers = true;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        if (end == std::string::npos) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty() && prefixLength(line) == 0) {
+            removeNumbers = false;
+            break;
+        }
+
+        if (end == source.size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    std::string result;
+    size_t number = 1;
+
+    for (size_t start = 0; start <= source.size();) {
+        size_t end = source.find('\n', start);
+        bool hasNewline = end != std::string::npos;
+        if (!hasNewline) {
+            end = source.size();
+        }
+
+        std::string_view line(source.data() + start, end - start);
+        if (!line.empty()) {
+            if (removeNumbers) {
+                size_t prefix = prefixLength(line);
+                if (prefix > 0) {
+                    line.remove_prefix(prefix);
+                }
+            } else {
+                result += std::to_string(number++) + ". ";
+            }
+        }
+
+        result.append(line);
+        if (hasNewline) {
+            result += '\n';
+            start = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    replaceBufferContent(result);
+    contentsChanged(true);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxBackgroundColor(Color color) {
+    this->textElement->setBoxBackgroundColor(color);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxBorderColor(Color color) {
+    this->textElement->setBoxBorderColor(color);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxBorderWidth(double width) {
+    this->textElement->setBoxBorderWidth(width);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxPadding(double padding) {
+    this->textElement->setBoxPadding(padding);
+    repaintEditor(true);
+}
+
+void TextEditor::setBoxCornerRadius(double radius) {
+    this->textElement->setBoxCornerRadius(radius);
     repaintEditor(true);
 }
 
@@ -1054,6 +1220,7 @@ void TextEditor::setTextToPangoLayout(PangoLayout* pl) const {
 
         int pos = getByteOffsetOfCursor(this->buffer.get());
         xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
+        addBaseTextAttributes(attrlist.get());
         pango_attr_list_splice(attrlist.get(), this->preeditAttrList.get(), pos, static_cast<int>(preed.length()));
 
         pango_layout_set_attributes(pl, attrlist.get());
@@ -1067,8 +1234,18 @@ void TextEditor::setTextToPangoLayout(PangoLayout* pl) const {
 
 Color TextEditor::getSelectionColor() const { return this->control->getSettings()->getSelectionColor(); }
 
+void TextEditor::addBaseTextAttributes(PangoAttrList* attrs) const {
+    if (this->textElement->isUnderlined()) {
+        pango_attr_list_insert(attrs, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+    }
+    if (this->textElement->isStrikethrough()) {
+        pango_attr_list_insert(attrs, pango_attr_strikethrough_new(true));
+    }
+}
+
 void TextEditor::setSelectionAttributesToPangoLayout(PangoLayout* pl) const {
     xoj::util::PangoAttrListSPtr attrlist(pango_attr_list_new(), xoj::util::adopt);
+    addBaseTextAttributes(attrlist.get());
 
     GtkTextIter start;
     GtkTextIter end;
@@ -1095,6 +1272,15 @@ void TextEditor::updateBoxes() {
     this->boxes = Text::computeBoxesForLayout(getUpToDateLayout(), this->currentWrapWidth);
     auto edBounds = boxes.effectiveBounds;
     edBounds.width = std::max(edBounds.width, boxes.theoreticalSize.width);
+
+    if (this->textElement->isBoxEnabled()) {
+        double extra = this->textElement->getBoxPadding() + 0.5 * this->textElement->getBoxBorderWidth();
+        edBounds.x -= extra;
+        edBounds.y -= extra;
+        edBounds.width += 2.0 * extra;
+        edBounds.height += 2.0 * extra;
+    }
+
     this->previousBoundingBox = Range(this->textElement->getTransformation() * edBounds);
 }
 
@@ -1110,6 +1296,9 @@ auto TextEditor::getUpToDateLayout() const -> PangoLayout* {
             pango_layout_set_width(this->layout.get(), round_cast<int>(this->currentWrapWidth * PANGO_SCALE));
             pango_layout_set_justify(layout.get(), this->textElement->getJustify());
             pango_layout_set_alignment(layout.get(), this->textElement->getAlign().toPango());
+#if PANGO_VERSION_CHECK(1, 48, 5)
+            pango_layout_set_line_spacing(layout.get(), this->textElement->getLineSpacing());
+#endif
             break;
         case LayoutStatus::UP_TO_DATE:
             break;
@@ -1241,12 +1430,38 @@ void TextEditor::initializeEditionAt(double x, double y) {
         lock.unlock();
         ToolHandler* h = this->control->getToolHandler();
         this->textElement = std::make_unique<Text>();
-        this->textElement->setColor(h->getColor());
+
+        // UTN special text tools keep their own colours instead of inheriting the last pen/text colour.
+        if (h->hasTeacherStamp()) {
+            this->textElement->setColor(h->getTeacherStampColor());
+        } else if (h->isAnswerBoxEnabled()) {
+            this->textElement->setColor(h->getAnswerBoxTextColor());
+        } else {
+            this->textElement->setColor(h->getColor());
+        }
+
         this->textElement->setFont(control->getSettings()->getFont());
+
+        if (h->hasTeacherStamp()) {
+            this->textElement->setText(h->getTeacherStampText());
+        }
+
         this->textElement->setTransformation(
                 xoj::util::Matrix::TRANSLATION(x, y - this->textElement->getBoundingBox().height / 2));
         this->textElement->setAlignment(h->getTextAlignment());
         this->textElement->setJustify(h->getTextJustify());
+        this->textElement->setUnderlined(h->getTextUnderline());
+        this->textElement->setStrikethrough(h->getTextStrikethrough());
+        this->textElement->setLineSpacing(h->getTextLineSpacing());
+        this->textElement->setBoxEnabled(h->isAnswerBoxEnabled());
+
+        if (h->isAnswerBoxEnabled()) {
+            this->textElement->setBoxBackgroundColor(h->getAnswerBoxBackgroundColor());
+            this->textElement->setBoxBorderColor(h->getAnswerBoxBorderColor());
+            this->textElement->setBoxBorderWidth(h->getAnswerBoxBorderWidth());
+            this->textElement->setBoxPadding(h->getAnswerBoxPadding());
+            this->textElement->setBoxCornerRadius(h->getAnswerBoxCornerRadius());
+        }
 
 #ifdef ENABLE_AUDIO
         if (auto audioController = control->getAudioController(); audioController && audioController->isRecording()) {
@@ -1268,10 +1483,28 @@ void TextEditor::initializeEditionAt(double x, double y) {
         db->setActionState(Action::FONT, this->textElement->getFont().asString().c_str());
         db->setActionState(Action::TEXT_ALIGNMENT, this->textElement->getAlign());
         db->setActionState(Action::TEXT_JUSTIFY, this->textElement->getJustify());
+
+        // Keep UTN's context bar in step with the text object being edited.
+        auto* tools = this->control->getToolHandler();
+        tools->setTextUnderline(this->textElement->isUnderlined());
+        tools->setTextStrikethrough(this->textElement->isStrikethrough());
+        tools->setTextLineSpacing(this->textElement->getLineSpacing());
+        tools->setAnswerBoxEnabled(this->textElement->isBoxEnabled());
+
+        if (this->textElement->isBoxEnabled()) {
+            tools->setAnswerBoxTextColor(this->textElement->getColor());
+            tools->setAnswerBoxBackgroundColor(this->textElement->getBoxBackgroundColor());
+            tools->setAnswerBoxBorderColor(this->textElement->getBoxBorderColor());
+            tools->setAnswerBoxBorderWidth(this->textElement->getBoxBorderWidth());
+            tools->setAnswerBoxPadding(this->textElement->getBoxPadding());
+            tools->setAnswerBoxCornerRadius(this->textElement->getBoxCornerRadius());
+        }
+
         Color c = this->textElement->getColor();
         c.alpha = 0xff;
         db->setActionState(Action::TOOL_COLOR, c);
 
+        tools->fireToolChanged();
         this->page->fireElementChanged(text);
     }
     this->currentWrapWidth = this->textElement->getWrap();

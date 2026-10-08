@@ -135,6 +135,7 @@ protected:
      * @brief Whether the stroke is closed (i.e. the first and last knots are very close)
      */
     bool closedStroke;
+
     static constexpr double CLOSED_STROKE_DISTANCE = 0.3;
 
 #ifdef DEBUG_ERASABLE_STROKE_BOXES

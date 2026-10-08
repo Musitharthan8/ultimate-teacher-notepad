@@ -46,4 +46,4 @@ if (EXISTS "${PROJECT_SOURCE_DIR}/.git" AND PATH_GIT)
   endif ()
 endif ()
 
-set (PROJECT_CRASHREPORT "https://github.com/xournalpp/xournalpp/issues/new?template=crash_report.yml")
+set (PROJECT_CRASHREPORT "https://github.com/Musitharthan8/ultimate-teacher-notepad/issues/new?template=crash_report.yml")

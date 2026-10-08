@@ -38,16 +38,50 @@
 #include "SpacerItem.h"
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
+#include "ToolAppearance.h"          // for ToolAppearance
+#include "ToolAnswerBox.h"           // for ToolAnswerBox
+#include "ToolClassroomWorkflow.h"
+#include "ToolClear.h"               // for ToolClear
+#include "ToolLessonNavigator.h"     // for ToolLessonNavigator
 #include "ToolPageLayer.h"           // for ToolPageLayer
+#include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
+#include "ToolPrepareReveal.h"        // for ToolPrepareReveal
+#include "ToolPresentationKit.h"      // for ToolPresentationKit
+#include "ToolProfileSelector.h"      // for ToolProfileSelector
 #include "ToolPdfCombocontrol.h"     // for ToolPdfCombocontrol
 #include "ToolSelectCombocontrol.h"  // for ToolSelectComboc...
+#include "ToolEraserSizeSlider.h"    // for ToolEraserSizeSlider
+#include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
+#include "ToolStudentView.h"         // for ToolStudentView
+#include "ToolTeacherStamp.h"       // for ToolTeacherStamp
+#include "ToolTeachingKit.h"        // for ToolTeachingKit       // for ToolTeacherStamp
+#include "ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
 #include "config-dev.h"              // for TOOLBAR_CONFIG
 #include "config-features.h"         // for ENABLE_PLUGINS
 #include "filesystem.h"              // for exists
 
+
+namespace {
+class UtnBrandItem: public AbstractToolItem {
+public:
+    UtnBrandItem(): AbstractToolItem("UTN_BRAND", Category::MISC) {}
+
+    xoj::util::WidgetSPtr createItem(bool) override {
+        auto* label = gtk_label_new("UTN");
+        gtk_widget_add_css_class(label, "utn-brand");
+        gtk_widget_set_tooltip_text(label, _("Ultimate Teacher Notepad. Your classroom workspace."));
+        return xoj::util::WidgetSPtr(label, xoj::util::adopt);
+    }
+
+    std::string getToolDisplayName() const override { return "UTN"; }
+    GtkWidget* getNewToolIcon() const override {
+        return gtk_image_new_from_icon_name("document-edit", GTK_ICON_SIZE_SMALL_TOOLBAR);
+    }
+};
+}  // namespace
 
 using std::string;
 
@@ -98,10 +132,60 @@ void ToolMenuHandler::unloadToolbar(GtkWidget* toolbar) {
     gtk_widget_hide(toolbar);
 }
 
+namespace {
+GtkButton* firstToolbarButton(GtkWidget* widget) {
+    if (GTK_IS_BUTTON(widget) && GTK_IS_IMAGE(gtk_bin_get_child(GTK_BIN(widget)))) {
+        return GTK_BUTTON(widget);
+    }
+    if (!GTK_IS_CONTAINER(widget)) {
+        return nullptr;
+    }
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+    GtkButton* result = nullptr;
+    for (GList* child = children; child && !result; child = child->next) {
+        result = firstToolbarButton(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    return result;
+}
+
+void labelTeacherTool(GtkWidget* item, const std::string& label) {
+    gtk_widget_set_hexpand(item, false);
+    auto* child = gtk_bin_get_child(GTK_BIN(item));
+    if (GTK_IS_BOX(child)) {
+        gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+    }
+    auto* button = firstToolbarButton(item);
+    if (!button) {
+        return;
+    }
+    auto* icon = gtk_bin_get_child(GTK_BIN(button));
+    if (!icon || !GTK_IS_IMAGE(icon)) {
+        return;
+    }
+    g_object_ref(icon);
+    gtk_container_remove(GTK_CONTAINER(button), icon);
+    auto* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    gtk_box_append(row, icon);
+    g_object_unref(icon);
+    auto* text = gtk_label_new(label.c_str());
+    gtk_label_set_xalign(GTK_LABEL(text), 0);
+    gtk_widget_set_hexpand(text, false);
+    gtk_box_append(row, text);
+    gtk_button_set_child(button, GTK_WIDGET(row));
+    gtk_widget_show_all(GTK_WIDGET(row));
+}
+}  // namespace
+
 void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char* toolbarName, bool horizontal) {
     int count = 0;
     const auto palette = this->control->getPalette();
 
+    const auto& layoutId = d->getId();
+    const bool teacherLayout = layoutId == "UTN Teacher" || layoutId == "UTN Teacher Tablet" || layoutId == "UTN Marking";
+    if (!horizontal) {
+        gtk_widget_set_hexpand(toolbar, false);
+    }
     const auto& recolorParams = control->getSettings()->getRecolorParameters();
     auto recolor = recolorParams.recolorizeMainView ? std::make_optional(recolorParams.recolor) : std::nullopt;
 
@@ -145,7 +229,30 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                     if (name == item->getId()) {
                         count++;
                         auto it = item->createToolItem(horizontal);
+                        if (teacherLayout) {
+                            const std::string label = name == "TEACHING_KIT" ? _("Shapes & Lines") :
+                                                      name == "TEACHER_STAMP" ? _("Feedback") :
+                                                      name == "HAND" ? _("Move Page") :
+                                                      name == "SELECT" ? _("Area Select") : item->getToolDisplayName();
+                            gtk_widget_set_tooltip_text(it.get(), label.c_str());
+                            if (!horizontal) {
+                                labelTeacherTool(it.get(), label);
+
+                            }
+                        }
                         gtk_toolbar_insert(GTK_TOOLBAR(toolbar), GTK_TOOL_ITEM(it.get()), -1);
+                        if (teacherLayout && !horizontal) {
+                            g_signal_connect(it.get(), "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* it, gpointer) {
+                                auto* child = gtk_bin_get_child(GTK_BIN(it));
+                                if (GTK_IS_BOX(child)) {
+                                    gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+                                }
+                            }), nullptr);
+                            auto* child = gtk_bin_get_child(GTK_BIN(it.get()));
+                            if (GTK_IS_BOX(child)) {
+                                gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
+                            }
+                        }
 
                         ToolitemDragDrop::attachMetadata(it.get(), dataItem.getId(), item.get());
 
@@ -394,7 +501,41 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("HIGHLIGHTER", Cat::TOOLS, Action::SELECT_TOOL, TOOL_HIGHLIGHTER, "tool-highlighter",
                                 _("Highlighter"));
 
+    // UTN smart highlighter mode
+    emplaceItem<ToolSmartHighlighter>("SMART_HIGHLIGHTER", control, iconNameHelper);
+
     emplaceCustomItemWithTarget("TEXT", Cat::TOOLS, Action::SELECT_TOOL, TOOL_TEXT, "tool-text", _("Text"));
+
+    // UTN shell controls
+    emplaceItem<ToolAppearance>("UTN_APPEARANCE", control, iconNameHelper);
+    emplaceItem<ToolClear>("UTN_CLEAR", control);
+    emplaceItem<ToolClassroomWorkflow>("CLASSROOM_WORKFLOW", control, iconNameHelper);
+    emplaceItem<UtnBrandItem>();
+    emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
+
+    // UTN answer box text mode
+    emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
+
+    // UTN teacher stamps
+    emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control, iconNameHelper);
+
+    // UTN prepared answer layers
+    emplaceItem<ToolPrepareReveal>("PREPARE_REVEAL", control, iconNameHelper);
+
+    // UTN teacher tool profiles
+    emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
+
+    // UTN classroom page labels
+    emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
+
+    // UTN classroom presentation tools
+    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);
+
+    // UTN clean student-facing preview
+    emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
+
+    // UTN consolidated shapes, STEM and classroom utilities
+    emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
@@ -434,6 +575,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceCustomItemWithTarget("SELECT_MULTILAYER_RECTANGLE", Cat::SELECTION, Action::SELECT_TOOL,
                                 TOOL_SELECT_MULTILAYER_RECT, "select-multilayer-rect",
                                 _("Select Multi-Layer Rectangle"));
+    emplaceCustomItemWithTarget("UTN_SELECT", Cat::SELECTION, Action::SELECT_TOOL, TOOL_SELECT_OBJECT,
+                                "utn-select", _("Select"));
     emplaceCustomItemWithTarget("SELECT_OBJECT", Cat::SELECTION, Action::SELECT_TOOL, TOOL_SELECT_OBJECT,
                                 "object-select", _("Select Object"));
     emplaceCustomItemWithTarget("VERTICAL_SPACE", Cat::SELECTION, Action::SELECT_TOOL, TOOL_VERTICAL_SPACE,
@@ -470,6 +613,10 @@ void ToolMenuHandler::initToolItems() {
      * ------------------------------------------------------------------------
      */
     toolPageSpinner = &emplaceItem<ToolPageSpinner>("PAGE_SPIN", iconNameHelper, control->getScrollHandler());
+    toolLessonNavigator = &emplaceItem<ToolLessonNavigator>("LESSON_NAVIGATOR", control);
+
+    // UTN continuous eraser size slider
+    emplaceItem<ToolEraserSizeSlider>("ERASER_SIZE_SLIDER", control, iconNameHelper);
 
     emplaceItem<ToolZoomSlider>("ZOOM_SLIDER", zoom, iconNameHelper, *control->getActionDatabase());
 
@@ -518,6 +665,9 @@ void ToolMenuHandler::initToolItems() {
 void ToolMenuHandler::setPageInfo(size_t currentPage, size_t pageCount, size_t pdfpage) {
     if (this->toolPageSpinner) {
         this->toolPageSpinner->setPageInfo(currentPage, pageCount, pdfpage);
+    }
+    if (this->toolLessonNavigator) {
+        this->toolLessonNavigator->setPageInfo(currentPage, pageCount);
     }
 }
 

@@ -187,6 +187,13 @@ void XojPageView::startText(double x, double y) {
     if (this->textEditor == nullptr) {
         this->textEditor = std::make_unique<TextEditor>(xournal->getControl(), page, xournal->getWidget(), x, y);
         this->overlayViews.emplace_back(std::make_unique<xoj::view::TextEditionView>(this->textEditor.get(), this));
+
+        // UTN teacher stamps are placed with a single page tap
+        auto* tools = xournal->getControl()->getToolHandler();
+        if (tools->hasTeacherStamp()) {
+            endText();
+            tools->clearTeacherStamp();
+        }
     }
 }
 
@@ -224,6 +231,18 @@ void XojPageView::deleteLaserPointerHandler() {
     laserPointer.reset();
 }
 
+void XojPageView::clearTemporaryPresentationInk() {
+    if (!laserPointer) {
+        return;
+    }
+
+    // Destroy views before their handler, including any active stroke view.
+    // Resetting the handler also cancels its pending fadeout timer.
+    eraseViewsOf(overlayViews, laserPointer.get());
+    laserPointer.reset();
+    repaintPage();
+}
+
 auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
     if (currentSequenceDeviceId) {
         // An input sequence is already under way from another device
@@ -252,6 +271,15 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
 
     XournalppCursor* cursor = xournal->getCursor();
     cursor->setMouseDown(true);
+
+    // UTN presentation overlays consume page input without changing the document
+    if (h->isSpotlightEnabled() || h->isCurtainEnabled()) {
+        this->presentationPointerX = x;
+        this->presentationPointerY = y;
+        this->presentationPointerInitialized = true;
+        this->repaintPage();
+        return true;
+    }
 
     if (((h->getToolType() == TOOL_PEN || h->getToolType() == TOOL_HIGHLIGHTER) &&
          h->getDrawingType() != DRAWING_TYPE_SPLINE) ||
@@ -305,6 +333,11 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
             this->inputHandler->onButtonPressEvent(pos, zoom);
         }
     } else if (h->getToolType() == TOOL_ERASER) {
+        if (this->inputHandler) {
+            this->inputHandler->onSequenceCancelEvent();
+            eraseViewsOf(this->overlayViews, this->inputHandler.get());
+            this->inputHandler.reset();
+        }
         this->eraser->erase(x, y);
         this->inEraser = true;
     } else if (h->getToolType() == TOOL_LASER_POINTER_PEN || h->getToolType() == TOOL_LASER_POINTER_HIGHLIGHTER) {
@@ -555,6 +588,15 @@ auto XojPageView::onMotionNotifyEvent(const PositionInputData& pos) -> bool {
     ToolHandler* h = xournal->getControl()->getToolHandler();
     auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
 
+    // UTN spotlight and curtain follow the pointer without editing the page
+    if (h->isSpotlightEnabled() || h->isCurtainEnabled()) {
+        this->presentationPointerX = x;
+        this->presentationPointerY = y;
+        this->presentationPointerInitialized = true;
+        this->repaintPage();
+        return true;
+    }
+
     if (this->inputHandler && this->inputHandler->onMotionNotifyEvent(pos, zoom)) {
         // input handler used this event
     } else if (this->imageSizeSelection) {
@@ -708,10 +750,7 @@ auto XojPageView::onButtonReleaseEvent(const PositionInputData& pos) -> bool {
 
     if (this->inEraser) {
         this->inEraser = false;
-        Document* doc = this->xournal->getControl()->getDocument();
-        doc->lock();
         this->eraser->finalize();
-        doc->unlock();
     }
     if (this->inLatex) {
         this->inLatex = false;
@@ -812,6 +851,15 @@ auto XojPageView::onKeyPressEvent(const KeyEvent& event) -> bool {
         if (this->verticalSpace->onKeyPressEvent(event)) {
             return true;
         }
+    }
+
+    // UTN: resize the eraser quickly with [ and ]
+    if (!this->textEditor && (event.keyval == GDK_KEY_bracketleft || event.keyval == GDK_KEY_bracketright)) {
+        auto* tools = this->xournal->getControl()->getToolHandler();
+        double thickness = tools->getEraserThickness();
+        thickness += event.keyval == GDK_KEY_bracketright ? 0.5 : -0.5;
+        tools->setEraserThickness(thickness);
+        return true;
     }
 
     // Esc leaves text edition
@@ -1123,6 +1171,43 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
      */
     for (const auto& v: this->overlayViews) {
         v->draw(cr);
+    }
+
+    // UTN presentation overlays are display-only and never enter the document buffer
+    ToolHandler* tools = this->xournal->getControl()->getToolHandler();
+    if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
+        const double pointerX = this->presentationPointerInitialized ? this->presentationPointerX : page->getWidth() / 2.0;
+        const double pointerY = this->presentationPointerInitialized ? this->presentationPointerY : page->getHeight() / 2.0;
+
+        xoj::util::CairoSaveGuard overlayGuard(cr);
+
+        if (tools->isSpotlightEnabled()) {
+            const double radius = 115.0 / zoom;
+
+            cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
+            cairo_rectangle(cr, 0.0, 0.0, page->getWidth(), page->getHeight());
+            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
+
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.62);
+            cairo_fill(cr);
+
+            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.65);
+            cairo_set_line_width(cr, 2.0 / zoom);
+            cairo_stroke(cr);
+        } else {
+            const double curtainY = std::clamp(pointerY, 0.0, page->getHeight());
+
+            cairo_rectangle(cr, 0.0, curtainY, page->getWidth(), page->getHeight() - curtainY);
+            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.88);
+            cairo_fill(cr);
+
+            cairo_move_to(cr, 0.0, curtainY);
+            cairo_line_to(cr, page->getWidth(), curtainY);
+            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.75);
+            cairo_set_line_width(cr, 2.0 / zoom);
+            cairo_stroke(cr);
+        }
     }
 
     return true;

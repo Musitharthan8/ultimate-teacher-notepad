@@ -3243,6 +3243,7 @@ This setting can make it easier to draw with touch.</property>
                                                       <item id="themeVariantUseSystem" translatable="yes">Use system default</item>
                                                       <item id="themeVariantForceLight" translatable="yes">Force light theme</item>
                                                       <item id="themeVariantForceDark" translatable="yes">Force dark theme</item>
+                                                      <item id="themeVariantHighContrast" translatable="yes">High contrast</item>
                                                     </items>
                                                   </object>
                                                   <packing>

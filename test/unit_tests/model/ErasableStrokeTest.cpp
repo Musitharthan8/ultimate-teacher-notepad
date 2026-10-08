@@ -235,3 +235,29 @@ TEST(ErasableStroke, testIntersectWithPaddedBox) {
         }
     }
 }
+
+TEST(ErasableStroke, smallHighlighterBacktrackRepaintsRemainingOverlap) {
+    // A tiny backwards movement on a long highlight can still create a local overlap.
+    // Erasing the top of the loop must also repaint the surviving overlap below it.
+    for (bool vertical: {false, true}) {
+        for (double direction: {-1.0, 1.0}) {
+            Stroke stroke;
+            for (const Point& p: std::vector<Point>{{0, 0}, {50, 0}, {49, 20}, {51, 0}, {100, 0}}) {
+                stroke.addPoint(vertical ? Point(p.y, direction * p.x) : Point(direction * p.x, p.y));
+            }
+            stroke.setWidth(2);
+            stroke.setFill(-1);
+            stroke.setToolType(StrokeTool::HIGHLIGHTER);
+
+            ErasableStroke erasable(stroke);
+            Range range;
+            erasable.beginErasure({{1U, 0.4}, {2U, 0.6}}, range);
+            ASSERT_EQ(erasable.getRemainingSubSectionsVector().size(), 2U);
+            if (vertical) {
+                EXPECT_LT(range.minX, 0.0);
+            } else {
+                EXPECT_LT(range.minY, 0.0);
+            }
+        }
+    }
+}

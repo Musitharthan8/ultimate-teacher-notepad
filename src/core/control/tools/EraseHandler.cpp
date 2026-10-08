@@ -1,5 +1,8 @@
 #include "EraseHandler.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <memory>   // for make_unique, unique_ptr
 #include <utility>  // for move
 #include <vector>   // for vector
@@ -35,7 +38,7 @@ EraseHandler::EraseHandler(UndoRedoHandler* undo, Document* doc, const PageRef& 
         halfEraserSize(0) {}
 
 EraseHandler::~EraseHandler() {
-    if (this->eraseDeleteUndoAction) {
+    if (this->eraseDeleteUndoAction || this->eraseUndoAction) {
         this->finalize();
     }
 }
@@ -45,16 +48,30 @@ EraseHandler::~EraseHandler() {
  */
 void EraseHandler::erase(double x, double y) {
     this->halfEraserSize = this->handler->getThickness();
-    xoj::util::Rectangle<double> eraserRect(x - halfEraserSize, y - halfEraserSize, 2 * halfEraserSize,
-                                            2 * halfEraserSize);
+    const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
+    previousPoint = xoj::util::Point<double>{x, y};
+    const double distance = std::hypot(x - start.x, y - start.y);
+    const size_t steps = std::max<size_t>(1, static_cast<size_t>(std::ceil(distance / halfEraserSize)));
+    const xoj::util::Rectangle<double> eraserRect{
+            std::min(start.x, x) - halfEraserSize, std::min(start.y, y) - halfEraserSize,
+            std::abs(x - start.x) + 2 * halfEraserSize, std::abs(y - start.y) + 2 * halfEraserSize};
 
     Range rerenderRange;
-
     Layer* l = page->getSelectedLayer();
-
+    std::vector<Stroke*> candidates;
+    // Removing whole strokes invalidates the layer's iterators.
     for (Element* e: xoj::refElementContainer(l->getElements())) {
         if (e->getType() == ELEMENT_STROKE && e->getBoundingBox().intersects(eraserRect)) {
-            eraseStroke(l, dynamic_cast<Stroke*>(e), x, y, rerenderRange);
+            candidates.push_back(static_cast<Stroke*>(e));
+        }
+    }
+    for (Stroke* stroke: candidates) {
+        for (size_t i = 1; i <= steps; ++i) {
+            const double t = static_cast<double>(i) / steps;
+            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, rerenderRange);
+            if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
+                break;
+            }
         }
     }
 
@@ -137,7 +154,9 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
 }
 
 void EraseHandler::finalize() {
+    previousPoint.reset();
     if (this->eraseUndoAction) {
+        std::unique_lock<Document> lock(*doc);
         this->eraseUndoAction->finalize();
         this->eraseUndoAction = nullptr;
     } else if (this->eraseDeleteUndoAction) {

@@ -232,6 +232,7 @@ public:
 
     void addDefaultPage(const std::optional<PageTemplateSettings>& pageTemplate, Document* doc = nullptr);
     void duplicatePage();
+    void askInsertScanPage();
     void insertNewPage(size_t position, bool automatedInsertion = false);
     void appendNewPdfPages();
     void insertPage(const PageRef& page, size_t position, bool shouldScrollToPage = true);
@@ -257,6 +258,9 @@ public:
 
     // selection handling
     void clearSelection();
+
+    // UTN: remove all annotations from the current page as one undoable action
+    void clearCurrentPageAnnotations();
 
     void moveSelectionToLayer(size_t layerNo);
 
@@ -334,6 +338,7 @@ public:
     bool copy();
     bool cut();
     bool paste();
+    void pasteImage();
 
     void help();
 
@@ -364,6 +369,7 @@ public:
     void clipboardPasteImage(GdkPixbuf* img) override;
     void clipboardPasteXournal(ObjectInputStream& in) override;
     void deleteSelection() override;
+    void deleteEditedAnswerBox();
 
     void clipboardPaste(ElementPtr e);
 

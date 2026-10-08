@@ -25,6 +25,7 @@ constexpr auto FILEVERSION_STR = u8"fileversion";
 // page
 constexpr auto WIDTH_STR = u8"width";  // also in stroke
 constexpr auto HEIGHT_STR = u8"height";
+constexpr auto UTN_PAGE_LABEL_STR = u8"utnPageLabel";
 
 // background
 constexpr auto NAME_STR = u8"name";  // also in layer
@@ -58,6 +59,19 @@ constexpr auto X_COORD_STR = u8"x";  // also in link
 constexpr auto Y_COORD_STR = u8"y";  // also in link
 constexpr auto ALIGN_STR = u8"align";  // also in link
 constexpr auto JUSTIFY_STR = u8"justify";
+
+// UTN classroom text formatting attributes
+constexpr auto UTN_UNDERLINE_STR = u8"utnUnderline";
+constexpr auto UTN_STRIKETHROUGH_STR = u8"utnStrikethrough";
+constexpr auto UTN_LINE_SPACING_STR = u8"utnLineSpacing";
+
+// UTN answer box text attributes
+constexpr auto UTN_BOX_STR = u8"utnBox";
+constexpr auto UTN_BOX_BACKGROUND_STR = u8"utnBoxBackground";
+constexpr auto UTN_BOX_BORDER_STR = u8"utnBoxBorder";
+constexpr auto UTN_BOX_BORDER_WIDTH_STR = u8"utnBoxBorderWidth";
+constexpr auto UTN_BOX_PADDING_STR = u8"utnBoxPadding";
+constexpr auto UTN_BOX_RADIUS_STR = u8"utnBoxRadius";
 
 // image
 constexpr auto LEFT_POS_STR = u8"left";      // also in teximage

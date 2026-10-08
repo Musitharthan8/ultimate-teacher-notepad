@@ -74,7 +74,7 @@ void ErasableStroke::beginErasure(const IntersectionParametersContainer& paddedI
         } else if (subsections.size() > 1) {
             /**
              * Highlighter and the stroke has been split in two or more subsections.
-             * Rerender wherever those subsections overlap
+             * Rerender wherever those subsections overlap.
              */
             addOverlapsToRange(subsections, range);
         }
@@ -210,7 +210,7 @@ void ErasableStroke::erase(const PaddedBox& box, Range& range) {
                 // Necessarily highlighter and not filled
                 if (subsections.size() > 1) {
                     /**
-                     * The section has been split in two (or more).
+                     * Highlighter section split in two (or more).
                      * Rerender wherever those subsections overlap.
                      */
                     addOverlapsToRange(subsections, range);
@@ -301,7 +301,7 @@ auto ErasableStroke::computeSubSectionBoundingBox(const SubSection& section) con
 
     Range rg = pointRange(this->stroke.getPoint(section.min));
 
-    auto data = this->stroke.getPointVector();
+    const auto& data = this->stroke.getPointVector();
     auto endIt = std::next(data.cbegin(), (std::ptrdiff_t)section.max.index + 1);
     for (auto ptIt = std::next(data.cbegin(), (std::ptrdiff_t)section.min.index + 1); ptIt != endIt; ++ptIt) {
         rg = rg.unite(pointRange(*ptIt));

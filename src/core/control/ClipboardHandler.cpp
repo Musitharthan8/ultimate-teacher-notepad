@@ -69,6 +69,11 @@ auto ClipboardHandler::paste() -> bool {
     return false;
 }
 
+void ClipboardHandler::pasteImage() {
+    gtk_clipboard_request_image(clipboard,
+                               reinterpret_cast<GtkClipboardImageReceivedFunc>(pasteClipboardImage), this);
+}
+
 auto ClipboardHandler::cut() -> bool {
     bool result = this->copy();
     this->listener->deleteSelection();

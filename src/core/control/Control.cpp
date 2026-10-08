@@ -5,6 +5,7 @@
 #include <exception>  // for exce...
 #include <functional>  // for bind
 #include <iterator>    // for end
+#include <mutex>
 #include <memory>      // for make...
 #include <optional>    // for opti...
 #include <regex>       // for regex
@@ -16,6 +17,7 @@
 #include "control/CompassController.h"                           // for Comp...
 #include "control/NavigationHistory.h"                           // for Navi...
 #include "control/RecentManager.h"                               // for Rece...
+#include "control/ScanPageImport.h"
 #include "control/ScrollHandler.h"                               // for Scro...
 #include "control/SetsquareController.h"                         // for Sets...
 #include "control/Tool.h"                                        // for Tool
@@ -88,6 +90,7 @@
 #include "plugin/PluginController.h"                             // for Plug...
 #include "settings/RecolorParameters.h"                          // for RecolorParameters
 #include "undo/AddUndoAction.h"                                  // for AddU...
+#include "undo/DeleteUndoAction.h"                               // for DeleteUndoAction
 #include "undo/InsertDeletePageUndoAction.h"                     // for Inse...
 #include "undo/InsertUndoAction.h"                               // for Inse...
 #include "undo/MoveSelectionToLayerUndoAction.h"                 // for Move...
@@ -457,6 +460,11 @@ auto Control::paste() -> bool {
     return this->clipboardHandler->paste();
 }
 
+void Control::pasteImage() {
+    clearSelectionEndText();
+    clipboardHandler->pasteImage();
+}
+
 void Control::selectAlpha(OpacityFeature feature) {
     int alpha = 0;
 
@@ -747,6 +755,21 @@ void Control::deletePage() {
 
     scrollHandler->scrollToPage(pNr);
     this->win->getXournal()->forceUpdatePagenumbers();
+}
+
+void Control::askInsertScanPage() {
+    xoj::OpenDlg::showOpenImageDialog(getGtkWindow(), settings, [this](fs::path path, bool) {
+        auto current = getCurrentPage();
+        const double width = current ? current->getWidth() : 595.0;
+        auto result = xoj::utn::createScanPage(path, width);
+        if (auto* error = std::get_if<std::string>(&result)) {
+            XojMsgBox::showErrorToUser(getGtkWindow(), *error);
+            return;
+        }
+        clearSelectionEndText();
+        const size_t position = current ? getCurrentPageNo() + 1 : doc->getPageCount();
+        insertPage(std::get<PageRef>(result), position);
+    }, false);
 }
 
 void Control::duplicatePage() {
@@ -1149,6 +1172,14 @@ void Control::undoRedoPageChanged(PageRef page) {
 }
 
 void Control::selectTool(ToolType type) {
+    // UTN special modes use ToolHandler directly; ordinary toolbar choices reset them.
+    if (type == TOOL_TEXT) {
+        toolHandler->setAnswerBoxEnabled(false);
+    }
+    if (type == TOOL_HIGHLIGHTER) {
+        toolHandler->setSmartHighlighterEnabled(false);
+    }
+
     // keep text-selection when switching from text to seletion tool
     auto oldTool = getToolHandler()->getActiveTool();
     if (oldTool && win && isSelectToolType(type) && oldTool->getToolType() == ToolType::TOOL_TEXT &&
@@ -2533,6 +2564,38 @@ void Control::moveSelectionToLayer(size_t layerNo) {
     getLayerController()->switchToLay(layerNo + 1, /*hideShow=*/false, /*clearSelection=*/false);
 }
 
+void Control::deleteEditedAnswerBox() {
+    auto* editor = getTextEditor();
+    if (!editor || !editor->getTextElement()->isBoxEnabled()) {
+        return;
+    }
+    PageRef page = editor->getPage();
+    auto* text = editor->getTextElement();
+    const bool empty = editor->bufferEmpty();
+    clearSelectionEndText();
+    if (empty) {
+        return;
+    }
+
+    auto undo = std::make_unique<DeleteUndoAction>(page, false);
+    bool removed = false;
+    {
+        std::unique_lock<Document> lock(*doc);
+        for (auto* layer: page->getLayers()) {
+            if (layer->indexOf(text) != Element::InvalidIndex) {
+                auto [element, position] = layer->removeElement(text);
+                undo->addElement(layer, std::move(element), position);
+                removed = true;
+                break;
+            }
+        }
+    }
+    if (removed) {
+        undoRedo->addUndoAction(std::move(undo));
+        page->firePageChanged();
+    }
+}
+
 void Control::deleteSelection() {
     if (win) {
         win->getXournal()->deleteSelection();
@@ -2544,6 +2607,37 @@ void Control::clearSelection() {
         this->win->getXournal()->clearSelection();
         this->win->getPdfToolbox()->userCancelSelection();
     }
+}
+
+void Control::clearCurrentPageAnnotations() {
+    clearSelectionEndText();
+
+    PageRef page = getCurrentPage();
+    if (!page) {
+        return;
+    }
+
+    auto undo = std::make_unique<DeleteUndoAction>(page, false);
+    bool removedAnything = false;
+
+    this->doc->lock();
+    for (Layer* layer: page->getLayers()) {
+        auto elements = layer->clearNoFree();
+        Element::Index position = 0;
+
+        for (auto&& element: elements) {
+            undo->addElement(layer, std::move(element), position++);
+            removedAnything = true;
+        }
+    }
+    this->doc->unlock();
+
+    if (!removedAnything) {
+        return;
+    }
+
+    this->undoRedo->addUndoAction(std::move(undo));
+    page->firePageChanged();
 }
 
 void Control::setClipboardHandlerSelection(EditSelection* selection) {

@@ -25,6 +25,7 @@
 #include "model/LineStyle.h"                                // for LineStyle
 #include "model/Stroke.h"                                   // for Stroke, STROKE_...
 #include "model/XojPage.h"                                  // for XojPage
+#include "pdf/base/XojPdfPage.h"                           // for PDF text snapping
 #include "undo/InsertUndoAction.h"                          // for InsertUndoAction
 #include "undo/RecognizerUndoAction.h"                      // for RecognizerUndoA...
 #include "undo/UndoRedoHandler.h"                           // for UndoRedoHandler
@@ -32,6 +33,7 @@
 #include "util/DispatchPool.h"                              // for DispatchPool
 #include "util/Range.h"                                     // for Range
 #include "util/Rectangle.h"                                 // for Rectangle, util
+#include "util/Util.h"                                      // for npos
 #include "view/overlays/StrokeToolFilledHighlighterView.h"  // for StrokeToolFilledHighlighterView
 #include "view/overlays/StrokeToolFilledView.h"             // for StrokeToolFilledView
 #include "view/overlays/StrokeToolView.h"                   // for StrokeToolView
@@ -166,6 +168,9 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     }
     finalizeStroke(pos.pressure);
 
+    Range finalizationRange;
+    straightenSmartHighlighterStroke(finalizationRange);
+
     Layer* layer = page->getSelectedLayer();
 
     UndoRedoHandler* undo = control->getUndoRedoHandler();
@@ -206,10 +211,130 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     doc->unlock();
 
     // Blitt the stroke to the page's buffer and delete all views.
-    // Passing the empty Range() as no actual redrawing is necessary at this point
-    this->viewPool->dispatchAndClear(xoj::view::StrokeToolView::FINALIZATION_REQUEST, Range());
+    this->viewPool->dispatchAndClear(xoj::view::StrokeToolView::FINALIZATION_REQUEST, finalizationRange);
 
     page->fireElementChanged(ptr);
+}
+
+bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
+    auto* tools = control->getToolHandler();
+    if (!tools->isSmartHighlighterEnabled() || stroke->getToolType() != StrokeTool::HIGHLIGHTER) {
+        return false;
+    }
+
+    const auto& points = stroke->getPointVector();
+    if (points.size() < 3) {
+        return false;
+    }
+
+    Point first = points.front();
+    Point last = points.back();
+
+    double dx = last.x - first.x;
+    double dy = last.y - first.y;
+    double horizontalSpan = std::abs(dx);
+
+    if (horizontalSpan < 20.0 || std::abs(dy) > horizontalSpan * 0.21) {
+        return false;
+    }
+
+    // Reject scribbles that travel backwards too much
+    double horizontalTravel = 0.0;
+    double averageY = 0.0;
+    for (size_t i = 0; i < points.size(); ++i) {
+        averageY += points[i].y;
+        if (i > 0) {
+            horizontalTravel += std::abs(points[i].x - points[i - 1].x);
+        }
+    }
+    averageY /= static_cast<double>(points.size());
+
+    if (horizontalTravel > horizontalSpan * 1.35) {
+        return false;
+    }
+
+    double maxDeviation = 0.0;
+    for (const auto& point: points) {
+        maxDeviation = std::max(maxDeviation, std::abs(point.y - averageY));
+    }
+
+    double baseTolerance = std::clamp(stroke->getWidth() * 0.75, 4.0, 12.0);
+    double allowedDeviation = std::min(16.0, std::max(baseTolerance, horizontalSpan * 0.04));
+    if (maxDeviation > allowedDeviation) {
+        return false;
+    }
+
+    Range oldRange(stroke->getBoundingBox());
+
+    // On selectable PDFs, optionally snap the highlight to the nearest word or line
+    const auto snapMode = tools->getSmartHighlighterSnapMode();
+    if (snapMode != SmartHighlighterSnapMode::Straight) {
+        if (auto pdfPageNr = page->getPdfPageNr(); pdfPageNr != npos) {
+            Document* doc = control->getDocument();
+            doc->lock_shared();
+            auto pdf = doc->getPdfPage(pdfPageNr);
+            doc->unlock_shared();
+
+            if (pdf) {
+                const auto selectionStyle = snapMode == SmartHighlighterSnapMode::Word ?
+                                                    XojPdfPageSelectionStyle::Word :
+                                                    XojPdfPageSelectionStyle::Line;
+
+                XojPdfRectangle selection(first.x, averageY, last.x, averageY);
+                auto textSelection = pdf->selectTextLines(selection, selectionStyle);
+
+                const XojPdfRectangle* bestRect = nullptr;
+                double bestDistance = std::numeric_limits<double>::max();
+
+                for (const auto& rect: textSelection.rects) {
+                    double centerY = 0.5 * (rect.y1 + rect.y2);
+                    double distance = std::abs(centerY - averageY);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestRect = &rect;
+                    }
+                }
+
+                if (bestRect != nullptr) {
+                    double left = std::min(bestRect->x1, bestRect->x2);
+                    double right = std::max(bestRect->x1, bestRect->x2);
+                    double top = std::min(bestRect->y1, bestRect->y2);
+                    double bottom = std::max(bestRect->y1, bestRect->y2);
+                    double centerY = 0.5 * (top + bottom);
+                    double targetY = centerY;
+                    double targetWidth = std::max(1.0, (bottom - top) * 0.85);
+
+                    if (snapMode == SmartHighlighterSnapMode::Underline) {
+                        // Sit just above the text box bottom so the line follows the baseline visually.
+                        targetY = bottom - std::max(1.0, (bottom - top) * 0.08);
+                        targetWidth = std::clamp((bottom - top) * 0.10, 1.2, 3.0);
+                    } else if (snapMode == SmartHighlighterSnapMode::Strikethrough) {
+                        targetY = centerY;
+                        targetWidth = std::clamp((bottom - top) * 0.10, 1.2, 3.0);
+                    }
+
+                    Point snappedStart(dx >= 0.0 ? left : right, targetY);
+                    Point snappedEnd(dx >= 0.0 ? right : left, targetY);
+
+                    stroke->setPointVector(std::vector<Point>{snappedStart, snappedEnd});
+                    stroke->setWidth(targetWidth);
+
+                    repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
+                    this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Fall back to simple straightening on non-PDF or image-only pages
+    first.y = averageY;
+    last.y = averageY;
+    stroke->setPointVector(std::vector<Point>{first, last});
+
+    repaintRange = oldRange.unite(Range(stroke->getBoundingBox()));
+    this->viewPool->dispatch(xoj::view::StrokeToolView::STROKE_REPLACEMENT_REQUEST, *stroke);
+    return true;
 }
 
 void StrokeHandler::strokeRecognizerDetected(std::unique_ptr<Stroke> recognized, Layer* layer) {

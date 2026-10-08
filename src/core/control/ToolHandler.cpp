@@ -187,6 +187,13 @@ void ToolHandler::selectTool(ToolType type) {
         g_warning("unknown tool selected: %i\n", type);
         return;
     }
+    if (type != TOOL_HIGHLIGHTER) {
+        this->smartHighlighterEnabled = false;
+    }
+    if (type != TOOL_TEXT) {
+        this->answerBoxEnabled = false;
+        this->clearTeacherStamp();
+    }
     this->toolbarSelectedTool = &getTool(type);
     // set activeTool is necessary for fireToolChanged()
     // if called after this method
@@ -318,14 +325,170 @@ void ToolHandler::setTextJustify(bool j) { this->getTool(TOOL_TEXT).setTextJusti
 
 auto ToolHandler::getTextJustify() const -> bool { return this->getTool(TOOL_TEXT).getTextJustify(); }
 
+auto ToolHandler::getTextUnderline() const -> bool { return this->textUnderline; }
+
+void ToolHandler::setTextUnderline(bool enabled) { this->textUnderline = enabled; }
+
+auto ToolHandler::getTextStrikethrough() const -> bool { return this->textStrikethrough; }
+
+void ToolHandler::setTextStrikethrough(bool enabled) { this->textStrikethrough = enabled; }
+
+auto ToolHandler::getTextLineSpacing() const -> double { return this->textLineSpacing; }
+
+void ToolHandler::setTextLineSpacing(double spacing) {
+    this->textLineSpacing = std::clamp(spacing, 0.8, 2.5);
+}
+
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
+
+    // UTN: use continuous thickness for the toolbar eraser
+    if (tool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        return this->eraserThickness;
+    }
+
     if (tool->thickness) {
         return tool->thickness.value()[tool->getSize()];
     }
 
     g_warning("Request size of \"%s\"", tool->getName().c_str());
     return 0;
+}
+
+auto ToolHandler::getEraserThickness() const -> double {
+    return this->eraserThickness;
+}
+
+void ToolHandler::setEraserThickness(double thickness) {
+    // Clamp eraser thickness to a usable range
+    this->eraserThickness = std::clamp(thickness, 0.5, 30.0);
+
+    if (this->activeTool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+        this->stateChangeListener->toolSizeChanged();
+    }
+}
+
+auto ToolHandler::isSmartHighlighterEnabled() const -> bool {
+    return this->smartHighlighterEnabled;
+}
+
+void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
+    this->smartHighlighterEnabled = enabled;
+}
+
+auto ToolHandler::getSmartHighlighterSnapMode() const -> SmartHighlighterSnapMode {
+    return this->smartHighlighterSnapMode;
+}
+
+void ToolHandler::setSmartHighlighterSnapMode(SmartHighlighterSnapMode mode) {
+    this->smartHighlighterSnapMode = mode;
+}
+
+auto ToolHandler::isAnswerBoxEnabled() const -> bool {
+    return this->answerBoxEnabled;
+}
+
+void ToolHandler::setAnswerBoxEnabled(bool enabled) {
+    this->answerBoxEnabled = enabled;
+}
+
+auto ToolHandler::getAnswerBoxTextColor() const -> Color {
+    return this->answerBoxTextColor;
+}
+
+void ToolHandler::setAnswerBoxTextColor(Color color) {
+    this->answerBoxTextColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBackgroundColor() const -> Color {
+    return this->answerBoxBackgroundColor;
+}
+
+void ToolHandler::setAnswerBoxBackgroundColor(Color color) {
+    this->answerBoxBackgroundColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderColor() const -> Color {
+    return this->answerBoxBorderColor;
+}
+
+void ToolHandler::setAnswerBoxBorderColor(Color color) {
+    this->answerBoxBorderColor = color;
+}
+
+auto ToolHandler::getAnswerBoxBorderWidth() const -> double {
+    return this->answerBoxBorderWidth;
+}
+
+void ToolHandler::setAnswerBoxBorderWidth(double width) {
+    this->answerBoxBorderWidth = std::clamp(width, 0.0, 8.0);
+}
+
+auto ToolHandler::getAnswerBoxPadding() const -> double {
+    return this->answerBoxPadding;
+}
+
+void ToolHandler::setAnswerBoxPadding(double padding) {
+    this->answerBoxPadding = std::clamp(padding, 0.0, 24.0);
+}
+
+auto ToolHandler::getAnswerBoxCornerRadius() const -> double {
+    return this->answerBoxCornerRadius;
+}
+
+void ToolHandler::setAnswerBoxCornerRadius(double radius) {
+    this->answerBoxCornerRadius = std::clamp(radius, 0.0, 24.0);
+}
+
+auto ToolHandler::hasTeacherStamp() const -> bool {
+    return !this->teacherStampText.empty();
+}
+
+auto ToolHandler::getTeacherStampText() const -> const std::string& {
+    return this->teacherStampText;
+}
+
+void ToolHandler::setTeacherStampText(std::string text) {
+    this->teacherStampText = std::move(text);
+}
+
+auto ToolHandler::getTeacherStampColor() const -> Color {
+    return this->teacherStampColor;
+}
+
+void ToolHandler::setTeacherStampColor(Color color) {
+    this->teacherStampColor = color;
+}
+
+void ToolHandler::clearTeacherStamp() {
+    this->teacherStampText.clear();
+}
+
+auto ToolHandler::isSpotlightEnabled() const -> bool {
+    return this->spotlightEnabled;
+}
+
+auto ToolHandler::isCurtainEnabled() const -> bool {
+    return this->curtainEnabled;
+}
+
+void ToolHandler::setSpotlightEnabled(bool enabled) {
+    this->spotlightEnabled = enabled;
+    if (enabled) {
+        this->curtainEnabled = false;
+    }
+}
+
+void ToolHandler::setCurtainEnabled(bool enabled) {
+    this->curtainEnabled = enabled;
+    if (enabled) {
+        this->spotlightEnabled = false;
+    }
+}
+
+void ToolHandler::clearPresentationOverlay() {
+    this->spotlightEnabled = false;
+    this->curtainEnabled = false;
 }
 
 void ToolHandler::setSize(ToolSize size) {
@@ -503,6 +666,21 @@ void ToolHandler::saveSettings() const {
         }
     }
 
+    // UTN tool-specific preferences live beside Xournal's per-tool settings.
+    SElement& utn = s.child("utn");
+    utn.setDouble("eraserThickness", this->eraserThickness);
+    utn.setInt("smartHighlighterMode", static_cast<int>(this->smartHighlighterSnapMode));
+    utn.setIntHex("answerBoxTextColor", int(uint32_t(this->answerBoxTextColor)));
+    utn.setIntHex("answerBoxBackgroundColor", int(uint32_t(this->answerBoxBackgroundColor)));
+    utn.setIntHex("answerBoxBorderColor", int(uint32_t(this->answerBoxBorderColor)));
+    utn.setDouble("answerBoxBorderWidth", this->answerBoxBorderWidth);
+    utn.setDouble("answerBoxPadding", this->answerBoxPadding);
+    utn.setDouble("answerBoxCornerRadius", this->answerBoxCornerRadius);
+    utn.setIntHex("teacherStampColor", int(uint32_t(this->teacherStampColor)));
+    utn.setBool("textUnderline", this->textUnderline);
+    utn.setBool("textStrikethrough", this->textStrikethrough);
+    utn.setDouble("textLineSpacing", this->textLineSpacing);
+
     settings->customSettingsChanged();
 }
 
@@ -586,6 +764,52 @@ void ToolHandler::loadSettings() {
                 tool->setTextJustify(justify);
             }
         }
+    }
+
+    // Restore UTN-specific tool preferences if they were saved.
+    SElement& utn = s.child("utn");
+
+    double doubleValue = 0.0;
+    if (utn.getDouble("eraserThickness", doubleValue)) {
+        this->eraserThickness = std::clamp(doubleValue, 0.5, 30.0);
+    }
+
+    int intValue = 0;
+    if (utn.getInt("smartHighlighterMode", intValue) && intValue >= 0 && intValue <= 4) {
+        this->smartHighlighterSnapMode = static_cast<SmartHighlighterSnapMode>(intValue);
+    }
+
+    if (utn.getInt("answerBoxTextColor", intValue)) {
+        this->answerBoxTextColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getInt("answerBoxBackgroundColor", intValue)) {
+        this->answerBoxBackgroundColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getInt("answerBoxBorderColor", intValue)) {
+        this->answerBoxBorderColor = Color(as_unsigned(intValue));
+    }
+    if (utn.getDouble("answerBoxBorderWidth", doubleValue)) {
+        this->answerBoxBorderWidth = std::clamp(doubleValue, 0.0, 8.0);
+    }
+    if (utn.getDouble("answerBoxPadding", doubleValue)) {
+        this->answerBoxPadding = std::clamp(doubleValue, 0.0, 24.0);
+    }
+    if (utn.getDouble("answerBoxCornerRadius", doubleValue)) {
+        this->answerBoxCornerRadius = std::clamp(doubleValue, 0.0, 24.0);
+    }
+    if (utn.getInt("teacherStampColor", intValue)) {
+        this->teacherStampColor = Color(as_unsigned(intValue));
+    }
+
+    bool boolValue = false;
+    if (utn.getBool("textUnderline", boolValue)) {
+        this->textUnderline = boolValue;
+    }
+    if (utn.getBool("textStrikethrough", boolValue)) {
+        this->textStrikethrough = boolValue;
+    }
+    if (utn.getDouble("textLineSpacing", doubleValue)) {
+        this->textLineSpacing = std::clamp(doubleValue, 0.8, 2.5);
     }
 }
 

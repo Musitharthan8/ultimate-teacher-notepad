@@ -595,6 +595,9 @@ void SettingsDialog::load() {
         case THEME_VARIANT_FORCE_DARK:
             gtk_combo_box_set_active(GTK_COMBO_BOX(builder.get("cbThemeVariant")), 2);
             break;
+        case THEME_VARIANT_HIGH_CONTRAST:
+            gtk_combo_box_set_active(GTK_COMBO_BOX(builder.get("cbThemeVariant")), 3);
+            break;
         case THEME_VARIANT_USE_SYSTEM:
         default:
             gtk_combo_box_set_active(GTK_COMBO_BOX(builder.get("cbThemeVariant")), 0);
@@ -885,6 +888,9 @@ void SettingsDialog::save() {
             break;
         case 2:
             settings->setThemeVariant(THEME_VARIANT_FORCE_DARK);
+            break;
+        case 3:
+            settings->setThemeVariant(THEME_VARIANT_HIGH_CONTRAST);
             break;
         case 0:
         default:

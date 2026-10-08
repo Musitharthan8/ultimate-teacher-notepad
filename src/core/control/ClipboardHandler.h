@@ -41,6 +41,7 @@ public:
 
 public:
     bool paste();
+    void pasteImage();
     bool cut();
     bool copy();
 

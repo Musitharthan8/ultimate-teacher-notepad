@@ -68,6 +68,7 @@ public:
      * Use `updateTextElementContent` to sync them
      */
     Text* getTextElement() const;
+    const PageRef& getPage() const { return page; }
 
     bool bufferEmpty() const;
 
@@ -75,6 +76,18 @@ public:
     void setColor(Color color);
     void setAlignment(TextAlignment al);
     void setJustify(bool justify);
+    void setUnderline(bool enabled);
+    void setStrikethrough(bool enabled);
+    void setLineSpacing(double spacing);
+    void toggleBulletList();
+    void toggleNumberedList();
+
+    // UTN Answer Box live styling
+    void setBoxBackgroundColor(Color color);
+    void setBoxBorderColor(Color color);
+    void setBoxBorderWidth(double width);
+    void setBoxPadding(double padding);
+    void setBoxCornerRadius(double radius);
 
     PangoLayout* getUpToDateLayout() const;
 
@@ -121,6 +134,7 @@ private:
      */
     void setTextToPangoLayout(PangoLayout* pl) const;
 
+    void addBaseTextAttributes(PangoAttrList* attrs) const;
     void setSelectionAttributesToPangoLayout(PangoLayout* pl) const;
 
     void updateBoxes();

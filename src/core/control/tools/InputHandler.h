@@ -19,6 +19,7 @@
 #include "model/PageRef.h"  // for PageRef
 
 class Control;
+class ToolHandler;
 class Point;
 class Stroke;
 class PositionInputData;
@@ -91,6 +92,8 @@ public:
 
 protected:
     [[nodiscard]] static std::unique_ptr<Stroke> createStroke(Control* control);
+
+    [[nodiscard]] static std::unique_ptr<Stroke> createStroke(ToolHandler* tools, bool teacherLayout);
 
     static bool validMotion(Point p, Point q);
 

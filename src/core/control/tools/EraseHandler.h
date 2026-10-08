@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <optional>
+
+#include "util/Point.h"
+
 #include "model/PageRef.h"  // for PageRef
 
 class DeleteUndoAction;
@@ -47,6 +51,7 @@ private:
     EraseUndoAction* eraseUndoAction;
 
     double halfEraserSize;
+    std::optional<xoj::util::Point<double>> previousPoint;
 
 private:
     /**

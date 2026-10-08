@@ -14,7 +14,7 @@ class GladeSearchpath;
 
 constexpr auto UI_FILE = "about.glade";
 constexpr auto UI_DIALOG_NAME = "aboutDialog";
-constexpr auto GIT_REPO = "https://github.com/xournalpp/xournalpp";
+constexpr auto GIT_REPO = "https://github.com/Musitharthan8/ultimate-teacher-notepad";
 constexpr auto WEBSITE = "https://xournalpp.github.io";
 constexpr auto AUTHORS_LINK = "https://raw.githubusercontent.com/xournalpp/xournalpp/master/AUTHORS";
 constexpr auto LICENCE_LINK = "https://raw.githubusercontent.com/xournalpp/xournalpp/master/LICENSE";
@@ -39,7 +39,7 @@ static GtkWindow* constructWindow(GladeSearchpath* gladeSearchPath) {
     auto infoGrid = GTK_GRID(builder.get("versionInfoGrid"));
 
     insertPropertyKey(infoGrid, _("Version"), 0);
-    insertPropertyValue(infoGrid, PROJECT_VERSION, 0);
+    insertPropertyValue(infoGrid, std::string("UTN 0.2.0 beta / Xournal++ ") + PROJECT_VERSION, 0);
 
     insertPropertyKey(infoGrid, _("Built on"), 1);
     insertPropertyValue(infoGrid, __DATE__ ", " __TIME__, 1);

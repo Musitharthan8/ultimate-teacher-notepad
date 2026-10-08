@@ -27,6 +27,9 @@ struct BackgroundImage {
     void loadFile(fs::path const& filepath, GError** error);
     void loadFile(GInputStream* stream, fs::path const& filepath, GError** error);
 
+    /// Apply camera orientation to a private copy of the image content.
+    void applyEmbeddedOrientation();
+
     int getCloneId() const;
     void setCloneId(int id);
     void clearSaveState();

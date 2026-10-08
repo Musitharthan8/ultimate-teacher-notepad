@@ -1,5 +1,6 @@
 #include "Text.h"
 
+#include <algorithm>
 #include <memory>
 #include <utility>  // for move
 
@@ -15,6 +16,7 @@
 #include "util/StringUtils.h"
 #include "util/matrix/RectangleMultiply.h"
 #include "util/raii/GObjectSPtr.h"
+#include "util/raii/PangoSPtr.h"
 #include "util/safe_casts.h"                      // for round_cast
 #include "util/serializing/ObjectInputStream.h"   // for ObjectInputStream
 #include "util/serializing/ObjectOutputStream.h"  // for ObjectOutputStream
@@ -39,6 +41,15 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     text->wrapWidth = this->wrapWidth;
     text->align = this->align;
     text->justify = this->justify;
+    text->underlined = this->underlined;
+    text->strikethrough = this->strikethrough;
+    text->lineSpacing = this->lineSpacing;
+    text->boxEnabled = this->boxEnabled;
+    text->boxBackgroundColor = this->boxBackgroundColor;
+    text->boxBorderColor = this->boxBorderColor;
+    text->boxBorderWidth = this->boxBorderWidth;
+    text->boxPadding = this->boxPadding;
+    text->boxCornerRadius = this->boxCornerRadius;
 
     return text;
 }
@@ -74,6 +85,82 @@ void Text::setAlignment(TextAlignment a) {
     sizeCalculated = false;
 }
 
+auto Text::isUnderlined() const -> bool { return this->underlined; }
+
+void Text::setUnderlined(bool enabled) {
+    this->underlined = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::isStrikethrough() const -> bool { return this->strikethrough; }
+
+void Text::setStrikethrough(bool enabled) {
+    this->strikethrough = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::getLineSpacing() const -> double { return this->lineSpacing; }
+
+void Text::setLineSpacing(double spacing) {
+    this->lineSpacing = std::clamp(spacing, 0.8, 2.5);
+    sizeCalculated = false;
+}
+
+auto Text::isBoxEnabled() const -> bool { return this->boxEnabled; }
+
+void Text::setBoxEnabled(bool enabled) {
+    this->boxEnabled = enabled;
+    sizeCalculated = false;
+}
+
+auto Text::getBoxBackgroundColor() const -> Color { return this->boxBackgroundColor; }
+
+void Text::setBoxBackgroundColor(Color color) { this->boxBackgroundColor = color; }
+
+auto Text::getBoxBorderColor() const -> Color { return this->boxBorderColor; }
+
+void Text::setBoxBorderColor(Color color) { this->boxBorderColor = color; }
+
+auto Text::getBoxBorderWidth() const -> double { return this->boxBorderWidth; }
+
+void Text::setBoxBorderWidth(double width) {
+    this->boxBorderWidth = std::max(0.0, width);
+    sizeCalculated = false;
+}
+
+auto Text::getBoxPadding() const -> double { return this->boxPadding; }
+
+void Text::setBoxPadding(double padding) {
+    this->boxPadding = std::max(0.0, padding);
+    sizeCalculated = false;
+}
+
+auto Text::getBoxCornerRadius() const -> double { return this->boxCornerRadius; }
+
+void Text::setBoxCornerRadius(double radius) { this->boxCornerRadius = std::max(0.0, radius); }
+
+static auto computeAnswerBoxBounds(const Text::Boxes& boxes, double padding, double borderWidth)
+        -> xoj::util::Rectangle<double> {
+    const double extra = padding + 0.5 * borderWidth;
+    const double left = std::min(0.0, boxes.effectiveBounds.x) - extra;
+    const double top = std::min(0.0, boxes.effectiveBounds.y) - extra;
+    const double right =
+            std::max(boxes.theoreticalSize.width, boxes.effectiveBounds.x + boxes.effectiveBounds.width) + extra;
+    const double bottom =
+            std::max(boxes.theoreticalSize.height, boxes.effectiveBounds.y + boxes.effectiveBounds.height) + extra;
+
+    return {left, top, right - left, bottom - top};
+}
+
+auto Text::getBoxBounds() const -> xoj::util::Rectangle<double> {
+    if (!this->sizeCalculated) {
+        this->calcSize();
+    }
+
+    Boxes boxes{this->naturalSize, this->effectiveBounds};
+    return computeAnswerBoxBounds(boxes, this->boxPadding, this->boxBorderWidth);
+}
+
 Text::Boxes Text::computeBoxesForLayout(PangoLayout* layout, double wrapWidth) {
     PangoRectangle box;
     pango_layout_get_extents(layout, nullptr, &box);
@@ -106,8 +193,14 @@ void Text::calcSize() const {
     this->effectiveBounds = boxes.effectiveBounds;
 
     const auto& matrix = this->getTransformation();
-    this->boundingBox = matrix * this->effectiveBounds;
-    this->snappedBounds = matrix * xoj::util::Rectangle<double>{{0, 0}, this->naturalSize};
+    if (this->boxEnabled) {
+        auto boxBounds = computeAnswerBoxBounds(boxes, this->boxPadding, this->boxBorderWidth);
+        this->boundingBox = matrix * boxBounds;
+        this->snappedBounds = matrix * boxBounds;
+    } else {
+        this->boundingBox = matrix * this->effectiveBounds;
+        this->snappedBounds = matrix * xoj::util::Rectangle<double>{{0, 0}, this->naturalSize};
+    }
 
     this->sizeCalculated = true;
 }
@@ -127,8 +220,18 @@ auto Text::createPangoLayout() const -> xoj::util::GObjectSPtr<PangoLayout> {
     pango_layout_set_alignment(layout.get(), this->align.toPango());
 
 #if PANGO_VERSION_CHECK(1, 48, 5)  // see https://gitlab.gnome.org/GNOME/pango/-/issues/499
-    pango_layout_set_line_spacing(layout.get(), 1.0);
+    pango_layout_set_line_spacing(layout.get(), this->lineSpacing);
 #endif
+
+    // UTN applies underline/strike to the whole text object.
+    xoj::util::PangoAttrListSPtr attrs(pango_attr_list_new(), xoj::util::adopt);
+    if (this->underlined) {
+        pango_attr_list_insert(attrs.get(), pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+    }
+    if (this->strikethrough) {
+        pango_attr_list_insert(attrs.get(), pango_attr_strikethrough_new(true));
+    }
+    pango_layout_set_attributes(layout.get(), attrs.get());
 
     updatePangoFont(layout.get());
 
@@ -159,6 +262,21 @@ void Text::serialize(ObjectOutputStream& out) const {
     out.writeInt(static_cast<int>(this->align));
     out.writeInt(this->justify);
 
+    // Plain text keeps the upstream clipboard format.
+    if (underlined || strikethrough || lineSpacing != 1.0 || boxEnabled) {
+        out.writeObject("UTNTextStyle");
+        out.writeInt(underlined);
+        out.writeInt(strikethrough);
+        out.writeDouble(lineSpacing);
+        out.writeInt(boxEnabled);
+        out.writeUInt(uint32_t(boxBackgroundColor));
+        out.writeUInt(uint32_t(boxBorderColor));
+        out.writeDouble(boxBorderWidth);
+        out.writeDouble(boxPadding);
+        out.writeDouble(boxCornerRadius);
+        out.endObject();
+    }
+
     out.endObject();
 }
 
@@ -176,6 +294,31 @@ void Text::readSerialized(ObjectInputStream& in) {
     this->align = static_cast<TextAlignment::Value>(in.readInt());
     this->align.validate();
     this->justify = in.readInt() != 0;
+
+    // Older clipboard payloads end here and use the default UTN style.
+    const Text defaults;
+    setUnderlined(defaults.isUnderlined());
+    setStrikethrough(defaults.isStrikethrough());
+    setLineSpacing(defaults.getLineSpacing());
+    setBoxEnabled(defaults.isBoxEnabled());
+    setBoxBackgroundColor(defaults.getBoxBackgroundColor());
+    setBoxBorderColor(defaults.getBoxBorderColor());
+    setBoxBorderWidth(defaults.getBoxBorderWidth());
+    setBoxPadding(defaults.getBoxPadding());
+    setBoxCornerRadius(defaults.getBoxCornerRadius());
+    if (in.hasNextObject("UTNTextStyle")) {
+        in.readObject("UTNTextStyle");
+        setUnderlined(in.readInt() != 0);
+        setStrikethrough(in.readInt() != 0);
+        setLineSpacing(in.readDouble());
+        setBoxEnabled(in.readInt() != 0);
+        setBoxBackgroundColor(Color(in.readUInt()));
+        setBoxBorderColor(Color(in.readUInt()));
+        setBoxBorderWidth(in.readDouble());
+        setBoxPadding(in.readDouble());
+        setBoxCornerRadius(in.readDouble());
+        in.endObject();
+    }
 
     in.endObject();
 }
