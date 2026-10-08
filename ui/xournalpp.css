@@ -497,6 +497,9 @@ window.utnShell.utnHighContrast .utn-brand { color: #ffffff; }
 window.utnShell #tbLeft1 button { padding: 7px 8px; }
 window.utnShell #utnContextBar button { padding: 4px 7px; }
 window.utnShell #utnContextBar .utn-context-badge { min-width: 82px; }
+/* A fixed properties-row height keeps the canvas still while switching tools. */
+window.utnShell #utnContextViewport { min-height: 44px; }
+window.utnShell.utnTouch #utnContextViewport { min-height: 56px; }
 window.utnShell #utnContextViewport scrollbar { min-height: 8px; }
 window.utnShell #utnContextViewport scrollbar slider { min-width: 32px; }
 window.utnShell.utnTouch #tbLeft1 button { padding: 12px 10px; }

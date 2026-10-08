@@ -26,7 +26,15 @@ public:
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
 
     std::string getToolDisplayName() const override;
+    bool expandsInToolbar() const override { return true; }
     GtkWidget* getNewToolIcon() const override;
+
+    /**
+     * Horizontal properties viewport: asks for the full natural width of @p content, keeps a small minimum so long
+     * rows never widen the window, and scrolls with an overlay scrollbar only when the row is genuinely too narrow.
+     * Returns: (transfer floating)
+     */
+    static GtkWidget* createPropertiesViewport(GtkWidget* content);
 
 private:
     void rebuild(ToolType tool);

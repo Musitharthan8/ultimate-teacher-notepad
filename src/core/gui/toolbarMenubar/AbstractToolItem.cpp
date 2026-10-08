@@ -20,6 +20,9 @@ xoj::util::WidgetSPtr AbstractToolItem::createToolItem(bool horizontal) {
     // Wrap in a GtkToolItem
     GtkToolItem* wrap = gtk_tool_item_new();
     gtk_container_add(GTK_CONTAINER(wrap), item.get());
+    if (horizontal && expandsInToolbar()) {
+        gtk_tool_item_set_expand(wrap, true);
+    }
     gtk_widget_show_all(GTK_WIDGET(wrap));
     return xoj::util::WidgetSPtr(GTK_WIDGET(wrap), xoj::util::adopt);
 }

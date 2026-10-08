@@ -94,6 +94,7 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_name(GTK_WIDGET(box), "utnContextBar");
     gtk_widget_set_margin_start(GTK_WIDGET(box), 4);
     gtk_widget_set_margin_end(GTK_WIDGET(box), 4);
+    gtk_widget_set_valign(GTK_WIDGET(box), GTK_ALIGN_CENTER);
 
     g_signal_connect(
             box,
@@ -112,17 +113,28 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
     }
 
-    // Keep long property rows from setting the minimum width of the lesson window.
-    GtkWidget* viewport = gtk_scrolled_window_new(nullptr, nullptr);
-    gtk_widget_set_name(viewport, "utnContextViewport");
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewport), GTK_POLICY_ALWAYS, GTK_POLICY_NEVER);
-    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(viewport), 48);
-    gtk_widget_set_hexpand(viewport, true);
-    gtk_widget_set_vexpand(viewport, false);
-    gtk_widget_set_tooltip_text(viewport, _("Tool properties. Scroll sideways to reach more settings."));
-    gtk_container_add(GTK_CONTAINER(viewport), GTK_WIDGET(box));
+    // Sizing chain: the toolbar wraps this viewport in an expanding GtkToolItem (expandsInToolbar), so the bar
+    // receives the full row width; the viewport itself requests the controls' natural width.
+    GtkWidget* viewport = createPropertiesViewport(GTK_WIDGET(box));
     gtk_widget_show_all(viewport);
     return xoj::util::WidgetSPtr(viewport, xoj::util::adopt);
+}
+
+auto ToolUtnContextBar::createPropertiesViewport(GtkWidget* content) -> GtkWidget* {
+    GtkWidget* viewport = gtk_scrolled_window_new(nullptr, nullptr);
+    gtk_widget_set_name(viewport, "utnContextViewport");
+    auto* scroller = GTK_SCROLLED_WINDOW(viewport);
+    // Without natural-width propagation a GtkScrolledWindow requests ~0 natural width; inside a GtkToolbar (which
+    // ignores hexpand) that collapsed the bar to a clipped badge.
+    gtk_scrolled_window_set_policy(scroller, GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_propagate_natural_width(scroller, true);
+    gtk_scrolled_window_set_min_content_width(scroller, 160);
+    gtk_scrolled_window_set_overlay_scrolling(scroller, true);
+    gtk_scrolled_window_set_shadow_type(scroller, GTK_SHADOW_NONE);
+    gtk_widget_set_hexpand(viewport, true);
+    gtk_widget_set_vexpand(viewport, false);
+    gtk_container_add(GTK_CONTAINER(viewport), content);
+    return viewport;
 }
 
 void ToolUtnContextBar::rebuild(ToolType tool) {
