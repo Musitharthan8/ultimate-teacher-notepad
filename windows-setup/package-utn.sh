@@ -17,7 +17,7 @@ cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
 # GTK modules and Lua plugins load libraries that do not appear in the main EXE imports.
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$setup_dir/lib/"
 cp -r "$prefix/lib/girepository-1.0" "$setup_dir/lib/"
-for folder in icons glib-2.0 poppler gtksourceview-4 lua; do
+for folder in icons glib-2.0 poppler gtksourceview-4 lua licenses; do
     cp -r "$prefix/share/$folder" "$setup_dir/share/"
 done
 cp -r "$prefix/lib/lua" "$setup_dir/lib/"
@@ -75,6 +75,7 @@ Based on Xournal++; GNU GPLv2 or later. See LICENSE.txt and Xournalpp-AUTHORS.tx
 Source and build instructions: https://github.com/Musitharthan8/ultimate-teacher-notepad
 Keep scan background attachments beside their .xopp journals.
 README
+pacman -Q > "$setup_dir/DEPENDENCIES.txt"
 printf '%s\n' "$version" > "$setup_dir/UTN-VERSION.txt"
 git -C "$script_dir/.." rev-parse HEAD > "$setup_dir/SOURCE-COMMIT.txt"
 makensis=${MAKENSIS:-}

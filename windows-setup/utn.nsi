@@ -81,6 +81,7 @@ Section "Uninstall"
     Delete "$INSTDIR\README.txt"
     Delete "$INSTDIR\UTN-VERSION.txt"
     Delete "$INSTDIR\SOURCE-COMMIT.txt"
+    Delete "$INSTDIR\DEPENDENCIES.txt"
     Delete "$INSTDIR\Uninstall.exe"
     RMDir "$INSTDIR"
     ; Documents and user configuration are retained.
