@@ -127,7 +127,7 @@
   <object class="GtkApplicationWindow" id="mainWindow">
     <property name="name">mainWindow</property>
     <property name="can-focus">False</property>
-    <property name="icon">pixmaps/com.github.xournalpp.xournalpp.svg</property>
+    <property name="icon">pixmaps/utn.svg</property>
     <child>
       <object class="GtkOverlay" id="mainOverlay">
         <property name="name">mainOverlay</property>

@@ -89,9 +89,7 @@ auto migrateSettings() -> MigrateResult {
 
     if (!fs::exists(newConfigPath)) {
         const std::array oldPaths = {
-                Util::getConfigFolder().parent_path() / "com.github.xournalpp.xournalpp",
-                Util::getConfigFolder().parent_path() / "com.github.xournalpp.xournalpp.exe",
-                Util::GFilename(g_get_home_dir()).toPath().value_or(fs::path()) / ".xournalpp",
+                Util::getConfigFolder().parent_path() / "xournalpp",
         };
         for (auto const& oldPath: oldPaths) {
             if (!fs::is_directory(oldPath)) {
@@ -102,13 +100,13 @@ auto migrateSettings() -> MigrateResult {
             Util::ensureFolderExists(newConfigPath.parent_path());
             try {
                 fs::copy(oldPath, newConfigPath, fs::copy_options::recursive);
-                constexpr auto msg = "Due to a recent update, Xournal++ has changed where its configuration files are "
-                                     "stored.\nThey have been automatically copied from\n\t{1}\nto\n\t{2}";
+                constexpr auto msg = "UTN now uses its own configuration folder. Your previous settings have been "
+                                     "preserved and copied from\n\t{1}\nto\n\t{2}";
                 return {MigrateStatus::Success, FS(_F(msg) % oldPath.u8string() % newConfigPath.u8string())};
             } catch (const fs::filesystem_error& e) {
                 constexpr auto msg =
-                        "Due to a recent update, Xournal++ has changed where its configuration files are "
-                        "stored.\nHowever, when attempting to copy\n\t{1}\nto\n\t{2}\nmigration failed:\n{3}";
+                        "UTN now uses its own configuration folder. Your previous settings have been "
+                        "preserved. However, when attempting to copy\n\t{1}\nto\n\t{2}\nmigration failed:\n{3}";
                 g_message("Migration failed: %s", e.what());
                 return {MigrateStatus::Failure, FS(_F(msg) % oldPath.u8string() % newConfigPath.u8string() % e.what())};
             }
@@ -605,9 +603,10 @@ void XournalMain::initLocalisation() {
 auto XournalMain::run(int argc, char** argv) -> int {
 
     XournalMainPrivate app_data;
-    GtkApplication* app = gtk_application_new("com.github.xournalpp.xournalpp", APP_FLAGS);
+    GtkApplication* app = gtk_application_new("io.github.Musitharthan8.UTN", APP_FLAGS);
     g_object_set(G_OBJECT(app), "register-session", true, nullptr);  // Needed for opening files on MacOS from Finder
-    g_set_prgname("com.github.xournalpp.xournalpp");
+    g_set_prgname("io.github.Musitharthan8.UTN");
+    g_set_application_name("Ultimate Teacher Notepad");
     g_signal_connect(app, "activate", G_CALLBACK(&on_activate), &app_data);
     g_signal_connect(app, "command-line", G_CALLBACK(&on_command_line), &app_data);
     g_signal_connect(app, "open", G_CALLBACK(&on_open_files), &app_data);
