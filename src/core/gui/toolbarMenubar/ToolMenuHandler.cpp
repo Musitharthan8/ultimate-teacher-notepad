@@ -64,6 +64,25 @@
 #include "filesystem.h"              // for exists
 
 
+namespace {
+class UtnBrandItem: public AbstractToolItem {
+public:
+    UtnBrandItem(): AbstractToolItem("UTN_BRAND", Category::MISC) {}
+
+    xoj::util::WidgetSPtr createItem(bool) override {
+        auto* label = gtk_label_new("UTN");
+        gtk_widget_add_css_class(label, "utn-brand");
+        gtk_widget_set_tooltip_text(label, _("Ultimate Teacher Notepad. Your classroom workspace."));
+        return xoj::util::WidgetSPtr(label, xoj::util::adopt);
+    }
+
+    std::string getToolDisplayName() const override { return "UTN"; }
+    GtkWidget* getNewToolIcon() const override {
+        return gtk_image_new_from_icon_name("document-edit", GTK_ICON_SIZE_SMALL_TOOLBAR);
+    }
+};
+}  // namespace
+
 using std::string;
 
 ToolMenuHandler::ToolMenuHandler(Control* control, GladeGui* gui):
@@ -491,6 +510,7 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolAppearance>("UTN_APPEARANCE", control, iconNameHelper);
     emplaceItem<ToolClear>("UTN_CLEAR", control);
     emplaceItem<ToolClassroomWorkflow>("CLASSROOM_WORKFLOW", control, iconNameHelper);
+    emplaceItem<UtnBrandItem>();
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode

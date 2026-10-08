@@ -49,7 +49,7 @@ const char* toolTitle(ToolType tool) {
         case TOOL_ERASER:
             return _("Eraser");
         case TOOL_HIGHLIGHTER:
-            return _("Markup");
+            return _("Highlight");
         case TOOL_TEXT:
             return _("Text");
         case TOOL_SELECT_RECT:
@@ -141,7 +141,10 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
         title = _("Answer Box");
     }
 
-    appendLabel(title);
+    GtkWidget* heading = gtk_label_new(title);
+    gtk_widget_add_css_class(heading, "utn-context-badge");
+    gtk_widget_set_size_request(heading, 90, -1);
+    gtk_box_append(box, heading);
     appendSeparator();
 
     if (tool == TOOL_TEXT && control->getToolHandler()->isAnswerBoxEnabled()) {
@@ -468,7 +471,8 @@ void ToolUtnContextBar::appendTextControls() {
 
     GtkWidget* fontButton = gtk_font_button_new_with_font(current.asString().c_str());
     gtk_font_button_set_use_size(GTK_FONT_BUTTON(fontButton), false);
-    gtk_font_button_set_show_style(GTK_FONT_BUTTON(fontButton), true);
+    gtk_font_button_set_show_style(GTK_FONT_BUTTON(fontButton), false);
+    gtk_font_button_set_use_font(GTK_FONT_BUTTON(fontButton), false);
     gtk_widget_set_tooltip_text(fontButton, _("Font family"));
 
     g_signal_connect(
@@ -574,7 +578,6 @@ void ToolUtnContextBar::appendTextControls() {
 
     appendSeparator();
 
-    appendLabel(_("Align"));
     GtkWidget* alignment = gtk_combo_box_text_new();
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Left"));
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(alignment), _("Centre"));
@@ -603,6 +606,7 @@ void ToolUtnContextBar::appendTextControls() {
                 }
             }),
             control);
+    gtk_widget_set_tooltip_text(alignment, _("Text alignment"));
     gtk_box_append(box, alignment);
 
     GtkPopover* morePopover = GTK_POPOVER(gtk_popover_new());
@@ -679,7 +683,7 @@ void ToolUtnContextBar::appendTextControls() {
     gtk_box_append(morePanel, numbers);
 
     GtkMenuButton* more = GTK_MENU_BUTTON(gtk_menu_button_new());
-    gtk_button_set_label(GTK_BUTTON(more), _("More"));
+    gtk_button_set_label(GTK_BUTTON(more), _("Paragraph"));
     gtk_widget_set_tooltip_text(GTK_WIDGET(more), _("More text formatting"));
     gtk_menu_button_set_popover(more, GTK_WIDGET(morePopover));
     gtk_menu_button_set_direction(more, GTK_ARROW_DOWN);
@@ -688,6 +692,15 @@ void ToolUtnContextBar::appendTextControls() {
 
     if (control->getToolHandler()->isAnswerBoxEnabled()) {
         appendSeparator();
+        GtkPopover* answerPopover = GTK_POPOVER(gtk_popover_new());
+        gtk_widget_add_css_class(GTK_WIDGET(answerPopover), "toolbar");
+        GtkBox* answerPanel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 8));
+        gtk_widget_set_margin_start(GTK_WIDGET(answerPanel), 12);
+        gtk_widget_set_margin_end(GTK_WIDGET(answerPanel), 12);
+        gtk_widget_set_margin_top(GTK_WIDGET(answerPanel), 12);
+        gtk_widget_set_margin_bottom(GTK_WIDGET(answerPanel), 12);
+        gtk_popover_set_child(answerPopover, GTK_WIDGET(answerPanel));
+        gtk_box_append(answerPanel, gtk_label_new(_("Answer Box appearance")));
 
         GtkWidget* preset = gtk_combo_box_text_new();
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(preset), _("Model Answer"));
@@ -731,7 +744,7 @@ void ToolUtnContextBar::appendTextControls() {
                 }),
                 control);
 
-        gtk_box_append(box, preset);
+        gtk_box_append(answerPanel, preset);
 
         GdkRGBA background = Util::argb_to_GdkRGBA(control->getToolHandler()->getAnswerBoxBackgroundColor());
         GtkWidget* backgroundButton = gtk_color_button_new_with_rgba(&background);
@@ -751,7 +764,8 @@ void ToolUtnContextBar::appendTextControls() {
                     }
                 }),
                 control);
-        gtk_box_append(box, backgroundButton);
+        gtk_box_append(answerPanel, gtk_label_new(_("Fill colour and opacity")));
+        gtk_box_append(answerPanel, backgroundButton);
 
         GdkRGBA border = Util::argb_to_GdkRGBA(control->getToolHandler()->getAnswerBoxBorderColor());
         GtkWidget* borderButton = gtk_color_button_new_with_rgba(&border);
@@ -771,17 +785,10 @@ void ToolUtnContextBar::appendTextControls() {
                     }
                 }),
                 control);
-        gtk_box_append(box, borderButton);
+        gtk_box_append(answerPanel, gtk_label_new(_("Border colour")));
+        gtk_box_append(answerPanel, borderButton);
 
-        GtkPopover* stylePopover = GTK_POPOVER(gtk_popover_new());
-        gtk_widget_add_css_class(GTK_WIDGET(stylePopover), "toolbar");
-
-        GtkBox* stylePanel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
-        gtk_widget_set_margin_start(GTK_WIDGET(stylePanel), 8);
-        gtk_widget_set_margin_end(GTK_WIDGET(stylePanel), 8);
-        gtk_widget_set_margin_top(GTK_WIDGET(stylePanel), 8);
-        gtk_widget_set_margin_bottom(GTK_WIDGET(stylePanel), 8);
-        gtk_popover_set_child(stylePopover, GTK_WIDGET(stylePanel));
+        GtkBox* stylePanel = answerPanel;
 
         auto appendStyleRow = [stylePanel](const char* label, GtkWidget* widget) {
             GtkBox* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
@@ -809,7 +816,7 @@ void ToolUtnContextBar::appendTextControls() {
                     }
                 }),
                 control);
-        appendStyleRow(_("Border"), borderWidth);
+        appendStyleRow(_("Border width"), borderWidth);
 
         GtkWidget* padding = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 24.0, 1.0);
         gtk_range_set_value(GTK_RANGE(padding), control->getToolHandler()->getAnswerBoxPadding());
@@ -847,12 +854,12 @@ void ToolUtnContextBar::appendTextControls() {
                 control);
         appendStyleRow(_("Corners"), radius);
 
-        GtkMenuButton* styleButton = GTK_MENU_BUTTON(gtk_menu_button_new());
-        gtk_button_set_label(GTK_BUTTON(styleButton), _("Box Style"));
-        gtk_widget_set_tooltip_text(GTK_WIDGET(styleButton), _("Border, padding and corner radius"));
-        gtk_menu_button_set_popover(styleButton, GTK_WIDGET(stylePopover));
-        gtk_menu_button_set_direction(styleButton, GTK_ARROW_DOWN);
-        gtk_box_append(box, GTK_WIDGET(styleButton));
+        GtkMenuButton* appearance = GTK_MENU_BUTTON(gtk_menu_button_new());
+        gtk_button_set_label(GTK_BUTTON(appearance), _("Box appearance"));
+        gtk_widget_set_tooltip_text(GTK_WIDGET(appearance), _("Presets, border colour, padding and rounded corners"));
+        gtk_menu_button_set_popover(appearance, GTK_WIDGET(answerPopover));
+        gtk_box_append(box, GTK_WIDGET(appearance));
+        gtk_widget_show_all(GTK_WIDGET(answerPanel));
 
         gtk_widget_show_all(GTK_WIDGET(stylePanel));
     }
