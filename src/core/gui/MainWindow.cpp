@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "control/UtnLayout.h"  // for isTeacherLayout
 #include <regex>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
@@ -672,8 +673,10 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 
     // UTN uses a dedicated shell style while Classic layouts stay untouched.
     GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
-    const bool utnShell =
-            d->getId() == "UTN Teacher" || d->getId() == "UTN Teacher Tablet" || d->getId() == "UTN Marking";
+    const bool utnShell = utn::isTeacherLayout(d->getId());
+    // Tool state follows the layout: teacher layouts never keep hidden shape modes on Highlight.
+    control->getToolHandler()->setTeacherToolPolicy(utnShell);
+    control->getToolHandler()->fireToolChanged();
     if (utnShell) {
         gtk_style_context_add_class(context, "utnShell");
     } else {

@@ -140,6 +140,7 @@ public:
 
     /**
      * @brief Set the Drawing Type of the toolbar selected tool
+     * With the teacher tool policy, a shape requested while Highlight is selected switches the toolbar tool to Pen.
      * @note It is safer to always set the toolbar tool as the active tool could be pointing to a button tool which
      * could lead to hard to debug behaviour
      *
@@ -206,6 +207,24 @@ public:
     // UTN: continuous eraser thickness
     double getEraserThickness() const;
     void setEraserThickness(double thickness);
+
+    /**
+     * @brief UTN teacher tool policy
+     *
+     * Teacher layouts expose shapes only through Shapes & Lines (a Pen mode). While the policy is enabled:
+     *  - a highlighter never draws a shape, whatever drawing type is stored for it (settings imported from Classic
+     *    layouts, menu/keyboard shape shortcuts, stylus button copies);
+     *  - asking for a shape while Highlight is active switches to Pen in that shape;
+     *  - selecting Pen or Highlight from the toolbar starts freehand.
+     * Classic layouts keep the upstream Xournal++ behaviour.
+     */
+    void setTeacherToolPolicy(bool enabled);
+    bool hasTeacherToolPolicy() const;
+
+    /**
+     * @brief The drawing type a tool actually uses for input, after applying the teacher tool policy
+     */
+    DrawingType effectiveDrawingType(const Tool& tool) const;
 
     // UTN: smart highlighter mode
     bool isSmartHighlighterEnabled() const;
@@ -448,6 +467,9 @@ private:
 
     // UTN: continuous eraser size
     double eraserThickness = 8.50;
+
+    // UTN: shapes belong to Pen in teacher layouts (see setTeacherToolPolicy)
+    bool teacherToolPolicy = false;
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;

@@ -35,10 +35,11 @@ constexpr std::array<DrawingEntry, 7> DRAWING_TOOLS{{
         {"Smart Shape", DRAWING_TYPE_SHAPE_RECOGNIZER, "shape-recognizer"},
 }};
 
+// Shapes are a Pen mode: select Pen (which starts freehand) and then apply the requested shape.
+// Control::setToolDrawingType refreshes the toolbar and properties bar.
 void chooseDrawingTool(Control* control, DrawingType type) {
     control->selectTool(TOOL_PEN);
     control->setToolDrawingType(type);
-    control->getToolHandler()->fireToolChanged();
 }
 }  // namespace
 

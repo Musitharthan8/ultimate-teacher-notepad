@@ -1,5 +1,6 @@
 #include "ToolMenuHandler.h"
 
+#include "control/UtnLayout.h"  // for isTeacherLayout
 #include <algorithm>  // for max
 #include <sstream>    // for istringstream
 
@@ -182,7 +183,7 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
     const auto palette = this->control->getPalette();
 
     const auto& layoutId = d->getId();
-    const bool teacherLayout = layoutId == "UTN Teacher" || layoutId == "UTN Teacher Tablet" || layoutId == "UTN Marking";
+    const bool teacherLayout = utn::isTeacherLayout(layoutId);
     if (!horizontal) {
         gtk_widget_set_hexpand(toolbar, false);
     }

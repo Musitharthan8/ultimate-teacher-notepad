@@ -637,6 +637,7 @@ void Control::customizeToolbars() {
 }
 
 void Control::setToolDrawingType(DrawingType type) {
+    const ToolType previousTool = this->toolHandler->getToolType();
     if (this->toolHandler->getDrawingType() != type) {
 
         if (this->toolHandler->getDrawingType() == DRAWING_TYPE_SPLINE) {
@@ -646,7 +647,26 @@ void Control::setToolDrawingType(DrawingType type) {
             }
         }
         this->toolHandler->setDrawingType(type);
+
+        // The teacher tool policy may have moved a shape request from Highlight to Pen. Either way, the toolbar,
+        // properties bar and cursor must show the shape that will actually be drawn.
+        if (previousTool != this->toolHandler->getToolType()) {
+            this->toolHandler->setSmartHighlighterEnabled(false);
+        }
+        if (win) {
+            this->toolHandler->fireToolChanged();
+        }
     }
+}
+
+void Control::selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMode> mode) {
+    clearSelectionEndText();
+    selectTool(TOOL_HIGHLIGHTER);
+    this->toolHandler->setSmartHighlighterEnabled(smart);
+    if (mode) {
+        this->toolHandler->setSmartHighlighterSnapMode(*mode);
+    }
+    this->toolHandler->fireToolChanged();
 }
 
 void Control::setFullscreen(bool enabled) {

@@ -24,6 +24,7 @@
 #include "control/SearchControl.h"                  // for SearchControl
 #include "control/Tool.h"                           // for Tool
 #include "control/ToolEnums.h"                      // for DRAWING_TYPE_SPLINE
+#include "control/tools/DrawingHandlerRoute.h"       // for drawingHandlerRoute
 #include "control/ToolHandler.h"                    // for ToolHandler
 #include "control/jobs/XournalScheduler.h"          // for XournalScheduler
 #include "control/layer/LayerController.h"          // for LayerControl
@@ -281,9 +282,8 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         return true;
     }
 
-    if (((h->getToolType() == TOOL_PEN || h->getToolType() == TOOL_HIGHLIGHTER) &&
-         h->getDrawingType() != DRAWING_TYPE_SPLINE) ||
-        (h->getToolType() == TOOL_ERASER && h->getEraserType() == ERASER_TYPE_WHITEOUT)) {
+    const DrawingHandlerRoute route = drawingHandlerRoute(*h);
+    if (route != DrawingHandlerRoute::None && route != DrawingHandlerRoute::Spline) {
 
         if (this->inputHandler) {
             /**
@@ -298,23 +298,23 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         }
 
         Control* control = this->xournal->getControl();
-        switch (h->getDrawingType()) {
-            case DRAWING_TYPE_LINE:
+        switch (route) {
+            case DrawingHandlerRoute::Ruler:
                 this->inputHandler = std::make_unique<RulerHandler>(control, getPage());
                 break;
-            case DRAWING_TYPE_RECTANGLE:
+            case DrawingHandlerRoute::Rectangle:
                 this->inputHandler = std::make_unique<RectangleHandler>(control, getPage());
                 break;
-            case DRAWING_TYPE_ELLIPSE:
+            case DrawingHandlerRoute::Ellipse:
                 this->inputHandler = std::make_unique<EllipseHandler>(control, getPage());
                 break;
-            case DRAWING_TYPE_ARROW:
+            case DrawingHandlerRoute::Arrow:
                 this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), false);
                 break;
-            case DRAWING_TYPE_DOUBLE_ARROW:
+            case DrawingHandlerRoute::DoubleArrow:
                 this->inputHandler = std::make_unique<ArrowHandler>(control, getPage(), true);
                 break;
-            case DRAWING_TYPE_COORDINATE_SYSTEM:
+            case DrawingHandlerRoute::CoordinateSystem:
                 this->inputHandler = std::make_unique<CoordinateSystemHandler>(control, getPage());
                 break;
             default:
@@ -323,8 +323,7 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         this->inputHandler->onButtonPressEvent(pos, zoom);
         this->overlayViews.emplace_back(this->inputHandler->createView(this));
 
-    } else if ((h->getToolType() == TOOL_PEN || h->getToolType() == TOOL_HIGHLIGHTER) &&
-               h->getDrawingType() == DRAWING_TYPE_SPLINE) {
+    } else if (route == DrawingHandlerRoute::Spline) {
         if (!this->inputHandler) {
             this->inputHandler = std::make_unique<SplineHandler>(this->xournal->getControl(), getPage());
             this->inputHandler->onButtonPressEvent(pos, zoom);

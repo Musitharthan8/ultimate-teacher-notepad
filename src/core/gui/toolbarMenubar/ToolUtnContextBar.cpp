@@ -917,9 +917,7 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
             freehand,
             "clicked",
             G_CALLBACK(+[](GtkButton*, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                ctrl->setToolDrawingType(DRAWING_TYPE_DEFAULT);
-                ctrl->getToolHandler()->fireToolChanged();
+                static_cast<Control*>(data)->setToolDrawingType(DRAWING_TYPE_DEFAULT);
             }),
             control);
     gtk_box_append(box, freehand);

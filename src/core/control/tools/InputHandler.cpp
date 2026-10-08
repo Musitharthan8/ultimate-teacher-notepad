@@ -10,6 +10,7 @@
 #include "control/ToolEnums.h"        // for TOOL_ERASER, TOOL_HIGHLIGHTER
 #include "control/settings/Settings.h"
 #include "control/ToolHandler.h"      // for ToolHandler
+#include "control/UtnLayout.h"        // for isTeacherLayout
 #include "model/Point.h"              // for Point, Point::NO_PRESSURE
 #include "model/Stroke.h"             // for Stroke, StrokeTool::ERASER, STR...
 #include "util/Color.h"               // for Color
@@ -27,7 +28,7 @@ auto InputHandler::createStroke(Control* control) -> std::unique_ptr<Stroke> {
     ToolHandler* h = control->getToolHandler();
 
     const auto& layout = control->getSettings()->getSelectedToolbar();
-    const bool teacherLayout = layout == "UTN Teacher" || layout == "UTN Teacher Tablet" || layout == "UTN Marking";
+    const bool teacherLayout = utn::isTeacherLayout(layout);
     auto s = createStroke(h, teacherLayout);
     if (h->getToolType() == TOOL_PEN) {
 #ifdef ENABLE_AUDIO
