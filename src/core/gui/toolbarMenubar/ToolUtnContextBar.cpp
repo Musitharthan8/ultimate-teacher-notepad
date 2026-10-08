@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "HighlightModes.h"  // for HIGHLIGHT_MODES
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
@@ -441,19 +442,13 @@ void ToolUtnContextBar::appendMarkupControls() {
     appendLabel(_("Mode"));
 
     GtkWidget* mode = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Freehand"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Straight"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Word"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Line"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Underline"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _("Strike"));
+    for (const auto& entry: utn::HIGHLIGHT_MODES) {
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(mode), _(entry.label));
+    }
 
     auto* tools = control->getToolHandler();
-    int activeMode = 0;
-    if (tools->isSmartHighlighterEnabled()) {
-        activeMode = static_cast<int>(tools->getSmartHighlighterSnapMode()) + 1;
-    }
-    gtk_combo_box_set_active(GTK_COMBO_BOX(mode), activeMode);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(mode), utn::highlightModeIndex(tools->isSmartHighlighterEnabled(),
+                                                                         tools->getSmartHighlighterSnapMode()));
 
     g_signal_connect(
             mode,
@@ -461,18 +456,18 @@ void ToolUtnContextBar::appendMarkupControls() {
             G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
                 auto* tools = static_cast<Control*>(data)->getToolHandler();
                 int active = gtk_combo_box_get_active(combo);
-
-                if (active <= 0) {
-                    tools->setSmartHighlighterEnabled(false);
+                if (active < 0) {
                     return;
                 }
-
-                tools->setSmartHighlighterEnabled(true);
-                tools->setSmartHighlighterSnapMode(static_cast<SmartHighlighterSnapMode>(active - 1));
+                const auto& entry = utn::HIGHLIGHT_MODES[static_cast<size_t>(active)];
+                tools->setSmartHighlighterEnabled(entry.snap.has_value());
+                if (entry.snap) {
+                    tools->setSmartHighlighterSnapMode(*entry.snap);
+                }
             }),
             control);
 
-    gtk_widget_set_tooltip_text(mode, _("Markup behaviour"));
+    gtk_widget_set_tooltip_text(mode, _("How Highlight follows the page text"));
     gtk_box_append(box, mode);
 }
 
