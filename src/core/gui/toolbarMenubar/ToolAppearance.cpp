@@ -18,6 +18,8 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "UtnWidgets.h"
+
 namespace {
 struct AppearanceEntry {
     const char* label;
@@ -25,10 +27,10 @@ struct AppearanceEntry {
 };
 
 constexpr std::array<AppearanceEntry, 4> APPEARANCES{{
-        {"System", THEME_VARIANT_USE_SYSTEM},
-        {"Light", THEME_VARIANT_FORCE_LIGHT},
-        {"Dark", THEME_VARIANT_FORCE_DARK},
-        {"High Contrast", THEME_VARIANT_HIGH_CONTRAST},
+        {N_("Match system"), THEME_VARIANT_USE_SYSTEM},
+        {N_("Light"), THEME_VARIANT_FORCE_LIGHT},
+        {N_("Dark"), THEME_VARIANT_FORCE_DARK},
+        {N_("High contrast"), THEME_VARIANT_HIGH_CONTRAST},
 }};
 }  // namespace
 
@@ -38,35 +40,30 @@ ToolAppearance::ToolAppearance(std::string id, Control* control, IconNameHelper 
         iconName(iconNameHelper.iconName("utn-appearance")) {}
 
 auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+    auto [popover, panel] = utn::createPopoverPanel();
+    utn::appendPopoverHeading(panel, _("Colours"));
 
-    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
-    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
-    gtk_popover_set_child(popover, GTK_WIDGET(panel));
-
+    // Radio buttons show which appearance is in use; pages and PDFs always keep their own colours
+    const ThemeVariant current = control->getSettings()->getThemeVariant();
+    GtkWidget* group = nullptr;
     for (const auto& entry: APPEARANCES) {
-        GtkWidget* button = gtk_button_new_with_label(_(entry.label));
-        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        GtkWidget* button = group ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(group), _(entry.label)) :
+                                    gtk_radio_button_new_with_label(nullptr, _(entry.label));
+        group = group ? group : button;
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), entry.variant == current);
         g_object_set_data(G_OBJECT(button), "utn-theme", GINT_TO_POINTER(static_cast<int>(entry.variant)));
 
-        g_signal_connect(
-                button,
-                "clicked",
-                G_CALLBACK(+[](GtkButton* button, gpointer data) {
-                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                    auto variant = static_cast<ThemeVariant>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-theme")));
-
-                    ctrl->getSettings()->setThemeVariant(variant);
-                    ctrl->getWindow()->updateColorscheme();
-                    gtk_popover_popdown(GTK_POPOVER(data));
-                }),
-                popover);
-
+        g_signal_connect(button, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                             if (!gtk_toggle_button_get_active(button)) {
+                                 return;
+                             }
+                             auto* ctrl = static_cast<Control*>(data);
+                             auto variant = static_cast<ThemeVariant>(
+                                     GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-theme")));
+                             ctrl->getSettings()->setThemeVariant(variant);
+                             ctrl->getWindow()->updateColorscheme();
+                         }),
+                         control);
         gtk_box_append(panel, button);
     }
 
@@ -75,9 +72,10 @@ auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     bool touchUi = false;
     control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
 
-    GtkWidget* density = gtk_toggle_button_new_with_label(_("Touch-friendly controls"));
+    utn::appendPopoverHeading(panel, _("Size"));
+    GtkWidget* density = gtk_check_button_new_with_label(_("Larger buttons for touch and stylus"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(density), touchUi);
-    gtk_widget_set_tooltip_text(density, _("Use larger controls for stylus and touchscreen teaching"));
+    gtk_widget_set_tooltip_text(density, _("Easier to tap on a touchscreen or interactive whiteboard"));
 
     g_signal_connect(
             density,

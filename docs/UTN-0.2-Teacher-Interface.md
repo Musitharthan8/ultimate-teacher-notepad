@@ -1,4 +1,4 @@
-# UTN 0.2 — The Teacher Interface
+# UTN 0.2: The Teacher Interface
 
 UTN 0.1 proved the classroom features. UTN 0.2 makes them feel like one deliberate teaching application rather than a collection of additions to Xournal++.
 
@@ -20,41 +20,45 @@ UTN 0.1 proved the classroom features. UTN 0.2 makes them feel like one delibera
 ## Shell layout
 
 ### Top app bar
-File actions, undo/redo, one-tap Clear, Student View, Presentation and Appearance.
+Save, Open and Export PDF, undo/redo, Classroom, one-tap Clear, Student View, Present and Appearance. Teacher and Tablet layouts share the same app bar.
 
 ### Left tool rail
-Pen, Eraser, Markup, Text, Answer Box, Feedback, Prepare / Reveal, Teaching Tools, Select and Hand.
+In a fixed order: Select, Area Select, Pen, Highlight, Eraser, Text, Answer Box, Feedback, then Shapes & Lines, Hide & Reveal and Move Page. The Marking layout puts Feedback straight after the select tools. Hovering a rail button shows its name and one line on what it does.
 
-### Dynamic context bar
-The second toolbar changes with the active teaching tool.
+Only one rail button is ever shown as selected: Text, Answer Box and Feedback are modes of the same Text tool, and the rail shows the one in use.
 
-Implemented contexts include:
-- Pen: profiles, colour, size and pressure
-- Eraser: continuous size
-- Markup: colour, size, opacity and smart mode
-- Text: font, size, style, spacing, lists and alignment
-- Answer Box: text controls, presets, fill, border and box geometry
-- Shape: shape identity, colour, size and fill
-- Selection: editable properties, stacking order and delete
+### Properties bar
+The second toolbar shows the settings of the active tool, always in the same order: the tool's name, colour, size, then what is specific to that tool. It fills the toolbar row; in a very narrow window it scrolls instead of clipping.
+
+- Colour: five classroom colours in one tap, plus More colours for anything else. Highlight has its own five highlighter colours.
+- Size: XS to XL buttons for Pen, shapes, Highlight and selections.
+- Pen: pressure on or off.
+- Shapes: filled or outline, and Back to Pen.
+- Highlight: opacity and mode.
+- Eraser: continuous size (the [ and ] keys also work).
+- Text: font, text size, B I U S, alignment, and a Paragraph menu for line spacing and lists.
+- Answer Box: Delete Box first, the Text controls, then a Box style menu with ready-made styles and fine adjustments.
+- Feedback: colour and the comment that the next click will place.
+- Select: a hint until something is selected; then Delete, colour and size where they apply, Bring to front and Send to back.
 
 ### Bottom lesson bar
 A compact Lesson Navigator replaces the old page-spinner/page-label pair in the main UTN layouts. It shows the current page and classroom label, provides previous/next navigation, quick labels, previous/next labelled-page jumps and a scrollable lesson map.
 
-Dedicated scalable icons distinguish Answer Box, Feedback, Prepare / Reveal, Teaching Tools, Presentation and Appearance. Each icon is bundled in the light and dark variants of both icon themes.
+Dedicated scalable icons distinguish Answer Box, Feedback, Hide & Reveal, Shapes & Lines, Present and Appearance. Each icon is bundled in the light and dark variants of both icon themes.
 
 Classic Xournal++ toolbar layouts remain available.
 
-## Markup
+## Highlight
 
-Markup is UTN's primary highlighter/annotation tool. The legacy Highlighter remains available in Classic layouts.
-
-Implemented modes:
+Highlight is UTN's highlighter. The rail button's arrow and the properties bar offer the same modes, with the same names:
 - Freehand
-- Straighten
-- Snap to Word
-- Snap to Line
-- Underline Text
-- Strikethrough Text
+- Straight line
+- Snap to word
+- Snap to line
+- Underline
+- Strikethrough
+
+In teacher layouts Highlight never draws shapes. Shapes are a Pen mode chosen from Shapes & Lines; a shape shortcut pressed while Highlight is active switches to Pen in that shape. Classic layouts keep the upstream highlighter shapes.
 
 Word/line/underline/strikethrough snapping uses selectable PDF text geometry. Image-only/scanned PDFs still need OCR before equivalent semantic snapping is possible.
 
@@ -84,7 +88,9 @@ Answer Boxes are text objects with teacher-friendly presentation styling:
 - border width
 - padding
 - rounded corners
-- Model Answer / Definition / Warning / Note presets
+- Model answer / Definition / Warning / Note / Marking comment styles
+
+Answer Box styling lives in one place, the Box style menu on the properties bar.
 
 Style changes are reflected live while editing.
 
@@ -99,48 +105,46 @@ Current groups:
 - Comprehension
 - Custom
 
-Feedback has its own colour and places as a one-shot text object.
+Feedback has its own colour, set on the properties bar, and places as a one-shot text object. Enter in the Custom box places the comment.
 
 ## Student View
 
 Student View is a separate, clean display window that omits teacher-only layers.
 
 Implemented classroom controls:
-- Freeze Student View
-- Blank Student View
-- Fullscreen Student View
-- Close Student View
+- Freeze
+- Blank screen
+- Full screen
+- Close
 
 Freeze allows the teacher to work ahead privately while students continue seeing the frozen frame.
 
-## Presentation cleanup
+## Present
 
-Presentation Tools includes **Clear Temporary Ink**, which immediately removes temporary laser-pen and laser-highlighter strokes from all pages without changing saved annotations or the active tool. Pending fadeout timers are cancelled with the removed ink.
+The Present menu has three sections:
+- During the lesson: Temporary ink, Temporary highlight, Spotlight and Curtain.
+- Tidy up: **Clear temporary ink** removes temporary strokes from all pages without changing saved work; **Show the whole page** turns Spotlight or Curtain off without changing the tool.
+- Screen: Presentation mode and Full screen, each turning on or off.
 
-**Dismiss Spotlight / Curtain** restores the full page while preserving the selected tool and temporary ink.
+## Hide & Reveal
 
-## Prepare / Reveal
-
-Prepared answers use layers prefixed with `UTN Reveal`. Teachers can prepare, hide and reveal them during a lesson. Student View hides both `UTN Reveal*` and `UTN Teacher*` layers.
+Hidden answers use layers prefixed with `UTN Reveal`. Teachers start an answers layer, hide the answers and reveal them during a lesson. Student View hides both `UTN Reveal*` and `UTN Teacher*` layers.
 
 ## Clear workflow
 
 The primary Clear button removes annotations from the current page as one undoable operation while preserving the page/PDF background.
 
-More granular options remain available:
-- Delete Selection
-- Clear Current Layer
-- Clear Page Annotations
+Its menu offers one narrower option, Clear current layer only. Deleting a selection is done from Select.
 
-## Teaching Tools
+## Shapes & Lines
 
-Less frequently used drawing and STEM controls are grouped instead of permanently occupying the main rail:
+Less frequently used drawing and maths tools are grouped instead of permanently occupying the main rail:
 - Line
 - Rectangle
 - Ellipse
 - Arrow
 - Double Arrow
-- Coordinate System
+- Axes
 - Smart Shape
 - Set Square
 - Compass
@@ -150,12 +154,12 @@ Less frequently used drawing and STEM controls are grouped instead of permanentl
 ## Appearance
 
 Supported shell appearances:
-- System
+- Match system
 - Light
 - Dark
-- High Contrast
+- High contrast
 
-A separate Touch-friendly controls option enlarges targets for stylus/tablet use. These settings affect only application chrome, toolbars, panels, popovers, sidebars and workspace framing. PDF pages, notebook pages, images and exports are never theme-inverted.
+The menu marks the appearance in use. A separate option, Larger buttons for touch and stylus, enlarges targets for interactive whiteboards and tablets. These settings affect only application chrome, toolbars, panels, popovers, sidebars and workspace framing. PDF pages, notebook pages, images and exports are never theme-inverted.
 
 ## Responsiveness and performance
 
@@ -169,7 +173,7 @@ Ink responsiveness remains higher priority than decorative UI.
 - responsive/compact handling for very narrow context bars
 - true round/square/flat eraser geometry
 - further eraser/highlighter profiling after real classroom testing
-- richer pen engines rather than profile presets alone
+- richer pen engines
 - OCR for scanned PDFs
 - handwriting-to-text
 - packaging/installer and cross-platform release work
