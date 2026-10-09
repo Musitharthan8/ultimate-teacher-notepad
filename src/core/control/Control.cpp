@@ -711,29 +711,41 @@ size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
 }
 
 void Control::startAnswersLayer() {
+    // Check first: creation invokes the layer menu and must never run with no active page.
+    if (!getCurrentPage()) {
+        return;
+    }
     this->layerController->addNewLayer(false);
+
+    // Set the audience and a collision-free name together, before notifying the UI.
+    // Do not call LayerController's naming helpers while holding the document mutex:
+    // those helpers acquire their own shared/unique locks.
     {
         std::unique_lock lock(*this->doc);
-        if (PageRef page = getCurrentPage(); page && page->getSelectedLayer()) {
-            page->getSelectedLayer()->setAudience(LayerAudience::Answers);
+        PageRef page = getCurrentPage();
+        if (!page || !page->getSelectedLayer()) {
+            return;
         }
-    }
-    // A readable, unique name for the Layers panel and for UTN 0.2 builds, which recognise the prefix
-    std::string name(utn::ANSWERS_LAYER_NAME);
-    for (unsigned int suffix = 2;; ++suffix) {
-        bool exists = false;
-        for (Layer::Index id = 1; id <= this->layerController->getLayerCount(); ++id) {
-            if (id != this->layerController->getCurrentLayerId() && this->layerController->getLayerNameById(id) == name) {
-                exists = true;
+        Layer* selected = page->getSelectedLayer();
+        std::string base(utn::ANSWERS_LAYER_NAME);
+        std::string name = base;
+        for (unsigned int suffix = 2;; ++suffix) {
+            bool exists = false;
+            for (const Layer* layer: page->getLayers()) {
+                if (layer != selected && layer->hasName() && layer->getName() == name) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
                 break;
             }
+            name = base + " " + std::to_string(suffix);
         }
-        if (!exists) {
-            break;
-        }
-        name = std::string(utn::ANSWERS_LAYER_NAME) + " " + std::to_string(suffix);
+        selected->setAudience(LayerAudience::Answers);
+        selected->setName(name);
     }
-    this->layerController->setCurrentLayerName(name);
+    this->layerController->fireRebuildLayerMenu();
 }
 
 size_t Control::countHiddenAnswersOnCurrentPage() {
