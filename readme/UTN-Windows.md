@@ -1,17 +1,18 @@
 # Ultimate Teacher Notepad for Windows
 
-UTN 0.2 beta is a teacher-focused Xournal++ fork, licensed under GPLv2 or later.
+UTN is a teacher-focused Xournal++ fork, licensed under GPLv2 or later.
 It is a Windows desktop application. It has not been submitted to Microsoft Store.
 
 ## Download and install
 
 Open the latest successful **UTN Windows Installer** run on the repository's Actions page.
 Download its **UTN-Windows-x64** artifact and extract the download.
-Run `UTN-0.2.0-beta-Windows-x64-Setup.exe`. Launch UTN from Start or the desktop shortcut.
+Run `UTN-<version>-Windows-x64-Setup.exe` (for example `UTN-0.3.0-beta-Windows-x64-Setup.exe`).
+The version is set once, in `windows-setup/package-utn.sh`, and appears in the file names, the installer and Help › About. Launch UTN from Start or the desktop shortcut.
 The per-user installation does not need MSYS2 or administrator rights.
 The beta installer is unsigned; signing and Store certification remain release work.
 
-Alternatively extract `UTN-0.2.0-beta-Windows-x64-Portable.zip` into an empty folder,
+Alternatively extract `UTN-<version>-Windows-x64-Portable.zip` into an empty folder,
 and run `bin/UTN.exe`. Keep the entire folder together. Settings still use the user profile.
 
 UTN has its own settings directory (`utn`), install directory and Open With registration.
@@ -42,4 +43,5 @@ Xournal++ contributors, licence notices and upstream attribution are retained.
 Test both desktop and touch density, all themes, and Classic layouts.
 Open a PDF, write, highlight, erase, add/edit/delete an Answer Box, undo/redo, save/reopen and export.
 Check fonts and image import after installing outside MSYS2, including a Windows profile with non-ASCII characters.
-Student View privacy/reveal and high-zoom eraser performance still require stabilisation before public release.
+Test Student View with the projector both duplicating and extending the screen: hidden answers must never appear
+on the projector until revealed. High-zoom eraser performance still needs measuring before public release.

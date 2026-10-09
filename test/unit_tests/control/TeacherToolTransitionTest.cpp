@@ -233,3 +233,13 @@ TEST(TeacherTextModes, emptyFeedbackIsNotAMode) {
     tools.setTeacherStampText("");
     EXPECT_EQ(tools.getTextMode(), TextMode::AnswerBox);
 }
+
+TEST(TeacherEraser, stylusEraserEndUsesTheSliderSize) {
+    // The hardware eraser end is a separate button tool; it must follow the continuous eraser size
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(17.0);
+    tools.resetButtonTool(TOOL_ERASER, Button::BUTTON_ERASER);
+    ASSERT_TRUE(tools.pointActiveToolToButtonTool(Button::BUTTON_ERASER));
+    EXPECT_EQ(tools.getToolType(), TOOL_ERASER);
+    EXPECT_DOUBLE_EQ(tools.getThickness(), 17.0);
+}

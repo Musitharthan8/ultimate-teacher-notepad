@@ -854,12 +854,14 @@ auto XojPageView::onKeyPressEvent(const KeyEvent& event) -> bool {
         }
     }
 
-    // UTN: resize the eraser quickly with [ and ]
-    if (!this->textEditor && (event.keyval == GDK_KEY_bracketleft || event.keyval == GDK_KEY_bracketright)) {
+    // UTN: resize the eraser quickly with [ and ] (only while erasing, so the keys stay free elsewhere)
+    if (!this->textEditor && (event.keyval == GDK_KEY_bracketleft || event.keyval == GDK_KEY_bracketright) &&
+        this->xournal->getControl()->getToolHandler()->getToolType() == TOOL_ERASER) {
         auto* tools = this->xournal->getControl()->getToolHandler();
         double thickness = tools->getEraserThickness();
         thickness += event.keyval == GDK_KEY_bracketright ? 0.5 : -0.5;
         tools->setEraserThickness(thickness);
+        tools->fireToolChanged();  // the properties bar slider follows
         return true;
     }
 

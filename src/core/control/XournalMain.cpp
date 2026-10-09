@@ -433,6 +433,19 @@ void on_startup(GApplication* application, XMPtr app_data) {
 
     app_data->control = std::make_unique<Control>(application, app_data->gladePath.get(), app_data->disableAudio);
 
+    // UTN keeps worksheets white: page recolouring copied from Xournal++ settings is switched off once,
+    // at migration. Teachers can still turn it on again in Settings.
+    if (migrateResult.status == MigrateStatus::Success) {
+        auto* settings = app_data->control->getSettings();
+        RecolorParameters recolor = settings->getRecolorParameters();
+        if (recolor.recolorizeMainView || recolor.recolorizeSidebarMiniatures) {
+            recolor.recolorizeMainView = false;
+            recolor.recolorizeSidebarMiniatures = false;
+            settings->setRecolorParameters(std::move(recolor));
+            settings->save();
+        }
+    }
+
     auto& globalLatexTemplatePath = app_data->control->getSettings()->latexSettings.globalTemplatePath;
     if (globalLatexTemplatePath.empty()) {
         globalLatexTemplatePath = findResourcePath("resources/") / "default_template.tex";

@@ -365,8 +365,8 @@ void ToolHandler::setTextLineSpacing(double spacing) {
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
 
-    // UTN: use continuous thickness for the toolbar eraser
-    if (tool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+    // UTN: every eraser, including a stylus eraser end (a separate button tool), uses the continuous size
+    if (tool->getToolType() == TOOL_ERASER) {
         return this->eraserThickness;
     }
 
