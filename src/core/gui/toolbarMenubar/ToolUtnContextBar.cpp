@@ -542,8 +542,9 @@ void ToolUtnContextBar::appendPenControls() {
     g_signal_connect(pattern, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
                          const int selected = gtk_combo_box_get_active(combo);
                          if (selected < 0) return;
-                         static constexpr const char* styles[]{"plain", "dash", "dot", "dashdot"};
-                         static_cast<Control*>(data)->setLineStyle(styles[selected]);
+                         const char* style = selected == 1 ? "dash" : selected == 2 ? "dot" :
+                                             selected == 3 ? "dashdot" : "plain";
+                         static_cast<Control*>(data)->setLineStyle(style);
                      }), control);
     gtk_box_append(box, pattern);
     appendSeparator();
