@@ -535,7 +535,7 @@ void ToolUtnContextBar::appendPenControls() {
     gtk_box_append(box, pressure);
 }
 
-void ToolUtnContextBar::appendShapeControls(DrawingType) {
+void ToolUtnContextBar::appendShapeControls(DrawingType type) {
     appendColourControls(Palette::Ink);
     appendSizeControls(TOOL_PEN);
     appendSeparator();
@@ -549,6 +549,23 @@ void ToolUtnContextBar::appendShapeControls(DrawingType) {
                      }),
                      control);
     gtk_box_append(box, fill);
+
+    if (type == DRAWING_TYPE_SHAPE_RECOGNIZER) {
+        appendSeparator();
+        GtkWidget* thresholdLabel = gtk_label_new(_("Smallest shape"));
+        gtk_widget_set_tooltip_text(thresholdLabel, _("Lower values recognise smaller circles and boxes."));
+        gtk_box_append(box, thresholdLabel);
+        GtkWidget* threshold = newScale(8.0, 80.0, 2.0,
+                                       control->getSettings()->getStrokeRecognizerMinSize(), 0);
+        gtk_widget_set_size_request(threshold, 130, -1);
+        utn::setAccessibleName(threshold, _("Smart Shape minimum size"));
+        g_signal_connect(threshold, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                             static_cast<Control*>(data)->getSettings()->setStrokeRecognizerMinSize(
+                                     gtk_range_get_value(range));
+                         }),
+                         control);
+        gtk_box_append(box, threshold);
+    }
 
     appendSeparator();
     GtkWidget* freehand = appendButton(_("Back to Pen"), _("Stop drawing shapes and write freehand"));
