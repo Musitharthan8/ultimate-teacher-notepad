@@ -41,7 +41,8 @@
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
 #include "ToolAppearance.h"          // for ToolAppearance
-#include "ToolTextMode.h"            // for ToolTextMode
+#include "ToolTextMode.h"
+#include "ToolWorkspaceSwitch.h"  // for ToolWorkspaceSwitch
 #include "ToolClassroomWorkflow.h"
 #include "ToolClear.h"               // for ToolClear
 #include "ToolLessonNavigator.h"     // for ToolLessonNavigator
@@ -569,6 +570,7 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolClear>("UTN_CLEAR", control);
     emplaceItem<ToolClassroomWorkflow>("CLASSROOM_WORKFLOW", control, iconNameHelper);
     emplaceItem<UtnBrandItem>();
+    emplaceItem<ToolWorkspaceSwitch>("UTN_WORKSPACE", control);
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode
