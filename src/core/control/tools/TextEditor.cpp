@@ -1,5 +1,8 @@
 #include "TextEditor.h"
 
+#include <algorithm>
+#include <exception>
+#include <string_view>
 #include <cctype>
 #include <cstring>  // for strcmp, size_t
 #include <memory>   // for allocator, make_unique, __shared_p...
