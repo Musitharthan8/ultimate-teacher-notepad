@@ -44,6 +44,9 @@ enum SelectedTool { active, toolbar };
 // UTN smart highlighter snapping behaviour
 enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough };
 
+/// What the Text tool places with the next click (UTN)
+enum class TextMode { Plain, AnswerBox, Feedback };
+
 class ToolListener {
 public:
     /**
@@ -140,6 +143,7 @@ public:
 
     /**
      * @brief Set the Drawing Type of the toolbar selected tool
+     * With the teacher tool policy, a shape requested while Highlight is selected switches the toolbar tool to Pen.
      * @note It is safer to always set the toolbar tool as the active tool could be pointing to a button tool which
      * could lead to hard to debug behaviour
      *
@@ -207,6 +211,24 @@ public:
     double getEraserThickness() const;
     void setEraserThickness(double thickness);
 
+    /**
+     * @brief UTN teacher tool policy
+     *
+     * Teacher layouts expose shapes only through Shapes & Lines (a Pen mode). While the policy is enabled:
+     *  - a highlighter never draws a shape, whatever drawing type is stored for it (settings imported from Classic
+     *    layouts, menu/keyboard shape shortcuts, stylus button copies);
+     *  - asking for a shape while Highlight is active switches to Pen in that shape;
+     *  - selecting Pen or Highlight from the toolbar starts freehand.
+     * Classic layouts keep the upstream Xournal++ behaviour.
+     */
+    void setTeacherToolPolicy(bool enabled);
+    bool hasTeacherToolPolicy() const;
+
+    /**
+     * @brief The drawing type a tool actually uses for input, after applying the teacher tool policy
+     */
+    DrawingType effectiveDrawingType(const Tool& tool) const;
+
     // UTN: smart highlighter mode
     bool isSmartHighlighterEnabled() const;
     void setSmartHighlighterEnabled(bool enabled);
@@ -215,7 +237,11 @@ public:
 
     // UTN: answer box text mode
     bool isAnswerBoxEnabled() const;
+    /// Enabling Answer Box mode drops a pending Feedback comment; the two text modes are exclusive
     void setAnswerBoxEnabled(bool enabled);
+
+    /// The Text tool mode; Plain unless an Answer Box or Feedback comment is pending
+    TextMode getTextMode() const;
 
     Color getAnswerBoxTextColor() const;
     void setAnswerBoxTextColor(Color color);
@@ -233,6 +259,7 @@ public:
     // UTN: one-shot teacher stamps
     bool hasTeacherStamp() const;
     const std::string& getTeacherStampText() const;
+    /// A non-empty comment switches Answer Box mode off; the two text modes are exclusive
     void setTeacherStampText(std::string text);
     Color getTeacherStampColor() const;
     void setTeacherStampColor(Color color);
@@ -449,6 +476,9 @@ private:
     // UTN: continuous eraser size
     double eraserThickness = 8.50;
 
+    // UTN: shapes belong to Pen in teacher layouts (see setTeacherToolPolicy)
+    bool teacherToolPolicy = false;
+
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;
     SmartHighlighterSnapMode smartHighlighterSnapMode = SmartHighlighterSnapMode::Line;
@@ -457,7 +487,7 @@ private:
     bool answerBoxEnabled = false;
     Color answerBoxTextColor{45U, 45U, 45U, 255U};
     Color answerBoxBackgroundColor{255U, 248U, 214U, 230U};
-    Color answerBoxBorderColor{80U, 80U, 80U, 255U};
+    Color answerBoxBorderColor{180U, 140U, 20U, 255U};  // matches the Model answer style
     double answerBoxBorderWidth = 1.2;
     double answerBoxPadding = 6.0;
     double answerBoxCornerRadius = 5.0;

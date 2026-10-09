@@ -24,6 +24,8 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "UtnWidgets.h"
+
 namespace {
 constexpr std::array<const char*, 4> QUICK_LABELS{{"CW", "SW", "Answer Key", "Revision"}};
 
@@ -76,6 +78,7 @@ public:
 
         GtkWidget* previous = gtk_button_new_with_label("‹");
         gtk_widget_set_tooltip_text(previous, _("Previous page"));
+        utn::setAccessibleName(previous, _("Previous page"));
         g_signal_connect(
                 previous,
                 "clicked",
@@ -125,6 +128,8 @@ public:
                     self->refresh();
                 }),
                 this);
+        // Enter in the label box saves the label, like the button
+        g_signal_connect_swapped(currentEntry, "activate", G_CALLBACK(gtk_button_clicked), save);
         gtk_box_append(labelRow, save);
         gtk_box_append(panel, GTK_WIDGET(labelRow));
 
@@ -219,6 +224,7 @@ public:
 
         GtkWidget* next = gtk_button_new_with_label("›");
         gtk_widget_set_tooltip_text(next, _("Next page"));
+        utn::setAccessibleName(next, _("Next page"));
         g_signal_connect(
                 next,
                 "clicked",

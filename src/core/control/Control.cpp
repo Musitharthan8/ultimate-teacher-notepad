@@ -637,6 +637,7 @@ void Control::customizeToolbars() {
 }
 
 void Control::setToolDrawingType(DrawingType type) {
+    const ToolType previousTool = this->toolHandler->getToolType();
     if (this->toolHandler->getDrawingType() != type) {
 
         if (this->toolHandler->getDrawingType() == DRAWING_TYPE_SPLINE) {
@@ -646,7 +647,41 @@ void Control::setToolDrawingType(DrawingType type) {
             }
         }
         this->toolHandler->setDrawingType(type);
+
+        // The teacher tool policy may have moved a shape request from Highlight to Pen. Either way, the toolbar,
+        // properties bar and cursor must show the shape that will actually be drawn.
+        if (previousTool != this->toolHandler->getToolType()) {
+            this->toolHandler->setSmartHighlighterEnabled(false);
+        }
+        if (win) {
+            this->toolHandler->fireToolChanged();
+        }
     }
+}
+
+void Control::selectTextMode(TextMode mode, const std::string& feedback) {
+    selectTool(TOOL_TEXT);  // finishes any edit and resets to plain text
+    switch (mode) {
+        case TextMode::AnswerBox:
+            this->toolHandler->setAnswerBoxEnabled(true);
+            break;
+        case TextMode::Feedback:
+            this->toolHandler->setTeacherStampText(feedback);
+            break;
+        case TextMode::Plain:
+            break;
+    }
+    this->toolHandler->fireToolChanged();
+}
+
+void Control::selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMode> mode) {
+    clearSelectionEndText();
+    selectTool(TOOL_HIGHLIGHTER);
+    this->toolHandler->setSmartHighlighterEnabled(smart);
+    if (mode) {
+        this->toolHandler->setSmartHighlighterSnapMode(*mode);
+    }
+    this->toolHandler->fireToolChanged();
 }
 
 void Control::setFullscreen(bool enabled) {
@@ -1174,7 +1209,9 @@ void Control::undoRedoPageChanged(PageRef page) {
 void Control::selectTool(ToolType type) {
     // UTN special modes use ToolHandler directly; ordinary toolbar choices reset them.
     if (type == TOOL_TEXT) {
+        // Choosing Text gives plain text; Answer Box and Feedback are applied by selectTextMode afterwards
         toolHandler->setAnswerBoxEnabled(false);
+        toolHandler->clearTeacherStamp();
     }
     if (type == TOOL_HIGHLIGHTER) {
         toolHandler->setSmartHighlighterEnabled(false);

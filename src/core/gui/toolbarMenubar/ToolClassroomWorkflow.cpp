@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "AnswerBoxStyles.h"  // for MARKING_COMMENT_STYLE
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "enums/Action.enum.h"
@@ -35,8 +36,16 @@ void addHint(GtkBox* panel, const char* text) {
     gtk_box_append(panel, label);
 }
 
-void addAction(GtkBox* panel, GtkPopover* popover, const char* label, const char* tooltip, Action action) {
+// Menu entries look like the other UTN menus: flat, left-aligned text
+GtkWidget* newMenuEntry(const char* label) {
     auto* button = gtk_button_new_with_label(label);
+    gtk_button_set_relief(GTK_BUTTON(button), GTK_RELIEF_NONE);
+    gtk_label_set_xalign(GTK_LABEL(gtk_bin_get_child(GTK_BIN(button))), 0.0F);
+    return button;
+}
+
+void addAction(GtkBox* panel, GtkPopover* popover, const char* label, const char* tooltip, Action action) {
+    auto* button = newMenuEntry(label);
     gtk_widget_set_tooltip_text(button, tooltip);
     gtk_widget_set_can_focus(button, false);
     const std::string name = std::string("win.") + Action_toString(action);
@@ -50,7 +59,7 @@ void addAction(GtkBox* panel, GtkPopover* popover, const char* label, const char
 
 void addCommand(GtkBox* panel, GtkPopover* popover, Control* control, const char* label, const char* tooltip,
                 Command command) {
-    auto* button = gtk_button_new_with_label(label);
+    auto* button = newMenuEntry(label);
     gtk_widget_set_tooltip_text(button, tooltip);
     gtk_widget_set_can_focus(button, false);
     g_object_set_data(G_OBJECT(button), "utn-control", control);
@@ -74,17 +83,8 @@ void addCommand(GtkBox* panel, GtkPopover* popover, Control* control, const char
                         break;
                     case Command::COMMENT: {
                         ctrl->clearSelectionEndText();
-                        auto* tools = ctrl->getToolHandler();
-                        tools->clearTeacherStamp();
-                        tools->setAnswerBoxEnabled(true);
-                        tools->setAnswerBoxTextColor(Color(160U, 35U, 35U));
-                        tools->setAnswerBoxBackgroundColor(Color(255U, 248U, 214U, 230U));
-                        tools->setAnswerBoxBorderColor(Color(160U, 35U, 35U));
-                        tools->setAnswerBoxBorderWidth(1);
-                        tools->setAnswerBoxPadding(6);
-                        tools->setAnswerBoxCornerRadius(5);
-                        tools->selectTool(TOOL_TEXT);
-                        tools->fireToolChanged();
+                        utn::applyAnswerBoxStyle(*ctrl->getToolHandler(), utn::MARKING_COMMENT_STYLE);
+                        ctrl->selectTextMode(TextMode::AnswerBox);
                         break;
                     }
                     case Command::MARKING:
@@ -111,45 +111,45 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     gtk_popover_set_child(popover, GTK_WIDGET(tabs));
 
     auto* materials = makePanel(tabs, _("Materials"));
-    addCommand(materials, popover, control, _("Add Scan / Photo Page"),
-               _("Insert a worksheet image after this page; a copy is saved alongside the journal"), Command::SCAN);
-    addCommand(materials, popover, control, _("Paste Picture"), _("Paste only the clipboard image onto this page"),
+    addCommand(materials, popover, control, _("Add scan or photo as a page"),
+               _("Insert a photo of a worksheet after this page. Keep the image file with your notebook."), Command::SCAN);
+    addCommand(materials, popover, control, _("Paste picture"), _("Paste the copied picture onto this page"),
                Command::PASTE_IMAGE);
-    addCommand(materials, popover, control, _("Place Image from File"),
-               _("Choose an image and place it on the worksheet"), Command::IMAGE);
-    addAction(materials, popover, _("Open PDF for Annotation"),
-              _("Open a PDF using the existing save-before-open workflow"),
+    addCommand(materials, popover, control, _("Insert picture from file"),
+               _("Choose a picture, then click the page to place it"), Command::IMAGE);
+    addAction(materials, popover, _("Open a PDF to annotate"),
+              _("Open a worksheet PDF. You will be asked to save changes to the current notebook first."),
               Action::ANNOTATE_PDF);
-    addHint(materials, _("Keep the journal and its attached image files together. Scans need OCR for text selection."));
+    addHint(materials, _("Keep notebooks and their picture files in the same folder. Text in scans cannot be selected."));
 
     auto* pages = makePanel(tabs, _("Pages"));
-    addAction(pages, popover, _("Insert Working Page"), _("Insert a page after the current worksheet"),
+    addAction(pages, popover, _("Insert blank page"), _("Add an empty page after this one"),
               Action::NEW_PAGE_AFTER);
-    addAction(pages, popover, _("Duplicate Page"), _("Duplicate the page and its annotations; Undo available"),
+    addAction(pages, popover, _("Duplicate page"), _("Copy this page with its annotations. Undo removes the copy."),
               Action::DUPLICATE_PAGE);
-    addAction(pages, popover, _("Move Page Earlier"), _("Move this page one position towards the beginning"),
+    addAction(pages, popover, _("Move page up"), _("Move this page one place earlier"),
               Action::MOVE_PAGE_TOWARDS_BEGINNING);
-    addAction(pages, popover, _("Move Page Later"), _("Move this page one position towards the end"),
+    addAction(pages, popover, _("Move page down"), _("Move this page one place later"),
               Action::MOVE_PAGE_TOWARDS_END);
-    addAction(pages, popover, _("Delete Page"), _("Delete the current page; Undo available"), Action::DELETE_PAGE);
-    addAction(pages, popover, _("Export Page Range…"),
-              _("Choose PDF format and a page range to extract pages into a new file"), Action::EXPORT_AS);
+    addAction(pages, popover, _("Delete page"), _("Delete this page. Undo restores it."), Action::DELETE_PAGE);
+    addAction(pages, popover, _("Save pages as PDF…"),
+              _("Choose which pages to save as a separate PDF"), Action::EXPORT_AS);
     addHint(pages,
-              _("Export page ranges to extract or split a worksheet. Combining different PDF sources is not yet supported."));
+              _("Use Save pages as PDF to split a worksheet into parts."));
 
     auto* marking = makePanel(tabs, _("Marking"));
-    addCommand(marking, popover, control, _("Marking Workspace"),
-              _("Switch to the marking layout without changing the document"), Command::MARKING);
-    addCommand(marking, popover, control, _("Teaching Workspace"), _("Return to the teacher layout"),
+    addCommand(marking, popover, control, _("Switch to marking layout"),
+              _("Feedback first, for marking student work. Your document is not changed."), Command::MARKING);
+    addCommand(marking, popover, control, _("Switch to teaching layout"), _("The everyday layout for lessons"),
               Command::TEACHING);
-    addCommand(marking, popover, control, _("Place Written Comment"),
-              _("Place an editable comment box using the Text tool"), Command::COMMENT);
-    addAction(marking, popover, _("Save Marked Copy…"),
-              _("Save the annotated native document under a new filename"), Action::SAVE_AS);
-    addAction(marking, popover, _("Export Marked Pages…"), _("Export the chosen pages and visible annotations"),
+    addCommand(marking, popover, control, _("Write a marking comment"),
+              _("Click the page to add a red comment box you can edit"), Command::COMMENT);
+    addAction(marking, popover, _("Save a marked copy…"),
+              _("Save your marking as a new notebook, keeping the original"), Action::SAVE_AS);
+    addAction(marking, popover, _("Export marked pages as PDF…"), _("Save the pages with your marking as a PDF for students"),
               Action::EXPORT_AS);
     addHint(marking,
-              _("Use Feedback for marking symbols and reusable comments. Save a separate copy to keep the original submission."));
+              _("Use Feedback for ticks and ready-made comments."));
 
     auto* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menu), false);
@@ -165,7 +165,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     return xoj::util::WidgetSPtr(GTK_WIDGET(menu), xoj::util::adopt);
 }
 
-auto ToolClassroomWorkflow::getToolDisplayName() const -> std::string { return _("Classroom Workflow"); }
+auto ToolClassroomWorkflow::getToolDisplayName() const -> std::string { return _("Classroom"); }
 auto ToolClassroomWorkflow::getNewToolIcon() const -> GtkWidget* {
     return gtk_image_new_from_icon_name(iconName.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
 }

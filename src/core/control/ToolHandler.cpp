@@ -199,6 +199,29 @@ void ToolHandler::selectTool(ToolType type) {
     // if called after this method
     // to result in the correct Button shown as active
     this->activeTool = this->toolbarSelectedTool;
+
+    // Teacher layouts: choosing Pen or Highlight means freehand writing. Shapes & Lines selects Pen first and then
+    // applies its shape, so intentional shapes are unaffected.
+    if (this->teacherToolPolicy && (type == TOOL_PEN || type == TOOL_HIGHLIGHTER)) {
+        this->toolbarSelectedTool->setDrawingType(DRAWING_TYPE_DEFAULT);
+    }
+}
+
+void ToolHandler::setTeacherToolPolicy(bool enabled) {
+    this->teacherToolPolicy = enabled;
+    if (enabled) {
+        // Drop shape modes that may have been stored for the highlighter by a Classic layout or imported settings.
+        getTool(TOOL_HIGHLIGHTER).setDrawingType(DRAWING_TYPE_DEFAULT);
+    }
+}
+
+auto ToolHandler::hasTeacherToolPolicy() const -> bool { return this->teacherToolPolicy; }
+
+auto ToolHandler::effectiveDrawingType(const Tool& tool) const -> DrawingType {
+    if (this->teacherToolPolicy && tool.getToolType() == TOOL_HIGHLIGHTER) {
+        return DRAWING_TYPE_DEFAULT;
+    }
+    return tool.getDrawingType();
 }
 
 void ToolHandler::fireToolChanged() const {
@@ -390,6 +413,16 @@ auto ToolHandler::isAnswerBoxEnabled() const -> bool {
 
 void ToolHandler::setAnswerBoxEnabled(bool enabled) {
     this->answerBoxEnabled = enabled;
+    if (enabled) {
+        clearTeacherStamp();
+    }
+}
+
+auto ToolHandler::getTextMode() const -> TextMode {
+    if (hasTeacherStamp()) {
+        return TextMode::Feedback;
+    }
+    return this->answerBoxEnabled ? TextMode::AnswerBox : TextMode::Plain;
 }
 
 auto ToolHandler::getAnswerBoxTextColor() const -> Color {
@@ -450,6 +483,9 @@ auto ToolHandler::getTeacherStampText() const -> const std::string& {
 
 void ToolHandler::setTeacherStampText(std::string text) {
     this->teacherStampText = std::move(text);
+    if (!this->teacherStampText.empty()) {
+        this->answerBoxEnabled = false;
+    }
 }
 
 auto ToolHandler::getTeacherStampColor() const -> Color {
@@ -567,10 +603,15 @@ auto ToolHandler::getLineStyle() const -> const LineStyle& {
 
 auto ToolHandler::getDrawingType(SelectedTool selectedTool) const -> DrawingType {
     Tool* tool = getSelectedTool(selectedTool);
-    return tool->getDrawingType();
+    return effectiveDrawingType(*tool);
 }
 
 void ToolHandler::setDrawingType(DrawingType drawingType) {
+    if (this->teacherToolPolicy && this->toolbarSelectedTool->getToolType() == TOOL_HIGHLIGHTER &&
+        drawingType != DRAWING_TYPE_DEFAULT && drawingType != DRAWING_TYPE_DONT_CHANGE) {
+        // Shapes are a Pen mode in teacher layouts; never leave a hidden shape on Highlight.
+        selectTool(TOOL_PEN);
+    }
     Tool* tool = this->toolbarSelectedTool;
     tool->setDrawingType(drawingType);
 }

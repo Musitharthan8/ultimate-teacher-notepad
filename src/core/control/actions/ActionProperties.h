@@ -602,7 +602,7 @@ template <DrawingType type>
 struct ActionPropDrawingTypes {
     using state_type = bool;
     static state_type initialState(Control* ctrl) {
-        return ctrl->getToolHandler()->getActiveTool()->getDrawingType() == type;
+        return ctrl->getToolHandler()->getDrawingType() == type;
     }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
         auto* actionDB = ctrl->getActionDatabase();

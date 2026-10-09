@@ -4,7 +4,7 @@ set -euo pipefail
 build_dir=$(cd "${1:?Usage: package-utn.sh BUILD_DIR}" && pwd)
 script_dir=$(cd "$(dirname "$0")" && pwd)
 prefix=${MSYSTEM_PREFIX:-/mingw64}
-version=0.2.0-beta
+version=0.2.1-beta
 setup_dir="$build_dir/utn-dist"
 output_dir="$build_dir/utn-release"
 [[ -f "$build_dir/xournalpp.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
@@ -70,7 +70,7 @@ FONTS
 cp "$script_dir/../LICENSE" "$setup_dir/LICENSE.txt"
 cp "$script_dir/../AUTHORS" "$setup_dir/Xournalpp-AUTHORS.txt"
 cat > "$setup_dir/README.txt" <<'README'
-Ultimate Teacher Notepad 0.2 beta for Windows x64
+Ultimate Teacher Notepad 0.2.1 beta for Windows x64 (interface recovery build)
 Run bin/UTN.exe. No MSYS2 installation is required.
 This is a teacher test build, not a certified Microsoft Store release.
 Based on Xournal++; GNU GPLv2 or later. See LICENSE.txt and Xournalpp-AUTHORS.txt.

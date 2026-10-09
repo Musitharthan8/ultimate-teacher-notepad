@@ -1,5 +1,6 @@
 #include "ToolMenuHandler.h"
 
+#include "control/UtnLayout.h"  // for isTeacherLayout
 #include <algorithm>  // for max
 #include <sstream>    // for istringstream
 
@@ -26,6 +27,7 @@
 #include "util/XojMsgBox.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"  // for _
+#include "util/raii/CStringWrapper.h"  // for OwnedCString
 
 #include "AbstractToolItem.h"            // for AbstractToolItem
 #include "ColorSelectorToolItem.h"       // for ColorSelectorToolItem
@@ -39,12 +41,11 @@
 #include "StylePopoverFactory.h"     // for ToolButtonWithStylePopover
 #include "ToolButton.h"              // for ToolButton
 #include "ToolAppearance.h"          // for ToolAppearance
-#include "ToolAnswerBox.h"           // for ToolAnswerBox
+#include "ToolTextMode.h"            // for ToolTextMode
 #include "ToolClassroomWorkflow.h"
 #include "ToolClear.h"               // for ToolClear
 #include "ToolLessonNavigator.h"     // for ToolLessonNavigator
 #include "ToolPageLayer.h"           // for ToolPageLayer
-#include "ToolPageLabels.h"          // for ToolPageLabels
 #include "ToolPageSpinner.h"         // for ToolPageSpinner
 #include "ToolPrepareReveal.h"        // for ToolPrepareReveal
 #include "ToolPresentationKit.h"      // for ToolPresentationKit
@@ -175,6 +176,52 @@ void labelTeacherTool(GtkWidget* item, const std::string& label) {
     gtk_button_set_child(button, GTK_WIDGET(row));
     gtk_widget_show_all(GTK_WIDGET(row));
 }
+
+/// Visible name and one-line hover explanation for teacher-layout toolbar items.
+struct TeacherToolText {
+    const char* id;
+    const char* label;  ///< nullptr: use the item's display name
+    const char* hint;
+};
+
+constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
+        {"UTN_SELECT", nullptr, N_("Click an object to move, resize or delete it")},
+        {"PEN", nullptr, N_("Write and draw freehand")},
+        {"SMART_HIGHLIGHTER", nullptr, N_("Highlight text. The arrow chooses freehand, snapping or underline")},
+        {"ERASER", nullptr, N_("Erase ink. Text and Answer Boxes stay; use Select to delete them")},
+        {"UTN_TEXT", nullptr, N_("Click the page to type")},
+        {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
+        {"TEACHER_STAMP", N_("Feedback"), N_("Place a comment from the Feedback Bank")},
+        {"TEACHING_KIT", N_("Shapes & Lines"), N_("Lines, rectangles, arrows and maths tools")},
+        {"PREPARE_REVEAL", nullptr, N_("Prepare answers in advance, hide them and reveal them during the lesson")},
+        {"SELECT", N_("Area Select"), N_("Drag around several objects to select them")},
+        {"HAND", N_("Move Page"), N_("Drag to move around the page")},
+};
+
+/// GTK shows the tooltip of the deepest widget under the pointer, so composite items (a tool toggle plus a mode
+/// arrow) need the explanation on their main button as well as on the tool item.
+void setTeacherTooltip(GtkWidget* item, const char* markup) {
+    gtk_widget_set_tooltip_markup(item, markup);
+    GtkWidget* child = GTK_IS_BIN(item) ? gtk_bin_get_child(GTK_BIN(item)) : nullptr;
+    if (child && GTK_IS_BUTTON(child)) {
+        gtk_widget_set_tooltip_markup(child, markup);
+    } else if (child && GTK_IS_BOX(child)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(child));
+        if (children && GTK_IS_TOGGLE_BUTTON(children->data)) {
+            gtk_widget_set_tooltip_markup(GTK_WIDGET(children->data), markup);
+        }
+        g_list_free(children);
+    }
+}
+
+const TeacherToolText* teacherToolText(const std::string& id) {
+    for (const auto& entry: TEACHER_TOOL_TEXT) {
+        if (id == entry.id) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
 }  // namespace
 
 void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char* toolbarName, bool horizontal) {
@@ -182,7 +229,7 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
     const auto palette = this->control->getPalette();
 
     const auto& layoutId = d->getId();
-    const bool teacherLayout = layoutId == "UTN Teacher" || layoutId == "UTN Teacher Tablet" || layoutId == "UTN Marking";
+    const bool teacherLayout = utn::isTeacherLayout(layoutId);
     if (!horizontal) {
         gtk_widget_set_hexpand(toolbar, false);
     }
@@ -230,11 +277,17 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                         count++;
                         auto it = item->createToolItem(horizontal);
                         if (teacherLayout) {
-                            const std::string label = name == "TEACHING_KIT" ? _("Shapes & Lines") :
-                                                      name == "TEACHER_STAMP" ? _("Feedback") :
-                                                      name == "HAND" ? _("Move Page") :
-                                                      name == "SELECT" ? _("Area Select") : item->getToolDisplayName();
-                            gtk_widget_set_tooltip_text(it.get(), label.c_str());
+                            const TeacherToolText* text = teacherToolText(name);
+                            const std::string label =
+                                    text && text->label ? _(text->label) : item->getToolDisplayName();
+                            if (text) {
+                                // Name first, then what the tool does: readable for new teachers, quick to scan.
+                                auto markup = xoj::util::OwnedCString::assumeOwnership(g_markup_printf_escaped(
+                                        "<b>%s</b>\n%s", label.c_str(), _(text->hint)));
+                                setTeacherTooltip(it.get(), markup.get());
+                            } else {
+                                gtk_widget_set_tooltip_text(it.get(), label.c_str());
+                            }
                             if (!horizontal) {
                                 labelTeacherTool(it.get(), label);
 
@@ -514,7 +567,9 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolUtnContextBar>("UTN_CONTEXT", control);
 
     // UTN answer box text mode
-    emplaceItem<ToolAnswerBox>("ANSWER_BOX", control, iconNameHelper);
+    // Teacher text modes: their rail buttons are selected only for their own mode
+    emplaceItem<ToolTextMode>("UTN_TEXT", control, iconNameHelper, TextMode::Plain);
+    emplaceItem<ToolTextMode>("ANSWER_BOX", control, iconNameHelper, TextMode::AnswerBox);
 
     // UTN teacher stamps
     emplaceItem<ToolTeacherStamp>("TEACHER_STAMP", control, iconNameHelper);
@@ -526,7 +581,6 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolProfileSelector>("TOOL_PROFILES", control);
 
     // UTN classroom page labels
-    emplaceItem<ToolPageLabels>("PAGE_LABELS", control);
 
     // UTN classroom presentation tools
     emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);

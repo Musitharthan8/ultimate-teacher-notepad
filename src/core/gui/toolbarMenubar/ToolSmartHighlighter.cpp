@@ -10,6 +10,8 @@
 
 #include <utility>
 
+#include "HighlightModes.h"  // for HIGHLIGHT_MODES
+#include "UtnWidgets.h"      // for syncToggle
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
@@ -29,25 +31,30 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     GtkWidget* toggle = gtk_toggle_button_new();
     gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
     gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), tools->getToolType() == TOOL_HIGHLIGHTER);
+    utn::syncToggle(GTK_TOGGLE_BUTTON(toggle), tools->getToolType() == TOOL_HIGHLIGHTER);
 
-    // Selection changes update the toggle without activating Markup again.
+    // Selection changes update the toggle without activating Highlight again.
     auto action = control->getActionDatabase()->getAction(Action::SELECT_TOOL);
     g_signal_connect_object(
             action.get(), "notify::state", G_CALLBACK(+[](GObject* action, GParamSpec*, gpointer toggle) {
                 xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(action)), xoj::util::adopt);
-                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle),
-                                             getGVariantValue<ToolType>(state.get()) == TOOL_HIGHLIGHTER);
+                utn::syncToggle(GTK_TOGGLE_BUTTON(toggle), getGVariantValue<ToolType>(state.get()) == TOOL_HIGHLIGHTER);
             }),
             toggle, GConnectFlags(0));
+    g_object_set_data(G_OBJECT(toggle), "utn-control", control);
     g_signal_connect(
-            toggle, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+            toggle, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                // Keeping the button in step with the active tool is not a click (GTK3 reports it as one)
+                if (utn::isSyncing(GTK_WIDGET(button))) {
+                    return;
+                }
                 auto* ctrl = static_cast<Control*>(data);
-                ctrl->clearSelectionEndText();
                 auto* tools = ctrl->getToolHandler();
-                tools->setSmartHighlighterEnabled(true);
-                tools->selectTool(TOOL_HIGHLIGHTER);
-                tools->fireToolChanged();
+                // Re-selecting Highlight keeps the chosen Freehand/Smart mode; switching to it keeps it as well.
+                ctrl->selectHighlighter(tools->isSmartHighlighterEnabled() ||
+                                        tools->getToolType() != TOOL_HIGHLIGHTER);
+                // A GtkToggleButton flips itself on every click; the selected state follows the active tool only.
+                utn::syncToggle(GTK_TOGGLE_BUTTON(button), tools->getToolType() == TOOL_HIGHLIGHTER);
             }),
             control);
 
@@ -61,32 +68,19 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
     gtk_popover_set_child(popover, GTK_WIDGET(panel));
 
-    GtkWidget* freehand = gtk_button_new_with_label(_("Freehand"));
-    g_object_set_data(G_OBJECT(freehand), "utn-control", control);
-    g_object_set_data(G_OBJECT(freehand), "utn-toggle", toggle);
-    g_signal_connect(
-            freehand,
-            "clicked",
-            G_CALLBACK(+[](GtkButton* button, gpointer data) {
-                auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                auto* toggle = GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(button), "utn-toggle"));
+    GtkWidget* modesTitle = gtk_label_new(_("Highlight mode"));
+    gtk_widget_set_halign(modesTitle, GTK_ALIGN_START);
+    gtk_widget_add_css_class(modesTitle, "utn-popover-title");
+    gtk_box_append(panel, modesTitle);
 
-                auto* tools = ctrl->getToolHandler();
-                tools->setSmartHighlighterEnabled(false);
-                tools->selectTool(TOOL_HIGHLIGHTER);
-                tools->fireToolChanged();
-                gtk_toggle_button_set_active(toggle, false);
-
-                gtk_popover_popdown(GTK_POPOVER(data));
-            }),
-            popover);
-    gtk_box_append(panel, freehand);
-
-    auto addMode = [this, panel, popover, toggle](const char* label, SmartHighlighterSnapMode mode) {
-        GtkWidget* button = gtk_button_new_with_label(label);
+    for (size_t i = 0; i < utn::HIGHLIGHT_MODES.size(); ++i) {
+        const auto& entry = utn::HIGHLIGHT_MODES[i];
+        GtkWidget* button = gtk_button_new_with_label(_(entry.label));
+        gtk_widget_set_tooltip_text(button, _(entry.hint));
+        gtk_widget_set_halign(gtk_bin_get_child(GTK_BIN(button)), GTK_ALIGN_START);
         g_object_set_data(G_OBJECT(button), "utn-control", control);
         g_object_set_data(G_OBJECT(button), "utn-toggle", toggle);
-        g_object_set_data(G_OBJECT(button), "utn-mode", GINT_TO_POINTER(static_cast<int>(mode)));
+        g_object_set_data(G_OBJECT(button), "utn-mode-index", GINT_TO_POINTER(static_cast<int>(i)));
 
         g_signal_connect(
                 button,
@@ -94,32 +88,20 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
                 G_CALLBACK(+[](GtkButton* button, gpointer data) {
                     auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                     auto* toggle = GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(button), "utn-toggle"));
-                    auto mode = static_cast<SmartHighlighterSnapMode>(
-                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-mode")));
+                    const auto& mode = utn::HIGHLIGHT_MODES[static_cast<size_t>(
+                            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-mode-index")))];
 
-                    auto* tools = ctrl->getToolHandler();
-                    tools->setSmartHighlighterEnabled(true);
-                    tools->setSmartHighlighterSnapMode(mode);
-                    tools->selectTool(TOOL_HIGHLIGHTER);
-                    tools->fireToolChanged();
-                    gtk_toggle_button_set_active(toggle, true);
-
+                    ctrl->selectHighlighter(mode.snap.has_value(), mode.snap);
+                    utn::syncToggle(toggle, true);
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }),
                 popover);
-
         gtk_box_append(panel, button);
-    };
-
-    addMode(_("Straighten Only"), SmartHighlighterSnapMode::Straight);
-    addMode(_("Snap to Word"), SmartHighlighterSnapMode::Word);
-    addMode(_("Snap to Line"), SmartHighlighterSnapMode::Line);
-    addMode(_("Underline Text"), SmartHighlighterSnapMode::Underline);
-    addMode(_("Strikethrough Text"), SmartHighlighterSnapMode::Strikethrough);
+    }
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
-    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Markup mode"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Highlight mode"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
 
@@ -132,7 +114,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
 }
 
 auto ToolSmartHighlighter::getToolDisplayName() const -> std::string {
-    return _("Markup");
+    return _("Highlight");
 }
 
 auto ToolSmartHighlighter::getNewToolIcon() const -> GtkWidget* {

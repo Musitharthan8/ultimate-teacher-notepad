@@ -26,19 +26,20 @@ struct DrawingEntry {
 };
 
 constexpr std::array<DrawingEntry, 7> DRAWING_TOOLS{{
-        {"Line", DRAWING_TYPE_LINE, "draw-line"},
-        {"Rectangle", DRAWING_TYPE_RECTANGLE, "draw-rect"},
-        {"Ellipse", DRAWING_TYPE_ELLIPSE, "draw-ellipse"},
-        {"Arrow", DRAWING_TYPE_ARROW, "draw-arrow"},
-        {"Double Arrow", DRAWING_TYPE_DOUBLE_ARROW, "draw-double-arrow"},
-        {"Coordinate System", DRAWING_TYPE_COORDINATE_SYSTEM, "draw-coordinate-system"},
-        {"Smart Shape", DRAWING_TYPE_SHAPE_RECOGNIZER, "shape-recognizer"},
+        {N_("Line"), DRAWING_TYPE_LINE, "draw-line"},
+        {N_("Rectangle"), DRAWING_TYPE_RECTANGLE, "draw-rect"},
+        {N_("Ellipse"), DRAWING_TYPE_ELLIPSE, "draw-ellipse"},
+        {N_("Arrow"), DRAWING_TYPE_ARROW, "draw-arrow"},
+        {N_("Double Arrow"), DRAWING_TYPE_DOUBLE_ARROW, "draw-double-arrow"},
+        {N_("Axes"), DRAWING_TYPE_COORDINATE_SYSTEM, "draw-coordinate-system"},
+        {N_("Smart Shape"), DRAWING_TYPE_SHAPE_RECOGNIZER, "shape-recognizer"},
 }};
 
+// Shapes are a Pen mode: select Pen (which starts freehand) and then apply the requested shape.
+// Control::setToolDrawingType refreshes the toolbar and properties bar.
 void chooseDrawingTool(Control* control, DrawingType type) {
     control->selectTool(TOOL_PEN);
     control->setToolDrawingType(type);
-    control->getToolHandler()->fireToolChanged();
 }
 }  // namespace
 

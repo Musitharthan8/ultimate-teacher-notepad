@@ -497,7 +497,62 @@ window.utnShell.utnHighContrast .utn-brand { color: #ffffff; }
 window.utnShell #tbLeft1 button { padding: 7px 8px; }
 window.utnShell #utnContextBar button { padding: 4px 7px; }
 window.utnShell #utnContextBar .utn-context-badge { min-width: 82px; }
+/* A fixed properties-row height keeps the canvas still while switching tools. */
+window.utnShell #utnContextViewport { min-height: 44px; }
+window.utnShell.utnTouch #utnContextViewport { min-height: 56px; }
 window.utnShell #utnContextViewport scrollbar { min-height: 8px; }
 window.utnShell #utnContextViewport scrollbar slider { min-width: 32px; }
 window.utnShell.utnTouch #tbLeft1 button { padding: 12px 10px; }
 window.utnShell.utnTouch #utnContextBar button { padding: 8px 10px; }
+
+/* Shared UTN controls: colour swatches, size buttons, menus. */
+window.utnShell .utn-swatch {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 2px;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-image: none;
+    box-shadow: none;
+}
+window.utnShell .utn-swatch.utn-swatch-selected {
+    border-color: #126c63;
+}
+window.utnShell.darkMode .utn-swatch.utn-swatch-selected {
+    border-color: #55d6c2;
+}
+window.utnShell.utnHighContrast .utn-swatch {
+    border-color: #000000;
+}
+window.utnShell.utnHighContrast .utn-swatch.utn-swatch-selected {
+    border-color: #ffffff;
+    border-width: 3px;
+}
+window.utnShell.utnTouch .utn-swatch {
+    min-width: 36px;
+    min-height: 36px;
+}
+window.utnShell .utn-sizes button {
+    min-width: 30px;
+    padding: 4px 6px;
+}
+window.utnShell.utnTouch .utn-sizes button {
+    min-width: 42px;
+}
+window.utnShell .utn-popover-title {
+    font-weight: bold;
+    opacity: 0.8;
+    margin-top: 6px;
+    margin-bottom: 2px;
+}
+window.utnShell .utn-menu > button {
+    padding: 6px 10px;
+}
+window.utnShell.utnTouch .utn-menu > button {
+    padding: 10px 12px;
+}
+/* Hints stay fully readable in High contrast */
+window.utnShell.utnHighContrast .utn-context-hint,
+window.utnShell.utnHighContrast .utn-popover-title {
+    opacity: 1;
+}

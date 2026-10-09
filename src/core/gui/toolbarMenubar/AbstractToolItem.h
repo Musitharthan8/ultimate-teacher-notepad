@@ -49,6 +49,12 @@ public:
 
     xoj::util::WidgetSPtr createToolItem(bool horizontal);
 
+    /**
+     * Whether a horizontal toolbar should give this item the remaining row width.
+     * GtkToolbar sizes items from GtkToolItem::expand only; a child's hexpand is ignored.
+     */
+    virtual bool expandsInToolbar() const { return false; }
+
     const std::string& getId() const;
     Category getCategory() const;
     virtual std::string getToolDisplayName() const = 0;

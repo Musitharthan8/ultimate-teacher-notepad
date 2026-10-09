@@ -24,6 +24,8 @@
 #include "util/i18n.h"
 #include "view/DocumentView.h"
 
+#include "UtnWidgets.h"
+
 namespace {
 bool isTeacherOnlyLayer(const Layer* layer) {
     if (!layer || !layer->hasName()) {
@@ -45,7 +47,7 @@ ToolStudentView::~ToolStudentView() {
 auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* button = gtk_button_new_with_label(_("Student View"));
     gtk_widget_set_can_focus(button, false);
-    gtk_widget_set_tooltip_text(button, _("Open or focus the clean student-facing display"));
+    gtk_widget_set_tooltip_text(button, _("Open a second window for the projector that shows only the page, without your tools"));
 
     g_signal_connect(
             button,
@@ -55,17 +57,11 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             }),
             this);
 
-    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
+    auto [popover, panel] = utn::createPopoverPanel(4);
+    utn::appendPopoverHeading(panel, _("Student View"));
 
-    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 4));
-    gtk_widget_set_margin_start(GTK_WIDGET(panel), 8);
-    gtk_widget_set_margin_end(GTK_WIDGET(panel), 8);
-    gtk_widget_set_margin_top(GTK_WIDGET(panel), 8);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 8);
-    gtk_popover_set_child(popover, GTK_WIDGET(panel));
-
-    GtkWidget* freeze = gtk_toggle_button_new_with_label(_("Freeze Student View"));
+    GtkWidget* freeze = gtk_toggle_button_new_with_label(_("Freeze"));
+    gtk_widget_set_tooltip_text(freeze, _("Keep showing the current page while you prepare the next step"));
     g_signal_connect(
             freeze,
             "toggled",
@@ -75,7 +71,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             this);
     gtk_box_append(panel, freeze);
 
-    GtkWidget* blank = gtk_toggle_button_new_with_label(_("Blank Student View"));
+    GtkWidget* blank = gtk_toggle_button_new_with_label(_("Blank screen"));
+    gtk_widget_set_tooltip_text(blank, _("Hide the page from students until you turn this off"));
     g_signal_connect(
             blank,
             "toggled",
@@ -85,7 +82,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             this);
     gtk_box_append(panel, blank);
 
-    GtkWidget* fullscreenButton = gtk_button_new_with_label(_("Fullscreen Student View"));
+    GtkWidget* fullscreenButton = gtk_button_new_with_label(_("Full screen"));
+    gtk_widget_set_tooltip_text(fullscreenButton, _("Fill the projector screen with the student window"));
     g_signal_connect(
             fullscreenButton,
             "clicked",
@@ -96,7 +94,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             this);
     gtk_box_append(panel, fullscreenButton);
 
-    GtkWidget* close = gtk_button_new_with_label(_("Close Student View"));
+    GtkWidget* close = gtk_button_new_with_label(_("Close"));
+    gtk_widget_set_tooltip_text(close, _("Close the student window"));
     g_signal_connect(
             close,
             "clicked",
@@ -109,6 +108,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Student View controls"));
+    utn::setAccessibleName(GTK_WIDGET(menuButton), _("Student View controls"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
 

@@ -202,6 +202,18 @@ public:
 
     void setToolDrawingType(DrawingType type);
 
+    /**
+     * @brief Activate Highlight through the same path as every other tool, then apply its Smart Markup mode.
+     * Used by the teacher rail and its mode menu so they cannot bypass tool-state ownership.
+     */
+    void selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMode> mode = std::nullopt);
+
+    /**
+     * @brief Activate the Text tool in a teacher text mode through the ordinary tool switch.
+     * @param feedback the comment to place with the next click (TextMode::Feedback only)
+     */
+    void selectTextMode(TextMode mode, const std::string& feedback = {});
+
     void paperTemplate();
     void paperFormat();
     void changePageBackgroundColor();

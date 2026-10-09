@@ -16,6 +16,8 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "UtnWidgets.h"
+
 namespace {
 constexpr const char* REVEAL_LAYER_PREFIX = "UTN Reveal";
 
@@ -54,19 +56,15 @@ ToolPrepareReveal::ToolPrepareReveal(std::string id, Control* control, IconNameH
         iconName(iconNameHelper.iconName("utn-reveal")) {}
 
 auto ToolPrepareReveal::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
-    GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-    gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
-
-    GtkBox* panel = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
-    gtk_widget_set_margin_start(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_top(GTK_WIDGET(panel), 6);
-    gtk_widget_set_margin_bottom(GTK_WIDGET(panel), 6);
-    gtk_popover_set_child(popover, GTK_WIDGET(panel));
-
-    GtkWidget* prepare = gtk_button_new_with_label(_("Prepare Answer Layer"));
-    GtkWidget* hide = gtk_button_new_with_label(_("Hide Prepared"));
-    GtkWidget* reveal = gtk_button_new_with_label(_("Reveal Prepared"));
+    auto [popover, panel] = utn::createPopoverPanel();
+    utn::appendPopoverHeading(panel, _("Hide & Reveal"));
+    GtkWidget* prepare = utn::appendMenuButton(
+            panel, popover, _("Start an answers layer"),
+            _("Write answers on a new layer, then choose Hide answers before the lesson"));
+    GtkWidget* hide = utn::appendMenuButton(panel, popover, _("Hide answers"),
+                                            _("Hide everything written on answers layers"));
+    GtkWidget* reveal = utn::appendMenuButton(panel, popover, _("Reveal answers"),
+                                              _("Show the hidden answers to the class"));
 
     g_signal_connect(
             prepare,
@@ -118,13 +116,11 @@ auto ToolPrepareReveal::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             }),
             control);
 
-    gtk_box_append(panel, prepare);
-    gtk_box_append(panel, hide);
-    gtk_box_append(panel, reveal);
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
+    utn::setAccessibleName(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
@@ -134,7 +130,7 @@ auto ToolPrepareReveal::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 }
 
 auto ToolPrepareReveal::getToolDisplayName() const -> std::string {
-    return _("Prepare / Reveal");
+    return _("Hide & Reveal");
 }
 
 auto ToolPrepareReveal::getNewToolIcon() const -> GtkWidget* {
