@@ -166,11 +166,16 @@ void labelTeacherTool(GtkWidget* item, const std::string& label) {
     }
     g_object_ref(icon);
     gtk_container_remove(GTK_CONTAINER(button), icon);
-    auto* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+    // Icon above a short label: a narrow rail that still names every tool
+    auto* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
+    gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
     gtk_box_append(row, icon);
     g_object_unref(icon);
     auto* text = gtk_label_new(label.c_str());
-    gtk_label_set_xalign(GTK_LABEL(text), 0);
+    gtk_widget_set_name(text, "utnRailLabel");
+    gtk_label_set_justify(GTK_LABEL(text), GTK_JUSTIFY_CENTER);
+    gtk_label_set_line_wrap(GTK_LABEL(text), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(text), 8);  // "Hide & Reveal" wraps onto two lines
     gtk_widget_set_hexpand(text, false);
     gtk_box_append(row, text);
     gtk_button_set_child(button, GTK_WIDGET(row));

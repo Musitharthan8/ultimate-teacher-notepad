@@ -151,7 +151,7 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_box_append(panel, image);
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
-    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));

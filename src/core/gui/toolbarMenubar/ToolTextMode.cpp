@@ -36,7 +36,7 @@ void ToolTextMode::syncButton() {
 auto ToolTextMode::createItem(bool) -> xoj::util::WidgetSPtr {
     GtkWidget* toggle = gtk_toggle_button_new();
     gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
-    gtk_widget_set_can_focus(toggle, false);
+    gtk_widget_set_focus_on_click(toggle, false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(toggle, getToolDisplayName().c_str());
     utn::setAccessibleName(toggle, getToolDisplayName().c_str());
 

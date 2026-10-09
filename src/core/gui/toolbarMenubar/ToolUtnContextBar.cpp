@@ -388,7 +388,7 @@ void ToolUtnContextBar::appendHint(const char* text) {
 
 auto ToolUtnContextBar::appendButton(const char* label, const char* hint) -> GtkWidget* {
     GtkWidget* button = gtk_button_new_with_label(label);
-    gtk_widget_set_can_focus(button, false);
+    gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
     if (hint) {
         gtk_widget_set_tooltip_text(button, hint);
     }
@@ -408,7 +408,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     gtk_widget_add_css_class(GTK_WIDGET(group), "utn-swatches");
     for (const auto& swatch: swatches) {
         GtkWidget* button = utn::createColourSwatch(swatch.colour, _(swatch.name));
-        gtk_widget_set_can_focus(button, false);
+        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
         // A selection has no single colour, so no swatch is marked while editing one
         utn::setSwatchSelected(button, !hasSelection && sameHue(swatch.colour, current));
         g_object_set_data(G_OBJECT(button), "utn-colour", GUINT_TO_POINTER(uint32_t(swatch.colour)));
@@ -437,7 +437,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     GdkRGBA rgba = Util::argb_to_GdkRGBA(hasSelection ? Color{0U, 0U, 0U} : current);
     rgba.alpha = 1.0;
     GtkWidget* more = gtk_color_button_new_with_rgba(&rgba);
-    gtk_widget_set_can_focus(more, false);
+    gtk_widget_set_focus_on_click(more, false);  // keyboard users can still Tab to it
     gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(more), false);
     gtk_widget_set_tooltip_text(more, _("More colours"));
     utn::setAccessibleName(more, _("More colours"));
@@ -486,7 +486,7 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
             gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), entry.size == current);
         }
-        gtk_widget_set_can_focus(button, false);
+        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
         gtk_widget_set_tooltip_text(button, _(entry.name));
         utn::setAccessibleName(button, _(entry.name));
         g_object_set_data(G_OBJECT(button), "utn-size", GINT_TO_POINTER(static_cast<int>(entry.size)));
@@ -524,7 +524,7 @@ void ToolUtnContextBar::appendPenControls() {
     appendSeparator();
 
     GtkWidget* pressure = gtk_check_button_new_with_label(_("Pressure"));
-    gtk_widget_set_can_focus(pressure, false);
+    gtk_widget_set_focus_on_click(pressure, false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(pressure, _("Lines get thicker when you press harder with a stylus"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pressure), control->getSettings()->isPressureSensitivity());
     g_signal_connect(pressure, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
@@ -541,7 +541,7 @@ void ToolUtnContextBar::appendShapeControls(DrawingType) {
     appendSeparator();
 
     GtkWidget* fill = gtk_check_button_new_with_label(_("Filled"));
-    gtk_widget_set_can_focus(fill, false);
+    gtk_widget_set_focus_on_click(fill, false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(fill, _("Fill closed shapes with the pen colour"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fill), control->getToolHandler()->getPenFillEnabled());
     g_signal_connect(fill, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
@@ -652,7 +652,7 @@ void ToolUtnContextBar::appendTextControls() {
 
     XojFont current = currentTextFont(control);
     GtkWidget* fontButton = gtk_font_button_new_with_font(current.asString().c_str());
-    gtk_widget_set_can_focus(fontButton, false);
+    gtk_widget_set_focus_on_click(fontButton, false);  // keyboard users can still Tab to it
     gtk_font_button_set_use_size(GTK_FONT_BUTTON(fontButton), false);
     gtk_font_button_set_show_style(GTK_FONT_BUTTON(fontButton), false);
     gtk_font_button_set_show_size(GTK_FONT_BUTTON(fontButton), false);
@@ -720,7 +720,7 @@ void ToolUtnContextBar::appendTextControls() {
         GtkWidget* label = gtk_label_new(nullptr);
         gtk_label_set_markup(GTK_LABEL(label), style.markup);
         gtk_button_set_child(GTK_BUTTON(toggle), label);
-        gtk_widget_set_can_focus(toggle, false);
+        gtk_widget_set_focus_on_click(toggle, false);  // keyboard users can still Tab to it
         gtk_widget_set_tooltip_text(toggle, _(style.name));
         utn::setAccessibleName(toggle, _(style.name));
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), style.active);

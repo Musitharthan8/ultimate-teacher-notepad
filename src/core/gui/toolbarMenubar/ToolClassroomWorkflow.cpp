@@ -47,7 +47,7 @@ GtkWidget* newMenuEntry(const char* label) {
 void addAction(GtkBox* panel, GtkPopover* popover, const char* label, const char* tooltip, Action action) {
     auto* button = newMenuEntry(label);
     gtk_widget_set_tooltip_text(button, tooltip);
-    gtk_widget_set_can_focus(button, false);
+    gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
     const std::string name = std::string("win.") + Action_toString(action);
     gtk_actionable_set_action_name(GTK_ACTIONABLE(button), name.c_str());
     g_signal_connect_object(button, "clicked", G_CALLBACK(+[](GtkButton*, gpointer p) {
@@ -61,7 +61,7 @@ void addCommand(GtkBox* panel, GtkPopover* popover, Control* control, const char
                 Command command) {
     auto* button = newMenuEntry(label);
     gtk_widget_set_tooltip_text(button, tooltip);
-    gtk_widget_set_can_focus(button, false);
+    gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
     g_object_set_data(G_OBJECT(button), "utn-control", control);
     g_object_set_data(G_OBJECT(button), "utn-command", GINT_TO_POINTER(static_cast<int>(command)));
     g_signal_connect_object(
@@ -152,7 +152,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
               _("Use Feedback for ticks and ready-made comments."));
 
     auto* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
-    gtk_widget_set_can_focus(GTK_WIDGET(menu), false);
+    gtk_widget_set_focus_on_click(GTK_WIDGET(menu), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menu), getToolDisplayName().c_str());
     auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
     gtk_box_append(heading, getNewToolIcon());

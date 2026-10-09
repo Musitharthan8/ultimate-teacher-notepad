@@ -24,7 +24,7 @@ auto ColorToolItem::getColor() const -> Color { return this->namedColor.getColor
 
 auto ColorToolItem::createItem(bool) -> xoj::util::WidgetSPtr {
     auto* btn = gtk_toggle_button_new();
-    gtk_widget_set_can_focus(btn, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
     auto actionName = std::string("win.") + Action_toString(Action::TOOL_COLOR);
     gtk_actionable_set_action_name(GTK_ACTIONABLE(btn), actionName.data());
     gtk_actionable_set_action_target_value(GTK_ACTIONABLE(btn), target.get());

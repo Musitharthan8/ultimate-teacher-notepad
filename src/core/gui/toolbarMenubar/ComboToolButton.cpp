@@ -17,7 +17,7 @@ static GtkWidget* createEmptyButton(GSimpleAction* a, const ComboToolButton::Ent
     gtk_actionable_set_action_target_value(GTK_ACTIONABLE(btn), e.target.get());
     xoj::util::gtk::setToggleButtonUnreleasable(GTK_TOGGLE_BUTTON(btn));
     gtk_widget_set_tooltip_text(btn, e.name.c_str());
-    gtk_widget_set_can_focus(btn, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
     return btn;
 }
 /// Returns a floating ref
@@ -101,7 +101,7 @@ auto ComboToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     // Create item
     GtkMenuButton* menubutton = GTK_MENU_BUTTON(gtk_menu_button_new());
-    gtk_widget_set_can_focus(GTK_WIDGET(menubutton), false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
     gtk_menu_button_set_popover(menubutton, GTK_WIDGET(data->popover));
     gtk_menu_button_set_direction(menubutton,
                                   horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);  // TODO: fix directions

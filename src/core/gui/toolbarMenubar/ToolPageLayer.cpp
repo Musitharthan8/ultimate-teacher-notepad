@@ -32,7 +32,7 @@ public:
 };
 
 ShowLayerEntry::ShowLayerEntry(LayerController* lc, Layer::Index id) noexcept: checkButton(gtk_check_button_new()) {
-    gtk_widget_set_can_focus(checkButton, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(checkButton, false);  // keyboard users can still Tab to it
     struct Data {
         LayerController* lc;
         Layer::Index id;
@@ -66,7 +66,7 @@ static std::tuple<GtkWidget*, std::vector<ShowLayerEntry>, std::vector<std::pair
     auto createLayerRadioButton = [&group, popover](const std::string& layerName,
                                                     Layer::Index id) -> std::pair<GtkWidget*, gulong> {
         GtkWidget* btn = gtk_radio_button_new_with_label_from_widget(group, layerName.c_str());
-        gtk_widget_set_can_focus(btn, false);
+        gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
         group = GTK_RADIO_BUTTON(btn);
 
         gtk_actionable_set_action_target_value(GTK_ACTIONABLE(btn), xoj::util::makeGVariantSPtr(id).get());
@@ -89,7 +89,7 @@ static std::tuple<GtkWidget*, std::vector<ShowLayerEntry>, std::vector<std::pair
 
     auto createBackgroundRadioButton = [](LayerController* lc) {
         GtkWidget* btn = gtk_radio_button_new_with_label(nullptr, lc->getLayerNameById(0U).c_str());
-        gtk_widget_set_can_focus(btn, false);
+        gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
         gtk_widget_add_css_class(btn, "invisible");
         gtk_widget_set_hexpand(btn, true);
         return btn;
@@ -152,7 +152,7 @@ static GtkLabel* makeLabel() {
 /// @brief Appends to `box` a button with bold label `name` activating the Action `action`
 static void addSpecialButton(GtkBox* box, const std::string& name, Action action) {
     GtkWidget* btn = gtk_button_new();
-    gtk_widget_set_can_focus(btn, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
     GtkWidget* lb = gtk_label_new(name.c_str());
     gtk_widget_set_halign(lb, GTK_ALIGN_START);
 
@@ -206,7 +206,7 @@ public:
         gtk_box_append(hbox, lbl);
         GtkWidget* menuButton = gtk_menu_button_new();
 #if GTK_MAJOR_VERSION == 3
-        gtk_widget_set_can_focus(menuButton, false);
+        gtk_widget_set_focus_on_click(menuButton, false);  // keyboard users can still Tab to it
         gtk_box_append(hbox, GTK_WIDGET(this->label));
 #else
         gtk_menu_button_set_child(GTK_MENU_BUTTON(menuButton), GTK_WIDGET(this->label));

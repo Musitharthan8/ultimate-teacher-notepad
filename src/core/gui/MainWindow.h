@@ -97,6 +97,9 @@ public:
     void showToast(const std::string& message, bool offerUndo = false);
     UtnToast* getToast() const;
 
+    /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
+    void updateCompactLayout(int width);
+
     void updateScrollbarSidebarPosition();
 
     void setUndoDescription(const std::string& description);
@@ -172,6 +175,8 @@ private:
     std::unique_ptr<PdfFloatingToolbox> pdfFloatingToolBox;
     std::unique_ptr<FloatingToolbox> floatingToolbox;
     std::unique_ptr<UtnToast> toast;
+    bool compactLayout = false;
+    bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
 
     // Toolbars
     std::unique_ptr<ToolMenuHandler> toolbar;
