@@ -52,6 +52,8 @@ public:
     virtual void setBgPdf(size_t pageno) = 0;
     virtual void loadBgPdf(bool attach, const fs::path& filename) = 0;
     virtual void addLayer(const std::optional<std::string_view>& name) = 0;
+    /// UTN: the layer's utnAudience attribute, if the file has one. Called after addLayer, before finalizeLayer.
+    virtual void setLayerAudience(std::string_view /*audience*/) {}
     virtual void finalizeLayer() = 0;
     virtual void addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
                            const LineStyle& lineStyle, fs::path filename, size_t timestamp) = 0;

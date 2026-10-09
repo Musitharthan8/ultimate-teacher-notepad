@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "control/UtnLayout.h"  // for isTeacherLayout
+#include "gui/UtnToast.h"        // for UtnToast
 #include <regex>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
@@ -85,6 +86,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     GtkOverlay* overlay = GTK_OVERLAY(get("mainOverlay"));
     this->pdfFloatingToolBox = std::make_unique<PdfFloatingToolbox>(this, overlay);
     this->floatingToolbox = std::make_unique<FloatingToolbox>(this, overlay);
+    this->toast = std::make_unique<UtnToast>(overlay);
 
     for (size_t i = 0; i < TOOLBAR_DEFINITIONS_LEN; i++) {
         this->toolbarWidgets[i].reset(get(TOOLBAR_DEFINITIONS[i].guiName), xoj::util::ref);
@@ -765,6 +767,16 @@ void MainWindow::loadMainCSS(GladeSearchpath* gladeSearchPath, const gchar* cssF
 PdfFloatingToolbox* MainWindow::getPdfToolbox() const { return this->pdfFloatingToolBox.get(); }
 
 FloatingToolbox* MainWindow::getFloatingToolbox() const { return this->floatingToolbox.get(); }
+
+void MainWindow::showToast(const std::string& message, bool offerUndo) {
+    if (!offerUndo) {
+        toast->show(message);
+        return;
+    }
+    toast->show(message, _("Undo"), [ctrl = this->control]() { ctrl->getActionDatabase()->fireActivateAction(Action::UNDO); });
+}
+
+UtnToast* MainWindow::getToast() const { return this->toast.get(); }
 
 void MainWindow::setDPI() const {
     if (auto dpi = this->getControl()->getSettings()->getDisplayDpi(); dpi == -1) {

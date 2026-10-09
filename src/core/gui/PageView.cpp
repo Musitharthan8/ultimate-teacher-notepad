@@ -901,6 +901,7 @@ auto XojPageView::onKeyReleaseEvent(const KeyEvent& event) -> bool {
 }
 
 void XojPageView::rerenderPage(bool sizeChanged) {
+    this->xournal->getControl()->notifyCanvasChanged(this->page.get());
     this->rerenderComplete = true;
     this->sizeChanged = sizeChanged;
     this->xournal->getControl()->getScheduler()->addRerenderPage(this);
@@ -968,6 +969,7 @@ auto XojPageView::toWidgetCoordinates(const xoj::util::Rectangle<double>& r) con
 }
 
 void XojPageView::rerenderRect(double x, double y, double width, double height) {
+    this->xournal->getControl()->notifyCanvasChanged(this->page.get());
     if (this->rerenderComplete) {
         return;
     }

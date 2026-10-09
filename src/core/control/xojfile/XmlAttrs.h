@@ -29,6 +29,7 @@ constexpr auto UTN_PAGE_LABEL_STR = u8"utnPageLabel";
 
 // background
 constexpr auto NAME_STR = u8"name";  // also in layer
+constexpr auto UTN_AUDIENCE_STR = u8"utnAudience";  // layer: teacher | answers (absent = everyone)
 constexpr auto TYPE_STR = u8"type";
 constexpr auto STYLE_STR = u8"style";  // also in stroke
 constexpr auto CONFIG_STR = u8"config";

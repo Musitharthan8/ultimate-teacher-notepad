@@ -13,11 +13,14 @@
 
 #include <cairo.h>  // for cairo_t
 
+#include <functional>  // for function
+
 #include "model/PageRef.h"  // for ConstPageRef
 #include "util/ElementRange.h"
 #include "view/background/BackgroundFlags.h"
 
 class PdfCache;
+class Layer;
 
 namespace xoj::view {
 struct BackgroundFlags;
@@ -56,6 +59,18 @@ public:
      */
     void setMarkAudioStroke(bool markAudioStroke);
 
+    /**
+     * UTN: draw hidden answers layers faintly at this opacity (0 = not at all, the default).
+     * Only the teacher's own canvas sets it, and only while students watch a separate display.
+     */
+    void setHiddenAnswersOpacity(double opacity);
+
+    /**
+     * UTN: replace the usual "layer is visible" rule, e.g. with utn::visibleToStudents for Student View.
+     * The filter sees every layer; it alone decides what drawPage draws.
+     */
+    void setLayerFilter(std::function<bool(const Layer&)> filter);
+
     // API for special drawing, usually you won't call this methods
 public:
     void setPdfCache(PdfCache* cache);
@@ -89,5 +104,7 @@ private:
     PdfCache* pdfCache = nullptr;
     bool dontRenderEditingStroke = false;
     bool markAudioStroke = false;
+    double hiddenAnswersOpacity = 0.0;
+    std::function<bool(const Layer&)> layerFilter;
 
 };

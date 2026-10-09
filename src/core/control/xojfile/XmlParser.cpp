@@ -340,6 +340,10 @@ void XmlParser::parseLayerTag(const XmlParserHelper::AttributeMap& attributeMap)
     const auto name = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::NAME_STR, attributeMap);
 
     this->builder.addLayer(name);
+    if (const auto audience =
+                XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_AUDIENCE_STR, attributeMap)) {
+        this->builder.setLayerAudience(*audience);
+    }
 }
 
 void XmlParser::parseTimestampTag(const XmlParserHelper::AttributeMap& attributeMap) {

@@ -25,6 +25,15 @@
 template <class T>
 using optional = std::optional<T>;
 
+/**
+ * UTN: who may see a layer.
+ *  - Everyone: an ordinary layer.
+ *  - TeacherOnly: never shown in Student View (private notes).
+ *  - Answers: hidden answers. Shown to students only while revealed (visible); hidden when a lesson is opened.
+ * Saved as the additive XOPP layer attribute utnAudience; files without it keep working.
+ */
+enum class LayerAudience { Everyone, TeacherOnly, Answers };
+
 class Layer {
 public:
     Layer();
@@ -117,10 +126,16 @@ public:
      */
     void setName(const std::string& newName);
 
+    /// UTN: who may see this layer (see LayerAudience)
+    auto getAudience() const -> LayerAudience;
+    void setAudience(LayerAudience audience);
+
 private:
     std::vector<ElementPtr> elements;
 
     bool visible = true;
 
     std::optional<std::string> name;
+
+    LayerAudience audience = LayerAudience::Everyone;
 };

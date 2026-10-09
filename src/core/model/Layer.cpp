@@ -23,6 +23,7 @@ auto Layer::clone() const -> Layer* {
     if (hasName()) {
         layer->setName(getName());
     }
+    layer->setAudience(this->audience);
 
     for (auto const& e: this->elements) {
         layer->addElement(e->clone());
@@ -143,3 +144,7 @@ auto Layer::hasName() const -> bool { return name.has_value(); }
 auto Layer::getName() const -> std::string { return name.value_or(""); }
 
 void Layer::setName(const std::string& newName) { this->name = newName; }
+
+auto Layer::getAudience() const -> LayerAudience { return this->audience; }
+
+void Layer::setAudience(LayerAudience audience) { this->audience = audience; }

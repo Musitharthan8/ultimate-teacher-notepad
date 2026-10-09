@@ -12,43 +12,12 @@
 #include <utility>
 
 #include "control/Control.h"
-#include "control/layer/LayerController.h"
+#include "gui/MainWindow.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
 #include "UtnWidgets.h"
 
-namespace {
-constexpr const char* REVEAL_LAYER_PREFIX = "UTN Reveal";
-
-bool isRevealLayer(const std::string& name) {
-    return name.rfind(REVEAL_LAYER_PREFIX, 0) == 0;
-}
-
-void setRevealLayersVisible(LayerController* layers, bool visible) {
-    const auto count = layers->getLayerCount();
-    for (Layer::Index id = 1; id <= count; ++id) {
-        if (isRevealLayer(layers->getLayerNameById(id))) {
-            layers->setLayerVisible(id, visible);
-        }
-    }
-
-    if (!visible) {
-        auto current = layers->getCurrentLayerId();
-        if (current > 0 && isRevealLayer(layers->getLayerNameById(current))) {
-            for (Layer::Index id = count; id >= 1; --id) {
-                if (!isRevealLayer(layers->getLayerNameById(id))) {
-                    layers->switchToLay(id);
-                    break;
-                }
-                if (id == 1) {
-                    break;
-                }
-            }
-        }
-    }
-}
-}  // namespace
 
 ToolPrepareReveal::ToolPrepareReveal(std::string id, Control* control, IconNameHelper iconNameHelper):
         AbstractToolItem(std::move(id), Category::TOOLS),
@@ -58,64 +27,42 @@ ToolPrepareReveal::ToolPrepareReveal(std::string id, Control* control, IconNameH
 auto ToolPrepareReveal::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     auto [popover, panel] = utn::createPopoverPanel();
     utn::appendPopoverHeading(panel, _("Hide & Reveal"));
-    GtkWidget* prepare = utn::appendMenuButton(
-            panel, popover, _("Start an answers layer"),
-            _("Write answers on a new layer, then choose Hide answers before the lesson"));
-    GtkWidget* hide = utn::appendMenuButton(panel, popover, _("Hide answers"),
-                                            _("Hide everything written on answers layers"));
-    GtkWidget* reveal = utn::appendMenuButton(panel, popover, _("Reveal answers"),
-                                              _("Show the hidden answers to the class"));
 
-    g_signal_connect(
-            prepare,
-            "clicked",
-            G_CALLBACK(+[](GtkButton*, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                auto* layers = ctrl->getLayerController();
+    auto add = [this, panel = panel, popover = popover](const char* label, const char* hint, void (*run)(Control*)) {
+        GtkWidget* button = utn::appendMenuButton(panel, popover, label, hint);
+        g_object_set_data(G_OBJECT(button), "utn-run", reinterpret_cast<gpointer>(run));
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer data) {
+                             auto run = reinterpret_cast<void (*)(Control*)>(g_object_get_data(G_OBJECT(b), "utn-run"));
+                             run(static_cast<Control*>(data));
+                         }),
+                         control);
+    };
 
-                layers->addNewLayer(false);
-
-                unsigned int suffix = 1;
-                std::string name = REVEAL_LAYER_PREFIX;
-                while (true) {
-                    bool exists = false;
-                    for (Layer::Index id = 1; id <= layers->getLayerCount(); ++id) {
-                        if (layers->getLayerNameById(id) == name) {
-                            exists = true;
-                            break;
-                        }
-                    }
-
-                    if (!exists) {
-                        break;
-                    }
-
-                    ++suffix;
-                    name = std::string(REVEAL_LAYER_PREFIX) + " " + std::to_string(suffix);
-                }
-
-                layers->setCurrentLayerName(name);
-            }),
-            control);
-
-    g_signal_connect(
-            hide,
-            "clicked",
-            G_CALLBACK(+[](GtkButton*, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                setRevealLayersVisible(ctrl->getLayerController(), false);
-            }),
-            control);
-
-    g_signal_connect(
-            reveal,
-            "clicked",
-            G_CALLBACK(+[](GtkButton*, gpointer data) {
-                auto* ctrl = static_cast<Control*>(data);
-                setRevealLayersVisible(ctrl->getLayerController(), true);
-            }),
-            control);
-
+    add(_("Start an answers layer"), _("Write answers on a new layer, then choose Hide answers before the lesson"),
+        [](Control* c) {
+            c->startAnswersLayer();
+            if (auto* win = c->getWindow()) {
+                win->showToast(_("Writing on the answers layer. Choose Hide answers before students arrive."));
+            }
+        });
+    add(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"), [](Control* c) {
+        const size_t changed = c->setAnswersRevealed(false, true);
+        if (auto* win = c->getWindow()) {
+            win->showToast(changed ? _("Answers are hidden from students") : _("No answers are showing"));
+        }
+    });
+    add(_("Reveal answers on this page"), _("Show this page's hidden answers to the class"), [](Control* c) {
+        const size_t changed = c->setAnswersRevealed(true, false);
+        if (auto* win = c->getWindow()) {
+            win->showToast(changed ? _("Answers on this page are now showing") : _("No hidden answers on this page"));
+        }
+    });
+    add(_("Reveal all answers"), _("Show every hidden answer in the lesson"), [](Control* c) {
+        const size_t changed = c->setAnswersRevealed(true, true);
+        if (auto* win = c->getWindow()) {
+            win->showToast(changed ? _("All answers are now showing") : _("No hidden answers in this lesson"));
+        }
+    });
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);

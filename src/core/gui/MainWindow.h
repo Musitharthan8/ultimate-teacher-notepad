@@ -38,6 +38,7 @@ class ToolbarModel;
 class XournalView;
 class PdfFloatingToolbox;
 class FloatingToolbox;
+class UtnToast;
 class GladeSearchpath;
 
 class Menubar;
@@ -91,6 +92,10 @@ public:
 
     PdfFloatingToolbox* getPdfToolbox() const;
     FloatingToolbox* getFloatingToolbox() const;
+
+    /// UTN: short message at the bottom of the canvas; with @p offerUndo it carries an Undo button
+    void showToast(const std::string& message, bool offerUndo = false);
+    UtnToast* getToast() const;
 
     void updateScrollbarSidebarPosition();
 
@@ -166,6 +171,7 @@ private:
 
     std::unique_ptr<PdfFloatingToolbox> pdfFloatingToolBox;
     std::unique_ptr<FloatingToolbox> floatingToolbox;
+    std::unique_ptr<UtnToast> toast;
 
     // Toolbars
     std::unique_ptr<ToolMenuHandler> toolbar;
