@@ -23,6 +23,7 @@
 #include "gui/XournalView.h"
 #include "model/Font.h"
 #include "model/Text.h"
+#include "model/StrokeStyle.h"
 #include "model/TextAlignment.h"
 #include "util/Color.h"
 #include "util/Util.h"
@@ -523,6 +524,31 @@ void ToolUtnContextBar::appendPenControls() {
     appendSizeControls(TOOL_PEN);
     appendSeparator();
 
+    // A teacher's deliberate stroke pattern overrides the solid default for freehand pen.
+    GtkWidget* patternLabel = gtk_label_new(_("Stroke"));
+    gtk_box_append(box, patternLabel);
+    GtkWidget* pattern = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Solid"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dashed"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dotted"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dash-dot"));
+    auto* penTools = control->getToolHandler();
+    const std::string style = penTools->hasExplicitTeacherInkStyle() ?
+                              StrokeStyle::formatStyle(penTools->getLineStyle()) : "plain";
+    gtk_combo_box_set_active(GTK_COMBO_BOX(pattern),
+                             style == "dash" ? 1 : style == "dot" ? 2 : style == "dashdot" ? 3 : 0);
+    gtk_widget_set_tooltip_text(pattern, _("Choose solid, dashed or dotted pen strokes"));
+    utn::setAccessibleName(pattern, _("Pen stroke style"));
+    g_signal_connect(pattern, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                         const int selected = gtk_combo_box_get_active(combo);
+                         if (selected < 0) return;
+                         const char* style = selected == 1 ? "dash" : selected == 2 ? "dot" :
+                                             selected == 3 ? "dashdot" : "plain";
+                         static_cast<Control*>(data)->setLineStyle(style);
+                     }), control);
+    gtk_box_append(box, pattern);
+    appendSeparator();
+
     GtkWidget* pressure = gtk_check_button_new_with_label(_("Pressure"));
     gtk_widget_set_focus_on_click(pressure, false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(pressure, _("Lines get thicker when you press harder with a stylus"));
@@ -535,7 +561,7 @@ void ToolUtnContextBar::appendPenControls() {
     gtk_box_append(box, pressure);
 }
 
-void ToolUtnContextBar::appendShapeControls(DrawingType) {
+void ToolUtnContextBar::appendShapeControls(DrawingType type) {
     appendColourControls(Palette::Ink);
     appendSizeControls(TOOL_PEN);
     appendSeparator();
@@ -549,6 +575,23 @@ void ToolUtnContextBar::appendShapeControls(DrawingType) {
                      }),
                      control);
     gtk_box_append(box, fill);
+
+    if (type == DRAWING_TYPE_SHAPE_RECOGNIZER) {
+        appendSeparator();
+        GtkWidget* thresholdLabel = gtk_label_new(_("Smallest shape"));
+        gtk_widget_set_tooltip_text(thresholdLabel, _("Lower values recognise smaller circles and boxes."));
+        gtk_box_append(box, thresholdLabel);
+        GtkWidget* threshold = newScale(8.0, 80.0, 2.0,
+                                       control->getSettings()->getStrokeRecognizerMinSize(), 0);
+        gtk_widget_set_size_request(threshold, 130, -1);
+        utn::setAccessibleName(threshold, _("Smart Shape minimum size"));
+        g_signal_connect(threshold, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                             static_cast<Control*>(data)->getSettings()->setStrokeRecognizerMinSize(
+                                     gtk_range_get_value(range));
+                         }),
+                         control);
+        gtk_box_append(box, threshold);
+    }
 
     appendSeparator();
     GtkWidget* freehand = appendButton(_("Back to Pen"), _("Stop drawing shapes and write freehand"));

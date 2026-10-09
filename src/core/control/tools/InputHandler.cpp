@@ -51,7 +51,9 @@ auto InputHandler::createStroke(ToolHandler* h, bool teacherLayout) -> std::uniq
     const bool handwriting = teacherLayout && h->getDrawingType() == DRAWING_TYPE_DEFAULT;
     // Shape fill and dashes must not carry over into teacher handwriting.
     s->setFill(handwriting ? -1 : h->getFill());
-    s->setLineStyle(handwriting ? LineStyle{} : h->getLineStyle());
+    // Untouched teacher handwriting starts solid, but a deliberate Solid/Dashed/Dotted
+    // choice must take effect even in freehand mode.
+    s->setLineStyle(handwriting && !h->hasExplicitTeacherInkStyle() ? LineStyle{} : h->getLineStyle());
 
     if (h->getToolType() == TOOL_PEN) {
         s->setToolType(StrokeTool::PEN);

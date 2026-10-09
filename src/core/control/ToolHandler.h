@@ -273,6 +273,8 @@ public:
     void clearPresentationOverlay();
 
     void setLineStyle(const LineStyle& style);
+    /// True when a teacher deliberately chose a pen pattern after entering a teacher layout.
+    bool hasExplicitTeacherInkStyle() const;
 
     ToolSize getPenSize() const;
     ToolSize getEraserSize() const;
@@ -478,6 +480,7 @@ private:
 
     // UTN: shapes belong to Pen in teacher layouts (see setTeacherToolPolicy)
     bool teacherToolPolicy = false;
+    bool explicitTeacherInkStyle = false;
 
     // UTN: straighten rough horizontal highlighter strokes
     bool smartHighlighterEnabled = false;

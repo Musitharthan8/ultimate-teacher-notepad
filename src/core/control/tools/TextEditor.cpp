@@ -1,5 +1,8 @@
 #include "TextEditor.h"
 
+#include <algorithm>
+#include <exception>
+#include <string_view>
 #include <cctype>
 #include <cstring>  // for strcmp, size_t
 #include <memory>   // for allocator, make_unique, __shared_p...
@@ -538,8 +541,57 @@ void TextEditor::iMCommitCallback(GtkIMContext* context, const gchar* str, TextE
     }
 
     if (!strcmp(str, "\n")) {
-        if (!gtk_text_buffer_insert_interactive_at_cursor(te->buffer.get(), "\n", 1, true)) {
-            gtk_widget_error_bell(te->xournalWidget);
+        // UTN: continue bulleted and numbered lists while typing. The existing list buttons
+        // insert text prefixes, so Enter needs to preserve those prefixes on the next line.
+        // Pressing Enter on an empty list item ends the list, as in ordinary word processors.
+        std::string prefix;
+        bool emptyListItem = false;
+        if (!hadSelection) {
+            GtkTextIter cursor = getIteratorAtCursor(te->buffer.get());
+            if (gtk_text_iter_ends_line(&cursor)) {
+                GtkTextIter start = cursor;
+                gtk_text_iter_set_line_offset(&start, 0);
+                auto line = xoj::util::OwnedCString::assumeOwnership(
+                        gtk_text_buffer_get_text(te->buffer.get(), &start, &cursor, false));
+                std::string_view content(line.get());
+                if (content.starts_with("• ")) {
+                    prefix = "• ";
+                } else {
+                    size_t digits = 0;
+                    while (digits < content.size() &&
+                           std::isdigit(static_cast<unsigned char>(content[digits]))) {
+                        ++digits;
+                    }
+                    if (digits > 0 && digits + 1 < content.size() &&
+                        content[digits] == '.' && content[digits + 1] == ' ') {
+                        try {
+                            prefix = std::to_string(std::stoull(std::string(content.substr(0, digits))) + 1) + ". ";
+                        } catch (const std::exception&) {
+                            prefix.clear();  // Unreasonable number: treat as ordinary text
+                        }
+                    }
+                }
+                if (!prefix.empty()) {
+                    emptyListItem = content == "• " ||
+                                    (content.size() >= 3 &&
+                                     std::all_of(content.begin(), content.end() - 2,
+                                                 [](unsigned char ch) { return std::isdigit(ch); }) &&
+                                     content.substr(content.size() - 2) == ". ");
+                    if (emptyListItem) {
+                        gtk_text_buffer_delete(te->buffer.get(), &start, &cursor);
+                    }
+                }
+            }
+        }
+
+        if (!emptyListItem) {
+            const std::string inserted = std::string("\n") + prefix;
+            if (!gtk_text_buffer_insert_interactive_at_cursor(te->buffer.get(), inserted.c_str(),
+                                                               static_cast<gint>(inserted.size()), true)) {
+                gtk_widget_error_bell(te->xournalWidget);
+            } else {
+                te->contentsChanged(true);
+            }
         } else {
             te->contentsChanged(true);
         }
