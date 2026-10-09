@@ -23,6 +23,7 @@
 #include "gui/XournalView.h"
 #include "model/Font.h"
 #include "model/Text.h"
+#include "model/StrokeStyle.h"
 #include "model/TextAlignment.h"
 #include "util/Color.h"
 #include "util/Util.h"
@@ -521,6 +522,30 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
 void ToolUtnContextBar::appendPenControls() {
     appendColourControls(Palette::Ink);
     appendSizeControls(TOOL_PEN);
+    appendSeparator();
+
+    // A teacher's deliberate stroke pattern overrides the solid default for freehand pen.
+    GtkWidget* patternLabel = gtk_label_new(_("Stroke"));
+    gtk_box_append(box, patternLabel);
+    GtkWidget* pattern = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Solid"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dashed"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dotted"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Dash-dot"));
+    auto* penTools = control->getToolHandler();
+    const std::string style = penTools->hasExplicitTeacherInkStyle() ?
+                              StrokeStyle::formatStyle(penTools->getLineStyle()) : "plain";
+    gtk_combo_box_set_active(GTK_COMBO_BOX(pattern),
+                             style == "dash" ? 1 : style == "dot" ? 2 : style == "dashdot" ? 3 : 0);
+    gtk_widget_set_tooltip_text(pattern, _("Choose solid, dashed or dotted pen strokes"));
+    utn::setAccessibleName(pattern, _("Pen stroke style"));
+    g_signal_connect(pattern, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                         const int selected = gtk_combo_box_get_active(combo);
+                         if (selected < 0) return;
+                         static constexpr const char* styles[]{"plain", "dash", "dot", "dashdot"};
+                         static_cast<Control*>(data)->setLineStyle(styles[selected]);
+                     }), control);
+    gtk_box_append(box, pattern);
     appendSeparator();
 
     GtkWidget* pressure = gtk_check_button_new_with_label(_("Pressure"));
