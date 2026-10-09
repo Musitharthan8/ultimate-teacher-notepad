@@ -39,7 +39,7 @@ static GtkWindow* constructWindow(GladeSearchpath* gladeSearchPath) {
     auto infoGrid = GTK_GRID(builder.get("versionInfoGrid"));
 
     insertPropertyKey(infoGrid, _("Version"), 0);
-    insertPropertyValue(infoGrid, std::string("UTN 0.2.0 beta / Xournal++ ") + PROJECT_VERSION, 0);
+    insertPropertyValue(infoGrid, std::string("UTN 0.2.1 beta / Xournal++ ") + PROJECT_VERSION, 0);
 
     insertPropertyKey(infoGrid, _("Built on"), 1);
     insertPropertyValue(infoGrid, __DATE__ ", " __TIME__, 1);
