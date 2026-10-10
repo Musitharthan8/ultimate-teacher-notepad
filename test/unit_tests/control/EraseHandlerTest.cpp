@@ -7,9 +7,14 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <vector>
 
 #include "control/ToolHandler.h"
+#include "control/xojfile/LoadHandler.h"
+#include "control/xojfile/SaveHandler.h"
 #include "control/tools/EraseHandler.h"
 #include "control/tools/InputHandler.h"
 #include "model/eraser/CircularEraser.h"
@@ -19,6 +24,8 @@
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "undo/UndoRedoHandler.h"
+#include "util/Color.h"
+#include "filesystem.h"
 
 namespace {
 class EraseTestView: public LegacyRedrawable {
@@ -456,4 +463,74 @@ TEST(EraseHandler, separateCircularGesturesCreateSeparateUndoSteps) {
     ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
     undo.redo();
     ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 3U);
+}
+
+
+TEST(EraseHandler, partiallyErasedPressureStrokesRoundTripThroughXopp) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setColor(Color{0x36, 0x78, 0xc9});
+    stroke->setWidth(4.0);
+    stroke->addPoint(Point(20, 100, 4.0));
+    stroke->addPoint(Point(220, 100, 4.0));
+    page->getSelectedLayer()->addElement(std::move(stroke));
+
+    Document document(nullptr);
+    document.addPage(page);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(120, 100);
+        eraser.finalize();
+    }
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+
+    // A unique temporary .xopp avoids collisions with the repository's other document tests.
+    struct TemporaryXopp {
+        fs::path path;
+        ~TemporaryXopp() {
+            std::error_code ec;
+            fs::remove(path, ec);
+        }
+    } temporary{fs::temp_directory_path() /
+                ("utn-circular-eraser-" + std::to_string(g_get_monotonic_time()) + ".xopp")};
+
+    SaveHandler saver;
+    saver.prepareSave(&document, temporary.path);
+    saver.saveTo(temporary.path);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    ASSERT_TRUE(fs::exists(temporary.path));
+
+    auto restored = LoadHandler{}.loadDocument(temporary.path);
+    ASSERT_NE(restored, nullptr);
+    ASSERT_EQ(restored->getPageCount(), 1U);
+    auto roundTrippedPage = restored->getPage(0);
+    ASSERT_NE(roundTrippedPage, nullptr);
+
+    const auto& before = page->getSelectedLayer()->getElements();
+    const auto& after = roundTrippedPage->getSelectedLayer()->getElements();
+    ASSERT_EQ(before.size(), after.size());
+    for (size_t i = 0; i < before.size(); ++i) {
+        auto* original = dynamic_cast<Stroke*>(before[i].get());
+        auto* loaded = dynamic_cast<Stroke*>(after[i].get());
+        ASSERT_NE(original, nullptr);
+        ASSERT_NE(loaded, nullptr);
+        EXPECT_EQ(original->getToolType(), loaded->getToolType());
+        EXPECT_EQ(original->getColor(), loaded->getColor());
+        EXPECT_DOUBLE_EQ(original->getWidth(), loaded->getWidth());
+        EXPECT_EQ(original->getStrokeCapStyle(), loaded->getStrokeCapStyle());
+        EXPECT_EQ(original->getPointCount(), loaded->getPointCount());
+        ASSERT_EQ(original->getPointVector().size(), loaded->getPointVector().size());
+        for (size_t j = 0; j < original->getPointCount(); ++j) {
+            const Point a = original->getPoint(j), b = loaded->getPoint(j);
+            EXPECT_NEAR(a.x, b.x, 1e-7);
+            EXPECT_NEAR(a.y, b.y, 1e-7);
+            EXPECT_NEAR(a.z, b.z, 1e-7);
+        }
+    }
 }
