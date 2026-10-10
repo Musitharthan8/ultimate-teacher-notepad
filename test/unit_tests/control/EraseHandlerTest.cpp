@@ -206,6 +206,7 @@ void sweepHorizontalPath(const PageRef& page, double radius) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(radius);
+    ASSERT_DOUBLE_EQ(tools.getEraserThickness(), radius) << "eraser thickness was clamped";
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -237,7 +238,8 @@ TEST(EraseHandler, partialEraseIsCircularNotSquare) {
 // Checked for several pen widths, so the cut respects the thickness of the ink.
 TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
     for (double width: {1.0, 4.0, 10.0}) {
-        for (double radius: {3.0, 10.0, 40.0}) {
+        // ToolHandler clamps the eraser thickness to [0.5, 30]; the radii must stay inside that range
+        for (double radius: {3.0, 10.0, 25.0}) {
             auto page = std::make_shared<XojPage>(400, 400);
             auto stroke = std::make_unique<Stroke>();
             stroke->setToolType(StrokeTool::PEN);
