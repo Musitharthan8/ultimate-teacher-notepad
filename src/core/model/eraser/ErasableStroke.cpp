@@ -16,7 +16,6 @@
 #include "util/UnionOfIntervals.h"  // for UnionOfIntervals
 
 #include "ErasableStrokeOverlapTree.h"  // for ErasableStroke::OverlapTree
-#include "PaddedBox.h"                  // for PaddedBox
 
 using xoj::util::Rectangle;
 
@@ -86,7 +85,7 @@ void ErasableStroke::beginErasure(const IntersectionParametersContainer& paddedI
     }  // release the mutex
 }
 
-void ErasableStroke::erase(const PaddedBox& box, Range& range) {
+void ErasableStroke::erase(const Point& centre, double radius, Range& range) {
     size_t n = (size_t)this->stroke.getPointCount();
     if (n < 2) {
         g_warning("Erasing empty stroke");
@@ -126,9 +125,10 @@ void ErasableStroke::erase(const PaddedBox& box, Range& range) {
      * This avoids computing a segment's intersections with the eraser box twice
      */
     std::vector<Interval<size_t>> indexIntervals;
+    const xoj::util::Rectangle<double> discBoundingBox{centre.x - radius, centre.y - radius, 2 * radius, 2 * radius};
 
     for (const SubSection& section: sections) {
-        if (!getSubSectionBoundingBox(section).intersect(Range(box.getInnerRectangle())).empty()) {
+        if (!getSubSectionBoundingBox(section).intersect(Range(discBoundingBox)).empty()) {
             if (indexIntervals.empty()) {
                 indexIntervals.emplace_back(section.min.index, section.max.index);
             } else {
@@ -145,7 +145,7 @@ void ErasableStroke::erase(const PaddedBox& box, Range& range) {
     UnionOfIntervals<PathParameter> newErasedSections;
 
     for (auto& i: indexIntervals) {
-        newErasedSections.appendData(this->stroke.intersectWithPaddedBox(box, i.min, i.max));
+        newErasedSections.appendData(this->stroke.intersectWithEraserDisc(centre, radius, i.min, i.max));
     }
 
     changesAtLastIteration = !newErasedSections.empty();

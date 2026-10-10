@@ -47,7 +47,7 @@ public:
         BUTT = 1,
         SQUARE = 2
     };  // Must match the indices in StrokeView::CAIRO_LINE_CAP
-        // and in EraserHandler::PADDING_COEFFICIENT_CAP
+        // (the circular eraser in utn::eraser does not use this padding)
     static constexpr std::array<const char8_t*, 3> NAMES = {u8"round", u8"butt", u8"square"};
     StrokeCapStyle(Value v): value(v) {}
 
@@ -174,6 +174,19 @@ public:
                                                            size_t lastIndex) const;
 
     IntersectionParametersContainer intersectWithPaddedBox(const PaddedBox& box) const;
+
+    /**
+     * @brief Circular partial erasing: the parameters where the ink of the stroke touches the eraser disc.
+     *
+     * A centreline point with half width h (the stroke width / 2, pressure aware) is erased when it lies within
+     * radius + h of the eraser centre. Returns sorted (index, t) pairs, an even number of them, like the box version.
+     * Only the segments firstIndex .. lastIndex are tested. Round caps are exact; at butt or square caps the ink
+     * is approximated by a disc at the endpoint (see the EraseHandler tests for the measured error).
+     */
+    IntersectionParametersContainer intersectWithEraserDisc(const Point& centre, double radius, size_t firstIndex,
+                                                            size_t lastIndex) const;
+
+    IntersectionParametersContainer intersectWithEraserDisc(const Point& centre, double radius) const;
 
     void setPressure(const std::vector<double>& pressure);
     void setLastPressure(double pressure);

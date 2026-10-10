@@ -13,7 +13,8 @@
 #include "util/i18n.h"               // for _
 
 
-DeleteUndoAction::DeleteUndoAction(const PageRef& page, bool eraser): UndoAction("DeleteUndoAction"), eraser(eraser) {
+DeleteUndoAction::DeleteUndoAction(const PageRef& page, bool eraser, Document* document):
+        UndoAction("DeleteUndoAction"), eraser(eraser), document(document) {
     this->page = page;
 }
 
@@ -29,7 +30,8 @@ auto DeleteUndoAction::undo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto& elem: elements) {
         elem.layer->insertElement(std::move(elem.elementOwn), elem.pos);
@@ -51,7 +53,8 @@ auto DeleteUndoAction::redo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto& elem: elements) {
         elem.elementOwn = elem.layer->removeElement(elem.element).e;

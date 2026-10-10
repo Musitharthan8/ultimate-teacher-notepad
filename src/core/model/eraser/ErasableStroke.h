@@ -32,7 +32,6 @@
 #endif
 
 class Range;
-struct PaddedBox;
 
 class ErasableStroke {
 public:
@@ -57,13 +56,12 @@ public:
 
     /**
      * @brief Erase the stroke
-     * @param box PaddedBox of the eraser
-     * @param range Range (destined to rerendering) that will be widened around the eraser box
-     * @param view Redrawable to which we pass areas that need rerendering
-     * view is only used when the stroke is from the highlighter tool.
+     * @param centre Centre of the circular eraser
+     * @param radius Radius of the circular eraser
+     * @param range Range (destined to rerendering) that will be widened around the eraser
      * The rerendered areas correspond to where the stroke overlaps itself after being split in two (or more)
      */
-    void erase(const PaddedBox& box, Range& range);
+    void erase(const Point& centre, double radius, Range& range);
 
     /**
      * @brief Get the resulting strokes (if any) once the erasing is finished

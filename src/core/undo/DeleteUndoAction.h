@@ -21,11 +21,12 @@
 #include "UndoAction.h"         // for UndoAction
 
 class Control;
+class Document;
 class Layer;
 
 class DeleteUndoAction: public UndoAction {
 public:
-    DeleteUndoAction(const PageRef& page, bool eraser);
+    DeleteUndoAction(const PageRef& page, bool eraser, Document* document = nullptr);
 
 public:
     bool undo(Control* control) override;
@@ -39,4 +40,6 @@ private:
     // Todo (performance): replace by flat_multi_set / sorted_vector
     std::multiset<PageLayerPosEntry<Element>> elements{};
     bool eraser = true;
+    // Non-owning reference; only supplied for eraser actions that already hold a Document.
+    Document* document = nullptr;
 };

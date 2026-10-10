@@ -11,6 +11,7 @@
 #include <glib.h>     // for gint
 
 #include "control/ToolEnums.h"            // for ERASER_TYPE_DELETE_STROKE
+#include "model/eraser/CircularEraser.h"  // for utn::eraser::circleHitsStroke
 #include "control/ToolHandler.h"          // for ToolHandler
 #include "gui/LegacyRedrawable.h"         // for Redrawable
 #include "model/Document.h"               // for Document
@@ -19,12 +20,66 @@
 #include "model/Stroke.h"                 // for Stroke
 #include "model/XojPage.h"                // for XojPage
 #include "model/eraser/ErasableStroke.h"  // for ErasableStroke
-#include "model/eraser/PaddedBox.h"       // for PaddedBox
 #include "undo/DeleteUndoAction.h"        // for DeleteUndoAction
 #include "undo/EraseUndoAction.h"         // for EraseUndoAction
 #include "undo/UndoRedoHandler.h"         // for UndoRedoHandler
 #include "util/Range.h"                   // for Range
 #include "util/SmallVector.h"             // for SmallVector
+
+namespace {
+/**
+ * Whether the ink of a stroke can touch rect. The stroke's bounding box is padded by the fallback width only, so a
+ * pressure-widened stroke can reach past it. The cheap box test runs first, and the pressure-aware test only runs
+ * for strokes with pressure whose box misses.
+ */
+bool inkMayIntersect(const Stroke& s, const xoj::util::Rectangle<double>& rect) {
+    const auto box = s.getBoundingBox();
+    if (box.intersects(rect).has_value()) {
+        return true;
+    }
+    if (!s.hasPressure()) {
+        return false;
+    }
+    double maxHalfWidth = 0.5 * s.getWidth();
+    for (const Point& p: s.getPointVector()) {
+        if (p.z != Point::NO_PRESSURE) {
+            maxHalfWidth = std::max(maxHalfWidth, 0.5 * p.z);
+        }
+    }
+    const double extra = maxHalfWidth - 0.5 * s.getWidth();
+    const xoj::util::Rectangle<double> padded{box.x - extra, box.y - extra, box.width + 2 * extra,
+                                              box.height + 2 * extra};
+    return padded.intersects(rect).has_value();
+}
+
+/// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
+constexpr double SAMPLES_PER_RADIUS = 4.0;
+
+// Same conservative per-segment reach as circleHitsStroke, without rebuilding a
+// potentially thousands-of-points knot vector at every pointer sample.
+bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
+    const auto& points = stroke.getPointVector();
+    if (points.empty()) {
+        return false;
+    }
+    auto halfWidth = [&stroke](const Point& p) {
+        return 0.5 * (p.z == Point::NO_PRESSURE ? stroke.getWidth() : p.z);
+    };
+    if (points.size() == 1) {
+        const Point& p = points.front();
+        return std::hypot(p.x - centre.x, p.y - centre.y) <= radius + halfWidth(p);
+    }
+    for (size_t i = 1; i < points.size(); ++i) {
+        const Point& a = points[i - 1];
+        const Point& b = points[i];
+        const double reach = radius + std::max(halfWidth(a), halfWidth(b));
+        if (utn::eraser::distancePointSegment(centre, {a.x, a.y}, {b.x, b.y}) <= reach) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
 
 EraseHandler::EraseHandler(UndoRedoHandler* undo, Document* doc, const PageRef& page, ToolHandler* handler,
                            LegacyRedrawable* view):
@@ -51,24 +106,39 @@ void EraseHandler::erase(double x, double y) {
     const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
     previousPoint = xoj::util::Point<double>{x, y};
     const double distance = std::hypot(x - start.x, y - start.y);
-    const size_t steps = std::max<size_t>(1, static_cast<size_t>(std::ceil(distance / halfEraserSize)));
+    // Sample the pointer path densely. Between two samples a disc of radius R leaves a gap of width up to the spacing,
+    // so the samples are at most R / SAMPLES_PER_RADIUS apart and each sample disc is enlarged to cover the gap
+    // (see sampleRadius). Then the union of the samples contains the whole swept circle, with no gaps.
+    const size_t steps =
+            std::max<size_t>(1, static_cast<size_t>(std::ceil(distance / (halfEraserSize / SAMPLES_PER_RADIUS))));
+    const double spacing = distance / static_cast<double>(steps);
+    // A point of the swept path at distance a <= spacing / 2 from its nearest sample is within R of the swept circle
+    // when sqrt(a^2 + d^2) <= sqrt(R^2 + (spacing / 2)^2), so the sample disc needs that radius. The over-erase is at
+    // most sqrt(R^2 + (spacing / 2)^2) - R, which is below R / 100 for SAMPLES_PER_RADIUS = 4.
+    const double sampleRadius = std::sqrt(halfEraserSize * halfEraserSize + 0.25 * spacing * spacing);
+    // Rectangle::intersects requires positive overlap, whereas the circular hit test
+    // intentionally includes tangency. Inflate this *broad-phase filter only* by a
+    // tiny tolerance so a stroke touching exactly at the outer edge is not discarded.
+    // Use the actual enlarged sample radius rather than the nominal cursor radius.
+    const double filterRadius = sampleRadius + std::max(1e-8, sampleRadius * 1e-8);
     const xoj::util::Rectangle<double> eraserRect{
-            std::min(start.x, x) - halfEraserSize, std::min(start.y, y) - halfEraserSize,
-            std::abs(x - start.x) + 2 * halfEraserSize, std::abs(y - start.y) + 2 * halfEraserSize};
+            std::min(start.x, x) - filterRadius, std::min(start.y, y) - filterRadius,
+            std::abs(x - start.x) + 2 * filterRadius, std::abs(y - start.y) + 2 * filterRadius};
 
     Range rerenderRange;
     Layer* l = page->getSelectedLayer();
     std::vector<Stroke*> candidates;
     // Removing whole strokes invalidates the layer's iterators.
     for (Element* e: xoj::refElementContainer(l->getElements())) {
-        if (e->getType() == ELEMENT_STROKE && e->getBoundingBox().intersects(eraserRect)) {
+        if (e->getType() == ELEMENT_STROKE && inkMayIntersect(*static_cast<Stroke*>(e), eraserRect)) {
             candidates.push_back(static_cast<Stroke*>(e));
         }
     }
     for (Stroke* stroke: candidates) {
         for (size_t i = 1; i <= steps; ++i) {
             const double t = static_cast<double>(i) / steps;
-            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, rerenderRange);
+            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                        rerenderRange);
             if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
                 break;
             }
@@ -80,12 +150,13 @@ void EraseHandler::erase(double x, double y) {
     }
 }
 
-void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& range) {
+void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range) {
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
         if (this->handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
-            if (!s->intersects(x, y, halfEraserSize)) {
-                // The stroke does not intersect the eraser square
+            // Whole-stroke mode: the eraser is a disc, so hit it with the exact circle test
+            if (!wholeStrokeTouchesDisc(*s, utn::eraser::Vec{x, y}, radius)) {
+                // The stroke's ink does not reach the eraser disc
                 return;
             }
 
@@ -102,7 +173,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
             // removed the if statement - this prevents us from putting multiple elements into a
             // stroke erase operation, but it also prevents the crashing and layer issues!
             if (!this->eraseDeleteUndoAction) {
-                auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true);
+                auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true, this->doc);
                 // Todo check dangerous: this->eraseDeleteUndoAction could be a dangling reference
                 this->eraseDeleteUndoAction = eraseDel.get();
                 this->undo->addUndoAction(std::move(eraseDel));
@@ -115,17 +186,16 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
                 return;
             }
 
-            const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-            const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
-            auto intersectionParameters = s->intersectWithPaddedBox(paddedEraserBox);
+            // Partial erasing: the eraser is a disc, and the ink of the stroke is removed where it touches that disc
+            auto intersectionParameters = s->intersectWithEraserDisc(Point(x, y), radius);
 
             if (intersectionParameters.empty()) {
-                // The stroke does not intersect the eraser square
+                // The stroke's ink does not touch the eraser disc
                 return;
             }
 
             if (this->eraseUndoAction == nullptr) {
-                auto eraseUndo = std::make_unique<EraseUndoAction>(this->page);
+                auto eraseUndo = std::make_unique<EraseUndoAction>(this->page, this->doc);
                 // Todo check dangerous: this->eraseDeleteUndoAction could be a dangling reference
                 this->eraseUndoAction = eraseUndo.get();
                 this->undo->addUndoAction(std::move(eraseUndo));
@@ -147,9 +217,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
         if (pos == -1) {
             return;
         }
-        const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-        const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
-        erasable->erase(paddedEraserBox, range);
+        erasable->erase(Point(x, y), radius, range);
     }
 }
 

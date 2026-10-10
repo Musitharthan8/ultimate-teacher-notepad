@@ -44,5 +44,13 @@ jobs:
 
       - name: Run unit tests
         shell: msys2 {0}
-        run: CI=true ./test/test-units
+        run: set -o pipefail; CI=true ./test/test-units 2>&1 | tee unit-tests.log
+        working-directory: ${{ github.workspace }}/build
+
+      - name: Report failing unit tests
+        if: failure()
+        shell: msys2 {0}
+        run: |
+          grep -E '\[  FAILED  \]' unit-tests.log | head -10 | while IFS= read -r l; do echo "::error title=failed test::$l"; done
+          grep -E ': Failure|Expected|Which is|Actual' unit-tests.log | head -20 | while IFS= read -r l; do echo "::error title=assertion::$l"; done
         working-directory: ${{ github.workspace }}/build

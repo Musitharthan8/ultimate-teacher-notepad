@@ -413,7 +413,8 @@ auto XournalppCursor::getEraserCursor() -> GdkCursor* {
     cairo_t* cr = cairo_create(surface);
     double inset = (surfaceSize - cursorSize) / 2.0;
 
-    cairo_rectangle(cr, inset, inset, cursorSize, cursorSize);
+    // UTN: the cursor is the eraser disc itself, centred in the surface
+    cairo_arc(cr, surfaceSize / 2.0, surfaceSize / 2.0, cursorSize / 2.0, 0.0, 2.0 * M_PI);
     cairo_set_source_rgba(cr, 1, 1, 1, 0.9);
     cairo_set_line_width(cr, 3.0);
     cairo_stroke_preserve(cr);
