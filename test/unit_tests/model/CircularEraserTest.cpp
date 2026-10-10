@@ -161,3 +161,27 @@ TEST(CircularInk, closedFormAgreesWithBruteForce) {
     }
     EXPECT_GT(checked, 100000);
 }
+
+// Object eraser: a whole element is removed when the disc touches its bounding box (tangency included).
+TEST(CircularObjectHit, InsideTouchingAndFar) {
+    // Box [0, 10] x [0, 10]
+    EXPECT_TRUE(circleTouchesRect({5, 5}, 1, 0, 0, 10, 10));      // centre inside
+    EXPECT_TRUE(circleTouchesRect({-3, 5}, 3, 0, 0, 10, 10));     // tangent to the left edge
+    EXPECT_TRUE(circleTouchesRect({-3, 5}, 3.5, 0, 0, 10, 10));   // overlapping the left edge
+    EXPECT_FALSE(circleTouchesRect({-3.01, 5}, 3, 0, 0, 10, 10)); // just outside the left edge
+}
+
+TEST(CircularObjectHit, CornersAreCircular) {
+    // Corner (10, 10): a square of half size 3 about (12.5, 12.5) would hit; a disc of radius 3 does not,
+    // because the nearest point is at distance sqrt(2.5^2 + 2.5^2) ~ 3.54 > 3.
+    EXPECT_FALSE(circleTouchesRect({12.5, 12.5}, 3, 0, 0, 10, 10));
+    EXPECT_TRUE(circleTouchesRect({12.5, 12.5}, 3.6, 0, 0, 10, 10));
+    // Exact diagonal tangency: distance to corner is exactly R.
+    EXPECT_TRUE(circleTouchesRect({13, 14}, 5, 0, 0, 10, 10));
+}
+
+TEST(CircularObjectHit, DegenerateRectangle) {
+    // A zero-width box behaves as a segment
+    EXPECT_TRUE(circleTouchesRect({4, 2}, 2, 4, 0, 0, 10));
+    EXPECT_FALSE(circleTouchesRect({1, 2}, 2, 4, 0, 0, 10));
+}
