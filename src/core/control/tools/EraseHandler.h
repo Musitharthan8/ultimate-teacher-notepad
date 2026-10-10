@@ -53,11 +53,4 @@ private:
     double halfEraserSize;
     std::optional<xoj::util::Point<double>> previousPoint;
 
-private:
-    /**
-     * Coefficient for adding padding to the erased sections of strokes.
-     * It depends on the stroke cap style ROUND, BUTT or SQUARE.
-     * The order must match the enum StrokeCapStyle in Stroke.h
-     */
-    static constexpr double PADDING_COEFFICIENT_CAP[] = {0.4, 0.01, 0.5};
 };

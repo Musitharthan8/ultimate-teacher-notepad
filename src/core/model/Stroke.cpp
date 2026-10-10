@@ -13,6 +13,7 @@
 #include <cairo.h>  // for cairo_matrix_translate
 #include <glib.h>   // for g_free, g_message
 
+#include "eraser/CircularEraser.h"                // for utn::eraser::segmentInkDiscIntervals
 #include "eraser/PaddedBox.h"                     // for PaddedBox
 #include "model/AudioContent.h"                   // for AudioContent
 #include "model/Element.h"                        // for Element, ELEMENT_ST...
@@ -578,6 +579,45 @@ static TinyVector<double, 2> intersectLineSegmentWithRectangle(const Point& p, c
     }
 
     return {};
+}
+
+auto Stroke::intersectWithEraserDisc(const Point& centre, double radius) const -> IntersectionParametersContainer {
+    const auto pointCount = this->points.size();
+    if (pointCount < 2) {
+        IntersectionParametersContainer result;
+        if (pointCount == 1) {
+            const Point& p = this->points.back();
+            const double halfWidth = 0.5 * (p.z == Point::NO_PRESSURE ? this->width : p.z);
+            if (std::hypot(p.x - centre.x, p.y - centre.y) <= radius + halfWidth) {
+                result.emplace_back(0U, 0.0);
+                result.emplace_back(0U, 0.0);
+            }
+        }
+        return result;
+    }
+    return this->intersectWithEraserDisc(centre, radius, 0, pointCount - 2);
+}
+
+auto Stroke::intersectWithEraserDisc(const Point& centre, double radius, size_t firstIndex, size_t lastIndex) const
+        -> IntersectionParametersContainer {
+    xoj_assert(firstIndex <= lastIndex && lastIndex < this->points.size() - 1);
+
+    const utn::eraser::Vec c{centre.x, centre.y};
+    auto halfWidthOf = [this](const Point& p) { return 0.5 * (p.z == Point::NO_PRESSURE ? this->width : p.z); };
+
+    IntersectionParametersContainer result;
+    for (size_t i = firstIndex; i <= lastIndex; ++i) {
+        const Point& p1 = this->points[i];
+        const Point& p2 = this->points[i + 1];
+        const auto intervals = utn::eraser::segmentInkDiscIntervals(utn::eraser::Vec{p1.x, p1.y},
+                                                                    utn::eraser::Vec{p2.x, p2.y}, c, radius,
+                                                                    halfWidthOf(p1), halfWidthOf(p2));
+        for (const auto& [t0, t1]: intervals) {
+            result.emplace_back(i, t0);
+            result.emplace_back(i, t1);
+        }
+    }
+    return result;
 }
 
 auto Stroke::intersectWithPaddedBox(const PaddedBox& box) const -> IntersectionParametersContainer {

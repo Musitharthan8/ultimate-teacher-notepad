@@ -97,4 +97,82 @@ inline std::optional<std::pair<double, double>> segmentDiscInterval(Vec a, Vec b
     return std::pair(t0, t1);
 }
 
+/**
+ * Partial erasing. The ink of a segment is modelled as a sweep of discs: at parameter t the cross-section is a disc
+ * of radius h(t) = h0 + (h1 - h0) t centred on the centreline point S(t). That cross-section touches the eraser disc
+ * of radius R about c exactly when |S(t) - c| <= R + h(t). This solves that inequality exactly for t in [0, 1].
+ *
+ * Returns disjoint closed intervals in increasing order (at most two, since the set may be the complement of an
+ * interval when the width changes faster than the segment length).
+ */
+inline std::vector<std::pair<double, double>> segmentInkDiscIntervals(Vec a, Vec b, Vec c, double R, double h0,
+                                                                      double h1) {
+    const double dx = b.x - a.x;
+    const double dy = b.y - a.y;
+    const double fx = a.x - c.x;
+    const double fy = a.y - c.y;
+    const double H0 = R + h0;
+    const double D = h1 - h0;  // slope of the touching radius H(t) = H0 + D t
+
+    // g(t) = |S(t) - c|^2 - H(t)^2 = A t^2 + B t + C. The ink touches the eraser where g(t) <= 0.
+    const double A = dx * dx + dy * dy - D * D;
+    const double B = 2.0 * (fx * dx + fy * dy - H0 * D);
+    const double C = fx * fx + fy * fy - H0 * H0;
+
+    std::vector<std::pair<double, double>> out;
+    const double scale = dx * dx + dy * dy + D * D + 1.0;
+    if (std::abs(A) <= 1e-12 * scale) {
+        // Linear: B t + C <= 0
+        if (std::abs(B) <= 1e-12 * scale) {
+            if (C <= 0.0) {
+                out.emplace_back(0.0, 1.0);
+            }
+        } else if (B > 0.0) {
+            const double r = -C / B;  // t <= r
+            if (r >= 0.0) {
+                out.emplace_back(0.0, std::min(r, 1.0));
+            }
+        } else {
+            const double r = -C / B;  // t >= r
+            if (r <= 1.0) {
+                out.emplace_back(std::max(r, 0.0), 1.0);
+            }
+        }
+        return out;
+    }
+
+    const double disc = B * B - 4.0 * A * C;
+    if (A > 0.0) {
+        // Upward parabola: touching exactly between its roots
+        if (disc < 0.0) {
+            return out;
+        }
+        const double s = std::sqrt(disc);
+        const double r0 = std::max((-B - s) / (2.0 * A), 0.0);
+        const double r1 = std::min((-B + s) / (2.0 * A), 1.0);
+        if (r0 <= r1) {
+            out.emplace_back(r0, r1);
+        }
+        return out;
+    }
+
+    // Downward parabola: touching outside its roots
+    if (disc < 0.0) {
+        out.emplace_back(0.0, 1.0);
+        return out;
+    }
+    const double s = std::sqrt(disc);
+    const double roots0 = (-B - s) / (2.0 * A);
+    const double roots1 = (-B + s) / (2.0 * A);
+    const double lo = std::min(roots0, roots1);
+    const double hi = std::max(roots0, roots1);
+    if (lo >= 0.0) {
+        out.emplace_back(0.0, std::min(lo, 1.0));
+    }
+    if (hi <= 1.0) {
+        out.emplace_back(std::max(hi, 0.0), 1.0);
+    }
+    return out;
+}
+
 }  // namespace utn::eraser

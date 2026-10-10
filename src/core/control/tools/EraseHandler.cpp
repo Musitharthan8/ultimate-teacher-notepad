@@ -20,7 +20,6 @@
 #include "model/Stroke.h"                 // for Stroke
 #include "model/XojPage.h"                // for XojPage
 #include "model/eraser/ErasableStroke.h"  // for ErasableStroke
-#include "model/eraser/PaddedBox.h"       // for PaddedBox
 #include "undo/DeleteUndoAction.h"        // for DeleteUndoAction
 #include "undo/EraseUndoAction.h"         // for EraseUndoAction
 #include "undo/UndoRedoHandler.h"         // for UndoRedoHandler
@@ -130,12 +129,11 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
                 return;
             }
 
-            const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-            const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
-            auto intersectionParameters = s->intersectWithPaddedBox(paddedEraserBox);
+            // Partial erasing: the eraser is a disc, and the ink of the stroke is removed where it touches that disc
+            auto intersectionParameters = s->intersectWithEraserDisc(Point(x, y), halfEraserSize);
 
             if (intersectionParameters.empty()) {
-                // The stroke does not intersect the eraser square
+                // The stroke's ink does not touch the eraser disc
                 return;
             }
 
@@ -162,9 +160,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
         if (pos == -1) {
             return;
         }
-        const double paddingCoeff = PADDING_COEFFICIENT_CAP[s->getStrokeCapStyle()];
-        const PaddedBox paddedEraserBox{{x, y}, halfEraserSize, halfEraserSize + paddingCoeff * s->getWidth()};
-        erasable->erase(paddedEraserBox, range);
+        erasable->erase(Point(x, y), halfEraserSize, range);
     }
 }
 

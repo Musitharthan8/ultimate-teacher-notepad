@@ -4,9 +4,15 @@
  */
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <vector>
+
 #include "control/ToolHandler.h"
 #include "control/tools/EraseHandler.h"
 #include "control/tools/InputHandler.h"
+#include "model/eraser/CircularEraser.h"
 #include "gui/LegacyRedrawable.h"
 #include "model/Document.h"
 #include "model/Layer.h"
@@ -173,4 +179,132 @@ TEST(EraseHandler, wholeStrokeModeDeletesStrokeInsideDisc) {
     eraser.erase(50, 50);
     eraser.finalize();
     EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+}
+
+namespace {
+/// Distance from q to the segment (x0,y0)-(x1,y1), using the same primitive as the eraser
+double distanceToPath(const Point& q, double x0, double y0, double x1, double y1) {
+    return utn::eraser::distancePointSegment({q.x, q.y}, {x0, y0}, {x1, y1});
+}
+
+/// All centreline points of the strokes left on the selected layer
+std::vector<Point> remainingPoints(const PageRef& page) {
+    std::vector<Point> pts;
+    for (auto& e: page->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_STROKE) {
+            for (const Point& p: static_cast<Stroke*>(e.get())->getPointVector()) {
+                pts.push_back(p);
+            }
+        }
+    }
+    return pts;
+}
+
+/// Erase along the horizontal path y = 100, x from 0 to 200, with a single fast pointer jump (the sweep fills in)
+void sweepHorizontalPath(const PageRef& page, double radius) {
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(radius);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    eraser.erase(0, 100);
+    eraser.erase(200, 100);
+    eraser.finalize();
+}
+}  // namespace
+
+// Partial erasing is a disc. The stroke's nearest point (58,58) is at distance 11.3 from (50,50), beyond R + h = 10.5,
+// but inside the square of half size 10.4 that the old eraser used, so a square eraser would have cut it.
+TEST(EraseHandler, partialEraseIsCircularNotSquare) {
+    auto page = std::make_shared<XojPage>(200, 200);
+    addLine(page, 58, 58, 200, 200);
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    eraser.erase(50, 50);
+    eraser.finalize();
+    EXPECT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+    EXPECT_FALSE(undo.canUndo());
+}
+
+// A vertical stroke crossing the sweep is cut exactly where its ink reaches the disc: |y - 100| = R + h.
+// Checked for several pen widths, so the cut respects the thickness of the ink.
+TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
+    for (double width: {1.0, 4.0, 10.0}) {
+        for (double radius: {3.0, 10.0, 40.0}) {
+            auto page = std::make_shared<XojPage>(400, 400);
+            auto stroke = std::make_unique<Stroke>();
+            stroke->setToolType(StrokeTool::PEN);
+            stroke->setWidth(width);
+            stroke->addPoint(Point(100, 0));
+            stroke->addPoint(Point(100, 200));
+            page->getSelectedLayer()->addElement(std::move(stroke));
+
+            sweepHorizontalPath(page, radius);
+
+            const double h = 0.5 * width;
+            const double reach = radius + h;
+            ASSERT_GE(page->getSelectedLayer()->getElements().size(), 1U) << "w " << width << " R " << radius;
+            // No ink survives within reach of the path: every remaining point is at least R + h away
+            for (const Point& p: remainingPoints(page)) {
+                EXPECT_GE(distanceToPath(p, 0, 100, 200, 100), reach - 1e-6)
+                        << "w " << width << " R " << radius << " point (" << p.x << ", " << p.y << ")";
+            }
+            // The cut lands at exactly R + h above and below the path (the far ends are left in place)
+            double highestAbove = -1e9, lowestBelow = 1e9;
+            for (const Point& p: remainingPoints(page)) {
+                if (p.y < 100) highestAbove = std::max(highestAbove, p.y);
+                if (p.y > 100) lowestBelow = std::min(lowestBelow, p.y);
+            }
+            EXPECT_NEAR(highestAbove, 100 - reach, 1e-6) << "w " << width << " R " << radius;
+            EXPECT_NEAR(lowestBelow, 100 + reach, 1e-6) << "w " << width << " R " << radius;
+        }
+    }
+}
+
+// A stroke whose ink lies outside the path's reach is left alone. The second line is 25 away from the path, and the
+// disc reaches only 10.5 from it.
+TEST(EraseHandler, partialEraseLeavesNeighbouringStrokeOutsideDisc) {
+    auto page = std::make_shared<XojPage>(400, 400);
+    addLine(page, 0, 125, 200, 125);
+    sweepHorizontalPath(page, 10);
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+    auto pts = remainingPoints(page);
+    ASSERT_EQ(pts.size(), 2U);
+    EXPECT_DOUBLE_EQ(pts[0].y, 125);
+    EXPECT_DOUBLE_EQ(pts[1].y, 125);
+}
+
+// A stroke lying on the sweep is removed completely, with no gap left by the jump
+TEST(EraseHandler, partialEraseSweepLeavesNoGapAlongStroke) {
+    auto page = std::make_shared<XojPage>(400, 400);
+    addLine(page, 0, 100, 200, 100);
+    sweepHorizontalPath(page, 10);
+    EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+}
+
+// Curved stroke (a circle of radius 60 centred on (100,100)) swept by the horizontal path: every remaining point must
+// be outside the disc's reach of the path.
+TEST(EraseHandler, partialEraseCurvedStrokeRespectsDisc) {
+    auto page = std::make_shared<XojPage>(400, 400);
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setWidth(2);
+    for (int k = 0; k <= 360; k += 4) {
+        const double a = k * std::acos(-1.0) / 180.0;
+        stroke->addPoint(Point(100 + 60 * std::cos(a), 100 + 60 * std::sin(a)));
+    }
+    page->getSelectedLayer()->addElement(std::move(stroke));
+    sweepHorizontalPath(page, 10);
+    const double reach = 10 + 1;
+    for (const Point& p: remainingPoints(page)) {
+        EXPECT_GE(distanceToPath(p, 0, 100, 200, 100), reach - 1e-6) << p.x << ", " << p.y;
+    }
+    EXPECT_FALSE(remainingPoints(page).empty());
 }

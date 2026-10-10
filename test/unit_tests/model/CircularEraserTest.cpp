@@ -86,3 +86,78 @@ TEST(CircularEraserTest, DegenerateSegmentIsAPoint) {
     EXPECT_TRUE(segmentDiscInterval(Vec{1, 1}, Vec{1, 1}, Vec{0, 0}, 5.0).has_value());
     EXPECT_FALSE(segmentDiscInterval(Vec{9, 9}, Vec{9, 9}, Vec{0, 0}, 5.0).has_value());
 }
+
+// ---- Partial erasing: the ink of a segment touches the disc when |S(t) - c| <= R + h(t) ----
+
+namespace {
+// Brute force reference for segmentInkDiscIntervals: sample t and test the inequality directly
+bool touchesAt(Vec a, Vec b, Vec c, double R, double h0, double h1, double t) {
+    const double x = a.x + t * (b.x - a.x) - c.x;
+    const double y = a.y + t * (b.y - a.y) - c.y;
+    const double h = h0 + t * (h1 - h0);
+    return std::hypot(x, y) <= R + h;
+}
+
+bool inIntervals(const std::vector<std::pair<double, double>>& iv, double t) {
+    for (auto [t0, t1]: iv) {
+        if (t >= t0 && t <= t1) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+TEST(CircularInk, constantWidthSegmentMatchesClosedForm) {
+    // Segment (0,0)-(100,0), eraser centre (50,10), R = 5, half width 6: touch when (100t-50)^2 + 100 <= 121
+    auto iv = segmentInkDiscIntervals({0, 0}, {100, 0}, {50, 10}, 5.0, 6.0, 6.0);
+    ASSERT_EQ(iv.size(), 1U);
+    const double half = std::sqrt(21.0) / 100.0;
+    EXPECT_NEAR(iv[0].first, 0.5 - half, 1e-12);
+    EXPECT_NEAR(iv[0].second, 0.5 + half, 1e-12);
+}
+
+TEST(CircularInk, missesWhenInkDoesNotReachDisc) {
+    // Distance 10 from the centreline, R + h = 5 + 1 = 6
+    EXPECT_TRUE(segmentInkDiscIntervals({0, 0}, {100, 0}, {50, 10}, 5.0, 1.0, 1.0).empty());
+}
+
+TEST(CircularInk, zeroLengthSegmentIsAPoint) {
+    auto hit = segmentInkDiscIntervals({5, 5}, {5, 5}, {5, 9}, 3.0, 1.0, 1.0);
+    ASSERT_EQ(hit.size(), 1U);
+    EXPECT_EQ(hit[0], std::pair(0.0, 1.0));
+    EXPECT_TRUE(segmentInkDiscIntervals({5, 5}, {5, 5}, {5, 20}, 3.0, 1.0, 1.0).empty());
+}
+
+// Property: over many random segments, discs and width profiles (including steep tapers where the ink cross-section
+// grows faster than the segment is long), the closed form agrees with a dense brute force sample of the inequality.
+TEST(CircularInk, closedFormAgreesWithBruteForce) {
+    unsigned state = 12345U;
+    auto rnd = [&state](double lo, double hi) {
+        state = state * 1664525U + 1013904223U;
+        return lo + (hi - lo) * (static_cast<double>(state >> 8) / static_cast<double>(1U << 24));
+    };
+    int checked = 0;
+    for (int trial = 0; trial < 300; ++trial) {
+        const Vec a{rnd(-50, 50), rnd(-50, 50)};
+        const Vec b{rnd(-50, 50), rnd(-50, 50)};
+        const Vec c{rnd(-60, 60), rnd(-60, 60)};
+        const double R = rnd(0.5, 25);
+        const double h0 = rnd(0, 8);
+        // Half the trials use a steep taper, which makes the touching set the complement of an interval
+        const double h1 = (trial % 2 == 0) ? rnd(0, 8) : rnd(0, 60);
+        const auto iv = segmentInkDiscIntervals(a, b, c, R, h0, h1);
+        for (int k = 0; k <= 4000; ++k) {
+            const double t = k / 4000.0;
+            const bool brute = touchesAt(a, b, c, R, h0, h1, t);
+            const double margin = std::abs(std::hypot(a.x + t * (b.x - a.x) - c.x, a.y + t * (b.y - a.y) - c.y) -
+                                           (R + h0 + t * (h1 - h0)));
+            if (margin < 1e-6) {
+                continue;  // on a boundary, either answer is acceptable
+            }
+            EXPECT_EQ(inIntervals(iv, t), brute) << "trial " << trial << " t " << t;
+            ++checked;
+        }
+    }
+    EXPECT_GT(checked, 100000);
+}
