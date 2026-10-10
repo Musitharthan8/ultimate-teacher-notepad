@@ -18,6 +18,7 @@
 #include "model/PageRef.h"  // for PageRef
 
 class DeleteUndoAction;
+class Element;
 class Document;
 class EraseUndoAction;
 class Layer;
@@ -39,6 +40,7 @@ public:
 
 private:
     void eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range);
+    void eraseObject(Layer* l, Element* e, double x, double y, double radius, Range& range);
 
 private:
     PageRef page;

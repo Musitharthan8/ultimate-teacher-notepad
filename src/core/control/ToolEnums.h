@@ -154,8 +154,16 @@ static constexpr std::string_view opacityFeatureToString(OpacityFeature feature)
 }
 OpacityFeature opacityFeatureFromString(const std::string& feature);
 
-enum EraserType { ERASER_TYPE_NONE = 0, ERASER_TYPE_DEFAULT, ERASER_TYPE_WHITEOUT, ERASER_TYPE_DELETE_STROKE };
-static constexpr std::array<std::string_view, 4> eraserTypeNames{"none", "default", "whiteout", "deleteStroke"};
+// Append only: the values are stored in settings and in the Lua API.
+enum EraserType {
+    ERASER_TYPE_NONE = 0,
+    ERASER_TYPE_DEFAULT,
+    ERASER_TYPE_WHITEOUT,
+    ERASER_TYPE_DELETE_STROKE,
+    ERASER_TYPE_DELETE_OBJECT
+};
+static constexpr std::array<std::string_view, 5> eraserTypeNames{"none", "default", "whiteout", "deleteStroke",
+                                                                 "deleteObject"};
 
 static constexpr std::string_view eraserTypeToString(EraserType type) {
     return eraserTypeNames.at(static_cast<size_t>(type));

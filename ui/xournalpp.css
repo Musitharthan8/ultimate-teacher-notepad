@@ -494,7 +494,13 @@ window.utnShell .utn-brand {
 }
 window.utnShell.darkMode .utn-brand { color: #55d6c2; }
 window.utnShell.utnHighContrast .utn-brand { color: #ffffff; }
-window.utnShell #tbLeft1 button { padding: 7px 8px; }
+/* Kami-inspired compact icon rail: short, consistent hit targets with accessible hover help.
+   Keep touch controls larger without permanent text labels consuming the worksheet width. */
+window.utnShell #tbLeft1 button {
+    min-width: 38px;
+    min-height: 38px;
+    padding: 4px 5px;
+}
 window.utnShell #utnContextBar button { padding: 4px 7px; }
 window.utnShell #utnContextBar .utn-context-badge { min-width: 82px; }
 /* A fixed properties-row height keeps the canvas still while switching tools. */
@@ -502,7 +508,11 @@ window.utnShell #utnContextViewport { min-height: 44px; }
 window.utnShell.utnTouch #utnContextViewport { min-height: 56px; }
 window.utnShell #utnContextViewport scrollbar { min-height: 8px; }
 window.utnShell #utnContextViewport scrollbar slider { min-width: 32px; }
-window.utnShell.utnTouch #tbLeft1 button { padding: 12px 10px; }
+window.utnShell.utnTouch #tbLeft1 button {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 7px 8px;
+}
 window.utnShell.utnTouch #utnContextBar button { padding: 8px 10px; }
 
 /* Shared UTN controls: colour swatches, size buttons, menus. */

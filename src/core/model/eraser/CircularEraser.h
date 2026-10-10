@@ -67,6 +67,16 @@ inline bool circleHitsStroke(Vec centre, double radius, const std::vector<Knot>&
 }
 
 /**
+ * Whether the disc of radius R about c touches the closed rectangle [x, x + w] x [y, y + h] (tangency counts).
+ * Used by the object eraser, which removes whole elements by their bounding box.
+ */
+inline bool circleTouchesRect(Vec c, double R, double x, double y, double w, double h) {
+    const double dx = std::max({x - c.x, 0.0, c.x - (x + w)});
+    const double dy = std::max({y - c.y, 0.0, c.y - (y + h)});
+    return dx * dx + dy * dy <= R * R;
+}
+
+/**
  * Parameters t in [0, 1] for which S(t) = a + t (b - a) lies inside the disc of radius R about c.
  * Returns the closed interval [t0, t1], or nothing when the segment misses the disc.
  */

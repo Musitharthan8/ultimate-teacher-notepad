@@ -702,6 +702,8 @@ void ToolHandler::saveSettings() const {
         if (tool->type == TOOL_ERASER) {
             if (this->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
                 st.setString("type", "deleteStroke");
+            } else if (this->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
+                st.setString("type", "deleteObject");
             } else if (this->getEraserType() == ERASER_TYPE_WHITEOUT) {
                 st.setString("type", "whiteout");
             } else  // ERASER_TYPE_DEFAULT
