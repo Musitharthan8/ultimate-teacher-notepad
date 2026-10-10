@@ -13,7 +13,8 @@
 #include "util/i18n.h"               // for _
 
 
-DeleteUndoAction::DeleteUndoAction(const PageRef& page, bool eraser): UndoAction("DeleteUndoAction"), eraser(eraser) {
+DeleteUndoAction::DeleteUndoAction(const PageRef& page, bool eraser, Document* document):
+        UndoAction("DeleteUndoAction"), eraser(eraser), document(document) {
     this->page = page;
 }
 
@@ -29,7 +30,7 @@ auto DeleteUndoAction::undo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = control->getDocument();
+    Document* doc = document ? document : control->getDocument();
     doc->lock();
     for (auto& elem: elements) {
         elem.layer->insertElement(std::move(elem.elementOwn), elem.pos);
@@ -51,7 +52,7 @@ auto DeleteUndoAction::redo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = control->getDocument();
+    Document* doc = document ? document : control->getDocument();
     doc->lock();
     for (auto& elem: elements) {
         elem.elementOwn = elem.layer->removeElement(elem.element).e;
