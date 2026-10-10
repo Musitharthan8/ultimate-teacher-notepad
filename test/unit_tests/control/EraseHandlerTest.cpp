@@ -530,7 +530,11 @@ TEST(EraseHandler, partiallyErasedPressureStrokesRoundTripThroughXopp) {
             const Point a = original->getPoint(j), b = loaded->getPoint(j);
             EXPECT_NEAR(a.x, b.x, 1e-7);
             EXPECT_NEAR(a.y, b.y, 1e-7);
-            EXPECT_NEAR(a.z, b.z, 1e-7);
+            // XOPP intentionally stores pressure for drawable segments only; the last
+            // point has no outgoing segment, so its z value is not round-tripped.
+            if (j + 1 < original->getPointCount()) {
+                EXPECT_NEAR(a.z, b.z, 1e-7);
+            }
         }
     }
 }
