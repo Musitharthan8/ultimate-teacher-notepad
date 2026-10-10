@@ -175,9 +175,11 @@ public:
             g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                                  auto colour = Color(GPOINTER_TO_UINT(
                                          g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
+                                 // Close while this widget is still alive; applying the colour may
+                                 // trigger a toolbar rebuild that destroys the popover.
+                                 auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
+                                 gtk_popover_popdown(popup);
                                  teacherApplyColour(static_cast<Control*>(data), colour);
-                                 gtk_popover_popdown(GTK_POPOVER(
-                                         g_object_get_data(G_OBJECT(button), "utn-popover")));
                              }), control);
             gtk_grid_attach(grid, button, static_cast<int>(i % 4), static_cast<int>(i / 4), 1, 1);
         }
