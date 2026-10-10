@@ -173,7 +173,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
             // removed the if statement - this prevents us from putting multiple elements into a
             // stroke erase operation, but it also prevents the crashing and layer issues!
             if (!this->eraseDeleteUndoAction) {
-                auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true);
+                auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true, this->doc);
                 // Todo check dangerous: this->eraseDeleteUndoAction could be a dangling reference
                 this->eraseDeleteUndoAction = eraseDel.get();
                 this->undo->addUndoAction(std::move(eraseDel));
@@ -195,7 +195,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
             }
 
             if (this->eraseUndoAction == nullptr) {
-                auto eraseUndo = std::make_unique<EraseUndoAction>(this->page);
+                auto eraseUndo = std::make_unique<EraseUndoAction>(this->page, this->doc);
                 // Todo check dangerous: this->eraseDeleteUndoAction could be a dangling reference
                 this->eraseUndoAction = eraseUndo.get();
                 this->undo->addUndoAction(std::move(eraseUndo));
