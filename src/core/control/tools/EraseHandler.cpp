@@ -91,10 +91,14 @@ void EraseHandler::erase(double x, double y) {
     // when sqrt(a^2 + d^2) <= sqrt(R^2 + (spacing / 2)^2), so the sample disc needs that radius. The over-erase is at
     // most sqrt(R^2 + (spacing / 2)^2) - R, which is below R / 100 for SAMPLES_PER_RADIUS = 4.
     const double sampleRadius = std::sqrt(halfEraserSize * halfEraserSize + 0.25 * spacing * spacing);
-    // Prefilter must cover the enlarged sample discs, not merely the nominal cursor radius.
+    // Rectangle::intersects requires positive overlap, whereas the circular hit test
+    // intentionally includes tangency. Inflate this *broad-phase filter only* by a
+    // tiny tolerance so a stroke touching exactly at the outer edge is not discarded.
+    // Use the actual enlarged sample radius rather than the nominal cursor radius.
+    const double filterRadius = sampleRadius + std::max(1e-8, sampleRadius * 1e-8);
     const xoj::util::Rectangle<double> eraserRect{
-            std::min(start.x, x) - sampleRadius, std::min(start.y, y) - sampleRadius,
-            std::abs(x - start.x) + 2 * sampleRadius, std::abs(y - start.y) + 2 * sampleRadius};
+            std::min(start.x, x) - filterRadius, std::min(start.y, y) - filterRadius,
+            std::abs(x - start.x) + 2 * filterRadius, std::abs(y - start.y) + 2 * filterRadius};
 
     Range rerenderRange;
     Layer* l = page->getSelectedLayer();
