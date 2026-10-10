@@ -30,7 +30,8 @@ auto DeleteUndoAction::undo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = document ? document : control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto& elem: elements) {
         elem.layer->insertElement(std::move(elem.elementOwn), elem.pos);
@@ -52,7 +53,8 @@ auto DeleteUndoAction::redo(Control* control) -> bool {
         return false;
     }
 
-    Document* doc = document ? document : control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto& elem: elements) {
         elem.elementOwn = elem.layer->removeElement(elem.element).e;
