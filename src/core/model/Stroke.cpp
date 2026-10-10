@@ -605,7 +605,10 @@ auto Stroke::intersectWithEraserDisc(const Point& centre, double radius, size_t 
     const utn::eraser::Vec c{centre.x, centre.y};
     auto halfWidthOf = [this](const Point& p) { return 0.5 * (p.z == Point::NO_PRESSURE ? this->width : p.z); };
 
-    IntersectionParametersContainer result;
+    // Erased runs as [begin, end] pairs in path order. A run that reaches a vertex (end at (i, 1)) and continues into
+    // the next segment (begin at (i + 1, 0)) is one run. Keeping them apart would leave a zero-length remainder
+    // at the vertex, a stray point of ink that the eraser has removed on both sides.
+    std::vector<std::pair<PathParameter, PathParameter>> runs;
     for (size_t i = firstIndex; i <= lastIndex; ++i) {
         const Point& p1 = this->points[i];
         const Point& p2 = this->points[i + 1];
@@ -613,9 +616,20 @@ auto Stroke::intersectWithEraserDisc(const Point& centre, double radius, size_t 
                                                                     utn::eraser::Vec{p2.x, p2.y}, c, radius,
                                                                     halfWidthOf(p1), halfWidthOf(p2));
         for (const auto& [t0, t1]: intervals) {
-            result.emplace_back(i, t0);
-            result.emplace_back(i, t1);
+            const PathParameter begin(i, t0);
+            const PathParameter end(i, t1);
+            if (!runs.empty() && runs.back().second.index + 1 == i && runs.back().second.t == 1.0 && t0 == 0.0) {
+                runs.back().second = end;
+            } else {
+                runs.emplace_back(begin, end);
+            }
         }
+    }
+
+    IntersectionParametersContainer result;
+    for (const auto& [begin, end]: runs) {
+        result.emplace_back(begin.index, begin.t);
+        result.emplace_back(end.index, end.t);
     }
     return result;
 }
