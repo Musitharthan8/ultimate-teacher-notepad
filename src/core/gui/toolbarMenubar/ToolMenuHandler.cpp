@@ -292,54 +292,8 @@ void ToolMenuHandler::unloadToolbar(GtkWidget* toolbar) {
 }
 
 namespace {
-GtkButton* firstToolbarButton(GtkWidget* widget) {
-    if (GTK_IS_BUTTON(widget) && GTK_IS_IMAGE(gtk_bin_get_child(GTK_BIN(widget)))) {
-        return GTK_BUTTON(widget);
-    }
-    if (!GTK_IS_CONTAINER(widget)) {
-        return nullptr;
-    }
-    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
-    GtkButton* result = nullptr;
-    for (GList* child = children; child && !result; child = child->next) {
-        result = firstToolbarButton(GTK_WIDGET(child->data));
-    }
-    g_list_free(children);
-    return result;
-}
-
-void labelTeacherTool(GtkWidget* item, const std::string& label) {
-    gtk_widget_set_hexpand(item, false);
-    auto* child = gtk_bin_get_child(GTK_BIN(item));
-    if (GTK_IS_BOX(child)) {
-        gtk_orientable_set_orientation(GTK_ORIENTABLE(child), GTK_ORIENTATION_HORIZONTAL);
-    }
-    auto* button = firstToolbarButton(item);
-    if (!button) {
-        return;
-    }
-    auto* icon = gtk_bin_get_child(GTK_BIN(button));
-    if (!icon || !GTK_IS_IMAGE(icon)) {
-        return;
-    }
-    g_object_ref(icon);
-    gtk_container_remove(GTK_CONTAINER(button), icon);
-    // Icon above a short label: a narrow rail that still names every tool
-    auto* row = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
-    gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
-    gtk_box_append(row, icon);
-    g_object_unref(icon);
-    auto* text = gtk_label_new(label.c_str());
-    gtk_widget_set_name(text, "utnRailLabel");
-    gtk_label_set_justify(GTK_LABEL(text), GTK_JUSTIFY_CENTER);
-    gtk_label_set_line_wrap(GTK_LABEL(text), true);
-    gtk_label_set_max_width_chars(GTK_LABEL(text), 8);  // "Hide & Reveal" wraps onto two lines
-    gtk_widget_set_hexpand(text, false);
-    gtk_box_append(row, text);
-    gtk_button_set_child(button, GTK_WIDGET(row));
-    gtk_widget_show_all(GTK_WIDGET(row));
-}
-
+// Teacher tools use a compact icon rail. Descriptive tooltips and accessible names
+// replace permanently visible labels, keeping every action reachable on small screens.
 /// Visible name and one-line hover explanation for teacher-layout toolbar items.
 struct TeacherToolText {
     const char* id;
@@ -453,8 +407,10 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                                 gtk_widget_set_tooltip_text(it.get(), label.c_str());
                             }
                             if (!horizontal) {
-                                labelTeacherTool(it.get(), label);
-
+                                utn::setAccessibleName(it.get(), label.c_str());
+                                if (GtkWidget* child = gtk_bin_get_child(GTK_BIN(it.get()))) {
+                                    utn::setAccessibleName(child, label.c_str());
+                                }
                             }
                         }
                         gtk_toolbar_insert(GTK_TOOLBAR(toolbar), GTK_TOOL_ITEM(it.get()), -1);
