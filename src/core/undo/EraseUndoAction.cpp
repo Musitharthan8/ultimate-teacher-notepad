@@ -13,7 +13,8 @@
 #include "util/i18n.h"                    // for _
 
 
-EraseUndoAction::EraseUndoAction(const PageRef& page): UndoAction("EraseUndoAction") { this->page = page; }
+EraseUndoAction::EraseUndoAction(const PageRef& page, Document* document):
+        UndoAction("EraseUndoAction"), document(document) { this->page = page; }
 
 void EraseUndoAction::addOriginal(Layer* layer, Stroke* element, Element::Index pos) {
     original.emplace(layer, element, pos);
@@ -64,7 +65,7 @@ void EraseUndoAction::finalize() {
 auto EraseUndoAction::getText() -> std::string { return _("Erase stroke"); }
 
 auto EraseUndoAction::undo(Control* control) -> bool {
-    Document* doc = control->getDocument();
+    Document* doc = document ? document : control->getDocument();
     doc->lock();
     for (auto const& entry: edited) {
         entry.elementOwn = entry.layer->removeElement(entry.element).e;
@@ -85,7 +86,7 @@ auto EraseUndoAction::undo(Control* control) -> bool {
 }
 
 auto EraseUndoAction::redo(Control* control) -> bool {
-    Document* doc = control->getDocument();
+    Document* doc = document ? document : control->getDocument();
     doc->lock();
     for (auto const& entry: original) {
         entry.elementOwn = entry.layer->removeElement(entry.element).e;
