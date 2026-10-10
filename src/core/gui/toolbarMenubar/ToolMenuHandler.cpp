@@ -36,6 +36,7 @@
 #include "AbstractToolItem.h"            // for AbstractToolItem
 #include "ColorSelectorToolItem.h"       // for ColorSelectorToolItem
 #include "ColorToolItem.h"               // for ColorToolItem
+#include "gui/toolbarMenubar/icon/ColorIcon.h"  // for a visible current-colour icon
 #include "DrawingTypeComboToolButton.h"  // for DrawingTypeComboToolButton
 #include "FontButton.h"                  // for FontButton
 #include "PluginPlaceholderLabel.h"      // for PluginPlaceholderLabel
@@ -130,6 +131,10 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     auto* grid = GTK_GRID(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
     auto* custom = GTK_COLOR_BUTTON(g_object_get_data(G_OBJECT(popover), "utn-custom-colour"));
     const Color current = teacherCurrentColour(ctrl);
+    // Colour preview in the left rail follows the tool selected when the palette is opened.
+    if (GtkWidget* owner = gtk_popover_get_relative_to(popover); GTK_IS_MENU_BUTTON(owner)) {
+        gtk_button_set_child(GTK_BUTTON(owner), ColorIcon::newGtkImage(current, 22, false));
+    }
     // The palette has no meaning for Eraser/Hand; avoid silently modifying their tool state.
     const bool available = ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR);
     gtk_widget_set_sensitive(GTK_WIDGET(grid), available);
@@ -207,8 +212,7 @@ public:
                          }), control);
 
         GtkMenuButton* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
-        gtk_button_set_child(GTK_BUTTON(menu),
-                             gtk_image_new_from_icon_name("applications-graphics", GTK_ICON_SIZE_LARGE_TOOLBAR));
+        gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(teacherCurrentColour(control), 22, false));
         gtk_widget_set_tooltip_text(GTK_WIDGET(menu), _("Quick colours and custom colour picker"));
         utn::setAccessibleName(GTK_WIDGET(menu), _("Colours"));
         gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
@@ -219,7 +223,7 @@ public:
 
     std::string getToolDisplayName() const override { return _("Colours"); }
     GtkWidget* getNewToolIcon() const override {
-        return gtk_image_new_from_icon_name("applications-graphics", GTK_ICON_SIZE_LARGE_TOOLBAR);
+        return ColorIcon::newGtkImage(teacherCurrentColour(control), 22, false);
     }
 
 private:
