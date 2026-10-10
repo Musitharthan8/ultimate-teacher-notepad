@@ -65,7 +65,8 @@ void EraseUndoAction::finalize() {
 auto EraseUndoAction::getText() -> std::string { return _("Erase stroke"); }
 
 auto EraseUndoAction::undo(Control* control) -> bool {
-    Document* doc = document ? document : control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto const& entry: edited) {
         entry.elementOwn = entry.layer->removeElement(entry.element).e;
@@ -86,7 +87,8 @@ auto EraseUndoAction::undo(Control* control) -> bool {
 }
 
 auto EraseUndoAction::redo(Control* control) -> bool {
-    Document* doc = document ? document : control->getDocument();
+    // Preserve the existing GUI path. The stored document is a non-owning fallback for headless eraser tests.
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     for (auto const& entry: original) {
         entry.elementOwn = entry.layer->removeElement(entry.element).e;
