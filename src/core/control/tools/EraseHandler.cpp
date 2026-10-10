@@ -27,6 +27,31 @@
 #include "util/SmallVector.h"             // for SmallVector
 
 namespace {
+/**
+ * Whether the ink of a stroke can touch rect. The stroke's bounding box is padded by the fallback width only, so a
+ * pressure-widened stroke can reach past it. The cheap box test runs first, and the pressure-aware test only runs
+ * for strokes with pressure whose box misses.
+ */
+bool inkMayIntersect(const Stroke& s, const xoj::util::Rectangle<double>& rect) {
+    const auto box = s.getBoundingBox();
+    if (box.intersects(rect).has_value()) {
+        return true;
+    }
+    if (!s.hasPressure()) {
+        return false;
+    }
+    double maxHalfWidth = 0.5 * s.getWidth();
+    for (const Point& p: s.getPointVector()) {
+        if (p.z != Point::NO_PRESSURE) {
+            maxHalfWidth = std::max(maxHalfWidth, 0.5 * p.z);
+        }
+    }
+    const double extra = maxHalfWidth - 0.5 * s.getWidth();
+    const xoj::util::Rectangle<double> padded{box.x - extra, box.y - extra, box.width + 2 * extra,
+                                              box.height + 2 * extra};
+    return padded.intersects(rect).has_value();
+}
+
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
 
@@ -105,7 +130,7 @@ void EraseHandler::erase(double x, double y) {
     std::vector<Stroke*> candidates;
     // Removing whole strokes invalidates the layer's iterators.
     for (Element* e: xoj::refElementContainer(l->getElements())) {
-        if (e->getType() == ELEMENT_STROKE && e->getBoundingBox().intersects(eraserRect)) {
+        if (e->getType() == ELEMENT_STROKE && inkMayIntersect(*static_cast<Stroke*>(e), eraserRect)) {
             candidates.push_back(static_cast<Stroke*>(e));
         }
     }
