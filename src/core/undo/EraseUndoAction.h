@@ -21,11 +21,12 @@
 #include "UndoAction.h"         // for UndoAction
 
 class Control;
+class Document;
 class Layer;
 
 class EraseUndoAction: public UndoAction {
 public:
-    EraseUndoAction(const PageRef& page);
+    EraseUndoAction(const PageRef& page, Document* document = nullptr);
 
 public:
     bool undo(Control* control) override;
@@ -40,6 +41,8 @@ public:
     std::string getText() override;
 
 private:
+    // Non-owning document reference lets eraser actions run in headless tests without constructing a GUI Control.
+    Document* document = nullptr;
     std::multiset<PageLayerPosEntry<Stroke>> edited{};
     std::multiset<PageLayerPosEntry<Stroke>> original{};
 };
