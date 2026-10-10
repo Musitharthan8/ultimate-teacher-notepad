@@ -6,6 +6,7 @@
 #include <vector>   // for vector
 
 #include "control/Control.h"                 // for Control
+#include "control/layer/LayerInsertion.h"   // for insertIndexForNewLayer
 #include "control/actions/ActionDatabase.h"  // for ActionDatabase
 #include "gui/MainWindow.h"                  // for MainWindow
 #include "gui/XournalView.h"                 // for XournalView
@@ -184,8 +185,8 @@ void LayerController::addNewLayer(bool belowCurrentLayer) {
     }
 
     auto* l = new Layer();
-    xoj_assert(p->getSelectedLayerId() > 0);
-    auto layerPos = belowCurrentLayer ? p->getSelectedLayerId() - 1 : p->getSelectedLayerId();
+    // The background (ID 0) has no layer under it, and an empty page has none at all: both go on top
+    auto layerPos = xoj::layer::insertIndexForNewLayer(p->getSelectedLayerId(), p->getLayerCount(), belowCurrentLayer);
     p->insertLayer(l, layerPos);
     lock.unlock();
 

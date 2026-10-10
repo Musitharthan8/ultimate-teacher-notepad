@@ -16,6 +16,7 @@
 #include "control/Control.h"  // for Control
 #include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"
+#include "control/tools/ListContinuation.h"  // for utn::list::listContinuation
 #include "gui/FlyingClickableIcon.h"
 #include "gui/XournalppCursor.h"  // for XournalppCursor
 #include "model/Document.h"       // for Document
@@ -553,33 +554,11 @@ void TextEditor::iMCommitCallback(GtkIMContext* context, const gchar* str, TextE
                 gtk_text_iter_set_line_offset(&start, 0);
                 auto line = xoj::util::OwnedCString::assumeOwnership(
                         gtk_text_buffer_get_text(te->buffer.get(), &start, &cursor, false));
-                std::string_view content(line.get());
-                if (content.starts_with("• ")) {
-                    prefix = "• ";
-                } else {
-                    size_t digits = 0;
-                    while (digits < content.size() &&
-                           std::isdigit(static_cast<unsigned char>(content[digits]))) {
-                        ++digits;
-                    }
-                    if (digits > 0 && digits + 1 < content.size() &&
-                        content[digits] == '.' && content[digits + 1] == ' ') {
-                        try {
-                            prefix = std::to_string(std::stoull(std::string(content.substr(0, digits))) + 1) + ". ";
-                        } catch (const std::exception&) {
-                            prefix.clear();  // Unreasonable number: treat as ordinary text
-                        }
-                    }
-                }
-                if (!prefix.empty()) {
-                    emptyListItem = content == "• " ||
-                                    (content.size() >= 3 &&
-                                     std::all_of(content.begin(), content.end() - 2,
-                                                 [](unsigned char ch) { return std::isdigit(ch); }) &&
-                                     content.substr(content.size() - 2) == ". ");
-                    if (emptyListItem) {
-                        gtk_text_buffer_delete(te->buffer.get(), &start, &cursor);
-                    }
+                const auto continuation = utn::list::listContinuation(line.get());
+                prefix = continuation.prefix;
+                if (!prefix.empty() && continuation.emptyItem) {
+                    emptyListItem = true;
+                    gtk_text_buffer_delete(te->buffer.get(), &start, &cursor);
                 }
             }
         }
