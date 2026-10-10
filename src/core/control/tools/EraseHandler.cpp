@@ -29,6 +29,31 @@
 namespace {
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
+
+// Same conservative per-segment reach as circleHitsStroke, without rebuilding a
+// potentially thousands-of-points knot vector at every pointer sample.
+bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
+    const auto& points = stroke.getPointVector();
+    if (points.empty()) {
+        return false;
+    }
+    auto halfWidth = [&stroke](const Point& p) {
+        return 0.5 * (p.z == Point::NO_PRESSURE ? stroke.getWidth() : p.z);
+    };
+    if (points.size() == 1) {
+        const Point& p = points.front();
+        return std::hypot(p.x - centre.x, p.y - centre.y) <= radius + halfWidth(p);
+    }
+    for (size_t i = 1; i < points.size(); ++i) {
+        const Point& a = points[i - 1];
+        const Point& b = points[i];
+        const double reach = radius + std::max(halfWidth(a), halfWidth(b));
+        if (utn::eraser::distancePointSegment(centre, {a.x, a.y}, {b.x, b.y}) <= reach) {
+            return true;
+        }
+    }
+    return false;
+}
 }  // namespace
 
 EraseHandler::EraseHandler(UndoRedoHandler* undo, Document* doc, const PageRef& page, ToolHandler* handler,
@@ -66,9 +91,10 @@ void EraseHandler::erase(double x, double y) {
     // when sqrt(a^2 + d^2) <= sqrt(R^2 + (spacing / 2)^2), so the sample disc needs that radius. The over-erase is at
     // most sqrt(R^2 + (spacing / 2)^2) - R, which is below R / 100 for SAMPLES_PER_RADIUS = 4.
     const double sampleRadius = std::sqrt(halfEraserSize * halfEraserSize + 0.25 * spacing * spacing);
+    // Prefilter must cover the enlarged sample discs, not merely the nominal cursor radius.
     const xoj::util::Rectangle<double> eraserRect{
-            std::min(start.x, x) - halfEraserSize, std::min(start.y, y) - halfEraserSize,
-            std::abs(x - start.x) + 2 * halfEraserSize, std::abs(y - start.y) + 2 * halfEraserSize};
+            std::min(start.x, x) - sampleRadius, std::min(start.y, y) - sampleRadius,
+            std::abs(x - start.x) + 2 * sampleRadius, std::abs(y - start.y) + 2 * sampleRadius};
 
     Range rerenderRange;
     Layer* l = page->getSelectedLayer();
@@ -95,25 +121,12 @@ void EraseHandler::erase(double x, double y) {
     }
 }
 
-namespace {
-/// Centreline knots of a stroke with the half width of its ink at each point (pressure-aware, like Stroke::distanceTo)
-std::vector<utn::eraser::Knot> knotsOf(const Stroke& s) {
-    std::vector<utn::eraser::Knot> knots;
-    knots.reserve(s.getPointVector().size());
-    for (const Point& p: s.getPointVector()) {
-        const double width = p.z == Point::NO_PRESSURE ? s.getWidth() : p.z;
-        knots.push_back(utn::eraser::Knot{utn::eraser::Vec{p.x, p.y}, 0.5 * width});
-    }
-    return knots;
-}
-}  // namespace
-
 void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range) {
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
         if (this->handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
             // Whole-stroke mode: the eraser is a disc, so hit it with the exact circle test
-            if (!utn::eraser::circleHitsStroke(utn::eraser::Vec{x, y}, radius, knotsOf(*s))) {
+            if (!wholeStrokeTouchesDisc(*s, utn::eraser::Vec{x, y}, radius)) {
                 // The stroke's ink does not reach the eraser disc
                 return;
             }
