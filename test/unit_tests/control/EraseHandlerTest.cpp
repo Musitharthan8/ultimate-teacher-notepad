@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <fstream>
+#include <string>
 #include <cmath>
 #include <memory>
 #include <filesystem>
@@ -16,6 +18,8 @@
 #include "control/xojfile/LoadHandler.h"
 #include "control/xojfile/SaveHandler.h"
 #include "control/tools/EraseHandler.h"
+#include "control/ExportHelper.h"
+#include "control/jobs/BaseExportJob.h"
 #include "control/tools/InputHandler.h"
 #include "model/eraser/CircularEraser.h"
 #include "gui/LegacyRedrawable.h"
@@ -537,4 +541,122 @@ TEST(EraseHandler, partiallyErasedPressureStrokesRoundTripThroughXopp) {
             }
         }
     }
+}
+
+namespace {
+/// Temporary file removed at scope exit
+struct TemporaryFile {
+    fs::path path;
+    ~TemporaryFile() {
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+};
+
+std::vector<std::vector<Point>> strokePoints(const PageRef& page) {
+    std::vector<std::vector<Point>> out;
+    for (auto& e: page->getSelectedLayer()->getElements()) {
+        if (auto* st = dynamic_cast<Stroke*>(e.get())) {
+            out.push_back(st->getPointVector());
+        }
+    }
+    return out;
+}
+}  // namespace
+
+// Several eraser gestures (partial and whole-stroke), with undo and redo in between, then save and reload. The page
+// that is saved must match the page that was in memory, stroke for stroke and point for point.
+TEST(EraseHandler, repeatedEraseGesturesSurviveUndoRedoAndSaveReopen) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    for (double y: {100.0, 160.0}) {
+        auto stroke = std::make_unique<Stroke>();
+        stroke->setToolType(StrokeTool::PEN);
+        stroke->setColor(Color{0x20, 0x20, 0x20});
+        stroke->setWidth(4.0);
+        stroke->addPoint(Point(20, y, 4.0));
+        stroke->addPoint(Point(220, y, 4.0));
+        page->getSelectedLayer()->addElement(std::move(stroke));
+    }
+    Document document(nullptr);
+    document.addPage(page);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+
+    // Gesture 1: partial erase across the first stroke
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(120, 100);
+        eraser.finalize();
+    }
+    // Gesture 2: whole-stroke erase of the second stroke
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(120, 160);
+        eraser.finalize();
+    }
+    const auto afterBoth = strokePoints(page);
+    ASSERT_EQ(afterBoth.size(), 2U);
+
+    // Undo the whole-stroke gesture, then redo it: the state must be the same as before
+    undo.undo();
+    EXPECT_EQ(strokePoints(page).size(), 3U);
+    undo.redo();
+    EXPECT_EQ(strokePoints(page), afterBoth);
+
+    // Save, then reload: the saved page matches what was in memory
+    TemporaryFile temporary{fs::temp_directory_path() /
+                            ("utn-repeated-erase-" + std::to_string(g_get_monotonic_time()) + ".xopp")};
+    SaveHandler saver;
+    saver.prepareSave(&document, temporary.path);
+    saver.saveTo(temporary.path);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+
+    auto restored = LoadHandler{}.loadDocument(temporary.path);
+    ASSERT_NE(restored, nullptr);
+    ASSERT_EQ(restored->getPageCount(), 1U);
+    const auto reloaded = strokePoints(restored->getPage(0));
+    ASSERT_EQ(reloaded.size(), afterBoth.size());
+    for (size_t i = 0; i < reloaded.size(); ++i) {
+        ASSERT_EQ(reloaded[i].size(), afterBoth[i].size());
+        for (size_t j = 0; j < reloaded[i].size(); ++j) {
+            EXPECT_NEAR(reloaded[i][j].x, afterBoth[i][j].x, 1e-7);
+            EXPECT_NEAR(reloaded[i][j].y, afterBoth[i][j].y, 1e-7);
+        }
+    }
+}
+
+// An erased page exports to a PDF. The check is that a non-empty PDF file with the PDF header is written.
+TEST(EraseHandler, erasedPageExportsToPdf) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setWidth(4.0);
+    stroke->addPoint(Point(20, 100, 4.0));
+    stroke->addPoint(Point(220, 100, 4.0));
+    page->getSelectedLayer()->addElement(std::move(stroke));
+    Document document(nullptr);
+    document.addPage(page);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(120, 100);
+        eraser.finalize();
+    }
+    TemporaryFile pdf{fs::temp_directory_path() /
+                      ("utn-erased-export-" + std::to_string(g_get_monotonic_time()) + ".pdf")};
+    ExportHelper::exportPdf(&document, pdf.path, nullptr, nullptr, EXPORT_BACKGROUND_NONE, false);
+    ASSERT_TRUE(fs::exists(pdf.path));
+    std::ifstream in(pdf.path, std::ios::binary);
+    char header[5] = {0, 0, 0, 0, 0};
+    in.read(header, 4);
+    EXPECT_EQ(std::string(header), "%PDF");
+    EXPECT_GT(fs::file_size(pdf.path), 100U);
 }
