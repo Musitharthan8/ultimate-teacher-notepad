@@ -11,6 +11,7 @@
 #include <glib.h>     // for gint
 
 #include "control/ToolEnums.h"            // for ERASER_TYPE_DELETE_STROKE
+#include "model/eraser/CircularEraser.h"  // for utn::eraser::circleHitsStroke
 #include "control/ToolHandler.h"          // for ToolHandler
 #include "gui/LegacyRedrawable.h"         // for Redrawable
 #include "model/Document.h"               // for Document
@@ -80,12 +81,26 @@ void EraseHandler::erase(double x, double y) {
     }
 }
 
+namespace {
+/// Centreline knots of a stroke with the half width of its ink at each point (pressure-aware, like Stroke::distanceTo)
+std::vector<utn::eraser::Knot> knotsOf(const Stroke& s) {
+    std::vector<utn::eraser::Knot> knots;
+    knots.reserve(s.getPointVector().size());
+    for (const Point& p: s.getPointVector()) {
+        const double width = p.z == Point::NO_PRESSURE ? s.getWidth() : p.z;
+        knots.push_back(utn::eraser::Knot{utn::eraser::Vec{p.x, p.y}, 0.5 * width});
+    }
+    return knots;
+}
+}  // namespace
+
 void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& range) {
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
         if (this->handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
-            if (!s->intersects(x, y, halfEraserSize)) {
-                // The stroke does not intersect the eraser square
+            // Whole-stroke mode: the eraser is a disc, so hit it with the exact circle test
+            if (!utn::eraser::circleHitsStroke(utn::eraser::Vec{x, y}, halfEraserSize, knotsOf(*s))) {
+                // The stroke's ink does not reach the eraser disc
                 return;
             }
 

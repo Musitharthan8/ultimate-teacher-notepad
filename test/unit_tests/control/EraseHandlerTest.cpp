@@ -128,3 +128,49 @@ TEST(TeacherTools, classicHandwritingRetainsUpstreamStyle) {
     EXPECT_EQ(stroke->getFill(), 128);
     EXPECT_TRUE(stroke->getLineStyle().hasDashes());
 }
+
+namespace {
+void addLine(const PageRef& page, double x1, double y1, double x2, double y2) {
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setWidth(1);
+    stroke->addPoint(Point(x1, y1));
+    stroke->addPoint(Point(x2, y2));
+    page->getSelectedLayer()->addElement(std::move(stroke));
+}
+}  // namespace
+
+// Whole-stroke mode is a disc of radius 10 centred at (50, 50). The stroke's nearest point is (58, 58),
+// at distance 11.3, outside the disc (a square of half size 10 would catch it). It must survive.
+TEST(EraseHandler, wholeStrokeModeIsCircularNotSquare) {
+    auto page = std::make_shared<XojPage>(200, 200);
+    addLine(page, 58, 58, 200, 200);
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    eraser.erase(50, 50);
+    eraser.finalize();
+    EXPECT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+}
+
+// The same disc deletes a stroke whose centreline passes within the radius (distance 2 from (50, 50))
+TEST(EraseHandler, wholeStrokeModeDeletesStrokeInsideDisc) {
+    auto page = std::make_shared<XojPage>(200, 200);
+    addLine(page, 0, 52, 200, 52);
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    eraser.erase(50, 50);
+    eraser.finalize();
+    EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+}
