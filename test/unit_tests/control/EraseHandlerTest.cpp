@@ -312,3 +312,54 @@ TEST(EraseHandler, partialEraseCurvedStrokeRespectsDisc) {
     }
     EXPECT_FALSE(remainingPoints(page).empty());
 }
+
+TEST(EraseHandler, wholeStrokeModeAccountsForStylusPressure) {
+    auto page = std::make_shared<XojPage>(250, 250);
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setWidth(1);  // fallback width is narrow; pressure creates a much wider stroke
+    stroke->addPoint(Point(80, 100, 20));
+    stroke->addPoint(Point(120, 100, 20));
+    page->getSelectedLayer()->addElement(std::move(stroke));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.setEraserThickness(1);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    // Centreline distance 11, but the pressure-based half width 10 reaches the radius 1 disc.
+    eraser.erase(100, 111);
+    eraser.finalize();
+    EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+    EXPECT_TRUE(undo.canUndo());
+}
+
+TEST(EraseHandler, partialErasePrefilterIncludesExpandedSweepSamples) {
+    auto page = std::make_shared<XojPage>(200, 200);
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setToolType(StrokeTool::PEN);
+    stroke->setWidth(0.02);
+    // The final pointer is (10,100) with radius 10. The nominal disc misses x=20.06,
+    // but sampling at spacing 2.5 expands the disc to sqrt(100+1.5625) = 10.0778.
+    // A prefilter based on the nominal radius incorrectly drops this stroke.
+    stroke->addPoint(Point(20.06, 90));
+    stroke->addPoint(Point(20.06, 110));
+    page->getSelectedLayer()->addElement(std::move(stroke));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+    eraser.erase(0, 100);
+    EXPECT_FALSE(undo.canUndo());
+    eraser.erase(10, 100);
+    eraser.finalize();
+    EXPECT_TRUE(undo.canUndo()) << "Expanded sampling radius must also expand candidate prefilter";
+    EXPECT_GT(page->getSelectedLayer()->getElements().size(), 0U);
+}
