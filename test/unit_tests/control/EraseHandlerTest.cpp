@@ -363,3 +363,97 @@ TEST(EraseHandler, partialErasePrefilterIncludesExpandedSweepSamples) {
     EXPECT_TRUE(undo.canUndo()) << "Expanded sampling radius must also expand candidate prefilter";
     EXPECT_GT(page->getSelectedLayer()->getElements().size(), 0U);
 }
+
+
+TEST(EraseHandler, circularPartialEraseSupportsUndoRedo) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 100, 220, 100);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(120, 100);
+    eraser.finalize();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    ASSERT_TRUE(undo.canUndo());
+    EXPECT_FALSE(undo.canRedo());
+
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        undo.undo();
+        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+        ASSERT_TRUE(undo.canRedo());
+        const auto* original = static_cast<Stroke*>(page->getSelectedLayer()->getElements().front().get());
+        ASSERT_EQ(original->getPointCount(), 2U);
+        EXPECT_DOUBLE_EQ(original->getPointVector().front().x, 20.0);
+        EXPECT_DOUBLE_EQ(original->getPointVector().back().x, 220.0);
+
+        undo.redo();
+        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+        ASSERT_TRUE(undo.canUndo());
+    }
+}
+
+TEST(EraseHandler, circularWholeStrokeEraseSupportsUndoRedo) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 100, 220, 100);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.setEraserThickness(10);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(120, 100);
+    eraser.finalize();
+    ASSERT_TRUE(page->getSelectedLayer()->getElements().empty());
+    ASSERT_TRUE(undo.canUndo());
+
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        undo.undo();
+        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+        ASSERT_TRUE(undo.canRedo());
+        undo.redo();
+        ASSERT_TRUE(page->getSelectedLayer()->getElements().empty());
+        ASSERT_TRUE(undo.canUndo());
+    }
+}
+
+TEST(EraseHandler, separateCircularGesturesCreateSeparateUndoSteps) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 100, 220, 100);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(8);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(80, 100);
+    eraser.finalize();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+
+    eraser.erase(160, 100);
+    eraser.finalize();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 3U);
+
+    undo.undo();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    undo.undo();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+    ASSERT_FALSE(undo.canUndo());
+
+    undo.redo();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    undo.redo();
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 3U);
+}
