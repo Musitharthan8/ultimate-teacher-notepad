@@ -26,6 +26,11 @@
 #include "util/Range.h"                   // for Range
 #include "util/SmallVector.h"             // for SmallVector
 
+namespace {
+/// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
+constexpr double SAMPLES_PER_RADIUS = 4.0;
+}  // namespace
+
 EraseHandler::EraseHandler(UndoRedoHandler* undo, Document* doc, const PageRef& page, ToolHandler* handler,
                            LegacyRedrawable* view):
         page(page),
@@ -51,7 +56,16 @@ void EraseHandler::erase(double x, double y) {
     const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
     previousPoint = xoj::util::Point<double>{x, y};
     const double distance = std::hypot(x - start.x, y - start.y);
-    const size_t steps = std::max<size_t>(1, static_cast<size_t>(std::ceil(distance / halfEraserSize)));
+    // Sample the pointer path densely. Between two samples a disc of radius R leaves a gap of width up to the spacing,
+    // so the samples are at most R / SAMPLES_PER_RADIUS apart and each sample disc is enlarged to cover the gap
+    // (see sampleRadius). Then the union of the samples contains the whole swept circle, with no gaps.
+    const size_t steps =
+            std::max<size_t>(1, static_cast<size_t>(std::ceil(distance / (halfEraserSize / SAMPLES_PER_RADIUS))));
+    const double spacing = distance / static_cast<double>(steps);
+    // A point of the swept path at distance a <= spacing / 2 from its nearest sample is within R of the swept circle
+    // when sqrt(a^2 + d^2) <= sqrt(R^2 + (spacing / 2)^2), so the sample disc needs that radius. The over-erase is at
+    // most sqrt(R^2 + (spacing / 2)^2) - R, which is below R / 100 for SAMPLES_PER_RADIUS = 4.
+    const double sampleRadius = std::sqrt(halfEraserSize * halfEraserSize + 0.25 * spacing * spacing);
     const xoj::util::Rectangle<double> eraserRect{
             std::min(start.x, x) - halfEraserSize, std::min(start.y, y) - halfEraserSize,
             std::abs(x - start.x) + 2 * halfEraserSize, std::abs(y - start.y) + 2 * halfEraserSize};
@@ -68,7 +82,8 @@ void EraseHandler::erase(double x, double y) {
     for (Stroke* stroke: candidates) {
         for (size_t i = 1; i <= steps; ++i) {
             const double t = static_cast<double>(i) / steps;
-            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, rerenderRange);
+            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                        rerenderRange);
             if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
                 break;
             }
@@ -93,12 +108,12 @@ std::vector<utn::eraser::Knot> knotsOf(const Stroke& s) {
 }
 }  // namespace
 
-void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& range) {
+void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range) {
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
         if (this->handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
             // Whole-stroke mode: the eraser is a disc, so hit it with the exact circle test
-            if (!utn::eraser::circleHitsStroke(utn::eraser::Vec{x, y}, halfEraserSize, knotsOf(*s))) {
+            if (!utn::eraser::circleHitsStroke(utn::eraser::Vec{x, y}, radius, knotsOf(*s))) {
                 // The stroke's ink does not reach the eraser disc
                 return;
             }
@@ -130,7 +145,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
             }
 
             // Partial erasing: the eraser is a disc, and the ink of the stroke is removed where it touches that disc
-            auto intersectionParameters = s->intersectWithEraserDisc(Point(x, y), halfEraserSize);
+            auto intersectionParameters = s->intersectWithEraserDisc(Point(x, y), radius);
 
             if (intersectionParameters.empty()) {
                 // The stroke's ink does not touch the eraser disc
@@ -160,7 +175,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, Range& r
         if (pos == -1) {
             return;
         }
-        erasable->erase(Point(x, y), halfEraserSize, range);
+        erasable->erase(Point(x, y), radius, range);
     }
 }
 

@@ -38,7 +38,7 @@ public:
     void finalize();
 
 private:
-    void eraseStroke(Layer* l, Stroke* s, double x, double y, Range& range);
+    void eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range);
 
 private:
     PageRef page;

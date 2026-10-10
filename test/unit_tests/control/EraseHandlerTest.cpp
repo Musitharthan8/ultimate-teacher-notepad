@@ -252,6 +252,8 @@ TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
             const double reach = radius + h;
             ASSERT_GE(page->getSelectedLayer()->getElements().size(), 1U) << "w " << width << " R " << radius;
             // No ink survives within reach of the path: every remaining point is at least R + h away
+            // Sampling over-erases by less than R / 100 (see EraseHandler::erase), never under-erases
+            const double tol = 0.01 * radius + 0.05;
             for (const Point& p: remainingPoints(page)) {
                 EXPECT_GE(distanceToPath(p, 0, 100, 200, 100), reach - 1e-6)
                         << "w " << width << " R " << radius << " point (" << p.x << ", " << p.y << ")";
@@ -262,8 +264,8 @@ TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
                 if (p.y < 100) highestAbove = std::max(highestAbove, p.y);
                 if (p.y > 100) lowestBelow = std::min(lowestBelow, p.y);
             }
-            EXPECT_NEAR(highestAbove, 100 - reach, 1e-6) << "w " << width << " R " << radius;
-            EXPECT_NEAR(lowestBelow, 100 + reach, 1e-6) << "w " << width << " R " << radius;
+            EXPECT_NEAR(highestAbove, 100 - reach, tol) << "w " << width << " R " << radius;
+            EXPECT_NEAR(lowestBelow, 100 + reach, tol) << "w " << width << " R " << radius;
         }
     }
 }
