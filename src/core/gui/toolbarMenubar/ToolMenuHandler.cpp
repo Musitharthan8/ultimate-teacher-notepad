@@ -1,7 +1,9 @@
 #include "ToolMenuHandler.h"
 
 #include "control/UtnLayout.h"  // for isTeacherLayout
-#include <algorithm>  // for max
+#include <algorithm>
+#include <array>
+#include <cstdint>  // for max
 #include <sstream>    // for istringstream
 
 #include "control/Control.h"                         // for Control
@@ -27,6 +29,8 @@
 #include "util/XojMsgBox.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"  // for _
+#include "util/Util.h"  // for GdkRGBA conversion
+#include "control/tools/TextEditor.h"  // for text/answer-box recolouring
 #include "util/raii/CStringWrapper.h"  // for OwnedCString
 
 #include "AbstractToolItem.h"            // for AbstractToolItem
@@ -57,7 +61,8 @@
 #include "ToolSmartHighlighter.h"    // for ToolSmartHighlighter
 #include "ToolStudentView.h"         // for ToolStudentView
 #include "ToolTeacherStamp.h"       // for ToolTeacherStamp
-#include "ToolTeachingKit.h"        // for ToolTeachingKit       // for ToolTeacherStamp
+#include "ToolTeachingKit.h"        // for ToolTeachingKit
+#include "UtnWidgets.h"  // for round colour swatches and popover panels
 #include "ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "ToolZoomSlider.h"          // for ToolZoomSlider
 #include "TooltipToolButton.h"       // for TooltipToolButton
@@ -67,6 +72,158 @@
 
 
 namespace {
+
+struct ClassroomColour {
+    const char* name;
+    Color value;
+};
+
+// The fast colour set intentionally covers both handwriting and highlighting. The full
+// GTK chooser below supports arbitrary colours, including those outside these presets.
+constexpr std::array<ClassroomColour, 12> CLASSROOM_COLOURS{{
+        {N_("Black"), Color{0x00, 0x00, 0x00}},
+        {N_("Blue"), Color{0x1E, 0x5B, 0xD8}},
+        {N_("Red"), Color{0xE5, 0x26, 0x29}},
+        {N_("Green"), Color{0x39, 0xC6, 0x5E}},
+        {N_("Purple"), Color{0x8A, 0x45, 0xC8}},
+        {N_("Yellow"), Color{0xFF, 0xEA, 0x36}},
+        {N_("Orange"), Color{0xFF, 0xA7, 0x26}},
+        {N_("Pink"), Color{0xFF, 0x7E, 0xB6}},
+        {N_("Cyan"), Color{0x00, 0xD5, 0xE8}},
+        {N_("Lime"), Color{0x8B, 0xE0, 0x4E}},
+        {N_("Brown"), Color{0xA5, 0x62, 0x38}},
+        {N_("White"), Color{0xFF, 0xFF, 0xFF}},
+}};
+
+Color teacherCurrentColour(Control* ctrl) {
+    auto* tools = ctrl->getToolHandler();
+    if (tools->getToolType() == TOOL_TEXT) {
+        if (tools->getTextMode() == TextMode::Feedback) {
+            return tools->getTeacherStampColor();
+        }
+        if (tools->getTextMode() == TextMode::AnswerBox) {
+            return tools->getAnswerBoxTextColor();
+        }
+    }
+    return tools->getColor();
+}
+
+void teacherApplyColour(Control* ctrl, Color selected) {
+    auto* tools = ctrl->getToolHandler();
+    // Keep highlighter opacity (and any other current-tool alpha) when changing only hue.
+    selected.alpha = teacherCurrentColour(ctrl).alpha;
+    if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::Feedback) {
+        tools->setTeacherStampColor(selected);
+    } else if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::AnswerBox) {
+        tools->setAnswerBoxTextColor(selected);
+    } else {
+        tools->setColor(selected, true);  // Also recolours an active object selection.
+    }
+    if (tools->getToolType() == TOOL_TEXT) {
+        if (auto* editor = ctrl->getTextEditor()) {
+            editor->setColor(selected);
+        }
+    }
+}
+
+void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
+    auto* grid = GTK_GRID(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
+    auto* custom = GTK_COLOR_BUTTON(g_object_get_data(G_OBJECT(popover), "utn-custom-colour"));
+    const Color current = teacherCurrentColour(ctrl);
+    // The palette has no meaning for Eraser/Hand; avoid silently modifying their tool state.
+    const bool available = ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR);
+    gtk_widget_set_sensitive(GTK_WIDGET(grid), available);
+    gtk_widget_set_sensitive(GTK_WIDGET(custom), available);
+    GList* swatches = gtk_container_get_children(GTK_CONTAINER(grid));
+    for (GList* item = swatches; item; item = item->next) {
+        GtkWidget* swatch = GTK_WIDGET(item->data);
+        const auto raw = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(swatch), "utn-classroom-colour"));
+        const Color value(raw);
+        utn::setSwatchSelected(swatch, available && current.red == value.red &&
+                                                      current.green == value.green && current.blue == value.blue);
+    }
+    g_list_free(swatches);
+    GdkRGBA rgba = Util::argb_to_GdkRGBA(current);
+    rgba.alpha = 1.0;  // Opacity stays in the tool's own properties.
+    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &rgba);
+}
+
+// A compact vertical-rail colour control. Unlike the top ribbon's existing swatches,
+// this popover appears beside the user's tools, like the teaching reference screenshot.
+class ToolClassroomColours final: public AbstractToolItem {
+public:
+    explicit ToolClassroomColours(Control* ctrl):
+            AbstractToolItem("UTN_COLOURS", Category::TOOLS), control(ctrl) {}
+
+    xoj::util::WidgetSPtr createItem(bool horizontal) override {
+        auto [popover, panel] = utn::createPopoverPanel(6);
+        utn::appendPopoverHeading(panel, _("Colours"));
+
+        GtkWidget* hint = gtk_label_new(_("Choose a colour for the selected tool"));
+        gtk_label_set_xalign(GTK_LABEL(hint), 0.0F);
+        gtk_box_append(panel, hint);
+
+        GtkGrid* grid = GTK_GRID(gtk_grid_new());
+        gtk_grid_set_column_spacing(grid, 3);
+        gtk_grid_set_row_spacing(grid, 3);
+        for (size_t i = 0; i < CLASSROOM_COLOURS.size(); ++i) {
+            const auto& entry = CLASSROOM_COLOURS[i];
+            GtkWidget* button = utn::createColourSwatch(entry.value, _(entry.name));
+            g_object_set_data(G_OBJECT(button), "utn-classroom-colour",
+                              GUINT_TO_POINTER(static_cast<uint32_t>(entry.value)));
+            g_object_set_data(G_OBJECT(button), "utn-popover", popover);
+            g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                                 auto colour = Color(GPOINTER_TO_UINT(
+                                         g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
+                                 teacherApplyColour(static_cast<Control*>(data), colour);
+                                 gtk_popover_popdown(GTK_POPOVER(
+                                         g_object_get_data(G_OBJECT(button), "utn-popover")));
+                             }), control);
+            gtk_grid_attach(grid, button, static_cast<int>(i % 4), static_cast<int>(i / 4), 1, 1);
+        }
+        gtk_box_append(panel, GTK_WIDGET(grid));
+
+        GtkBox* customRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
+        GtkWidget* customLabel = gtk_label_new(_("Custom colour"));
+        GtkWidget* custom = gtk_color_button_new();
+        gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(custom), false);
+        gtk_widget_set_tooltip_text(custom, _("Open the full colour picker"));
+        utn::setAccessibleName(custom, _("Custom colour picker"));
+        g_signal_connect(custom, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                             GdkRGBA rgba{};
+                             gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &rgba);
+                             teacherApplyColour(static_cast<Control*>(data), Util::GdkRGBA_to_rgb(rgba));
+                         }), control);
+        gtk_box_append(customRow, customLabel);
+        gtk_box_append(customRow, custom);
+        gtk_box_append(panel, GTK_WIDGET(customRow));
+
+        g_object_set_data(G_OBJECT(popover), "utn-colour-grid", grid);
+        g_object_set_data(G_OBJECT(popover), "utn-custom-colour", custom);
+        g_signal_connect(popover, "map", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+                             refreshClassroomColours(GTK_POPOVER(widget), static_cast<Control*>(data));
+                         }), control);
+
+        GtkMenuButton* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
+        gtk_button_set_child(GTK_BUTTON(menu),
+                             gtk_image_new_from_icon_name("applications-graphics", GTK_ICON_SIZE_LARGE_TOOLBAR));
+        gtk_widget_set_tooltip_text(GTK_WIDGET(menu), _("Quick colours and custom colour picker"));
+        utn::setAccessibleName(GTK_WIDGET(menu), _("Colours"));
+        gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
+        gtk_menu_button_set_direction(menu, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+        gtk_widget_show_all(GTK_WIDGET(panel));
+        return xoj::util::WidgetSPtr(GTK_WIDGET(menu), xoj::util::adopt);
+    }
+
+    std::string getToolDisplayName() const override { return _("Colours"); }
+    GtkWidget* getNewToolIcon() const override {
+        return gtk_image_new_from_icon_name("applications-graphics", GTK_ICON_SIZE_LARGE_TOOLBAR);
+    }
+
+private:
+    Control* control;
+};
+
 class UtnBrandItem: public AbstractToolItem {
 public:
     UtnBrandItem(): AbstractToolItem("UTN_BRAND", Category::MISC) {}
@@ -194,6 +351,7 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
         {"UTN_SELECT", nullptr, N_("Click an object to move, resize or delete it")},
         {"PEN", nullptr, N_("Write and draw freehand")},
         {"SMART_HIGHLIGHTER", nullptr, N_("Highlight text. The arrow chooses freehand, snapping or underline")},
+        {"UTN_COLOURS", N_("Colours"), N_("Quick swatches and a full custom colour picker")},
         {"ERASER", nullptr, N_("Erase ink. Text and Answer Boxes stay; use Select to delete them")},
         {"UTN_TEXT", nullptr, N_("Click the page to type")},
         {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
@@ -597,6 +755,7 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN consolidated shapes, STEM and classroom utilities
     emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);
+    emplaceItem<ToolClassroomColours>(control);
     emplaceCustomItemWithTarget("LINK", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LINK, "tool-link", _("Add/Edit Link"));
     emplaceCustomItemWithTarget("MATH_TEX", Cat::TOOLS, Action::SELECT_TOOL, TOOL_LATEX, "tool-math-tex",
                                 _("Add/Edit TeX"));
