@@ -15,6 +15,8 @@
 #include <memory>    // for unique_ptr
 #include <optional>  // for optional
 #include <string>    // for string, allocator
+#include <functional>  // for function
+#include <mutex>       // for mutex
 #include <vector>    // for vector
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for GdkPixbuf
@@ -39,6 +41,7 @@
 #include "filesystem.h"        // for path
 
 class LoadHandler;
+class XojPage;
 class GeometryToolController;
 class AudioController;
 class FullscreenHandler;
@@ -213,6 +216,35 @@ public:
      * @param feedback the comment to place with the next click (TextMode::Feedback only)
      */
     void selectTextMode(TextMode mode, const std::string& feedback = {});
+
+    /**
+     * @brief UTN Hide & Reveal. Answers layers (LayerAudience::Answers) are shown to students only while revealed.
+     * Hiding always covers every page, so no answer is left showing elsewhere in the lesson.
+     * Revealing affects the current page unless @p allPages. Returns how many layers changed.
+     */
+    size_t setAnswersRevealed(bool revealed, bool allPages);
+
+    /// Add an answers layer above the current one and select it; it stays visible while the teacher writes.
+    void startAnswersLayer();
+
+    /// Number of answers layers on the current page that are hidden from students
+    size_t countHiddenAnswersOnCurrentPage();
+
+    /**
+     * @brief Whether the teacher's canvas shows hidden answers faintly. Only safe while students watch a separate
+     * Student View window on another monitor; with a single or duplicated display they stay fully hidden.
+     */
+    void setGhostHiddenAnswers(bool ghost);
+    bool isGhostHiddenAnswers() const;
+
+    /**
+     * @brief UTN: listeners told whenever a page's drawing changes (anything that makes the teacher canvas redraw).
+     * Callbacks may run on any thread and must only schedule work (for example with g_idle_add).
+     */
+    using CanvasChangedCallback = std::function<void(const XojPage* page)>;
+    size_t addCanvasChangedListener(CanvasChangedCallback callback);
+    void removeCanvasChangedListener(size_t id);
+    void notifyCanvasChanged(const XojPage* page);
 
     void paperTemplate();
     void paperFormat();
@@ -572,6 +604,14 @@ private:
     std::unique_ptr<PageBackgroundChangeController> pageBackgroundChangeController;
 
     LayerController* layerController;
+
+    /// UTN: see setGhostHiddenAnswers
+    bool ghostHiddenAnswers = false;
+
+    /// UTN: see addCanvasChangedListener
+    std::mutex canvasListenersMutex;
+    std::vector<std::pair<size_t, CanvasChangedCallback>> canvasListeners;
+    size_t nextCanvasListenerId = 1;
 
     std::unique_ptr<GeometryTool> geometryTool;
     std::unique_ptr<GeometryToolController> geometryToolController;

@@ -45,7 +45,7 @@ auto PluginPlaceholderLabel::createItem(bool) -> xoj::util::WidgetSPtr {
     xoj::util::WidgetSPtr item(gtk_label_new(labelText.c_str()), xoj::util::adopt);
     GtkWidget* rawLabel = item.get();
     labelWidgets.push_back(rawLabel);
-    gtk_widget_set_can_focus(rawLabel, false);
+    gtk_widget_set_focus_on_click(rawLabel, false);  // keyboard users can still Tab to it
     gtk_widget_set_size_request(rawLabel, 200, -1);
     gtk_label_set_ellipsize(GTK_LABEL(rawLabel), PANGO_ELLIPSIZE_END);
 

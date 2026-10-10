@@ -2,11 +2,13 @@
 
 #include <map>
 #include <memory>  // for __shared_ptr_access, uni...
+#include <utility>  // for move
 #include <vector>  // for vector
 
 #include <glib.h>  // for g_message
 
 #include "model/Layer.h"                     // for Layer
+#include "model/LayerAudience.h"             // for isHiddenAnswers
 #include "model/XojPage.h"                   // for XojPage
 #include "view/DebugShowRepaintBounds.h"     // for IF_DEBUG_REPAINT
 #include "view/View.h"                       // for EditionTreatment, NORMAL...
@@ -66,6 +68,10 @@ void DocumentView::drawBackground(xoj::view::BackgroundFlags bgFlags) const {
     bgView->draw(cr);
 }
 
+void DocumentView::setHiddenAnswersOpacity(double opacity) { this->hiddenAnswersOpacity = opacity; }
+
+void DocumentView::setLayerFilter(std::function<bool(const Layer&)> filter) { this->layerFilter = std::move(filter); }
+
 void DocumentView::drawPage(ConstPageRef page, cairo_t* cr, bool dontRenderEditingStroke,
                             xoj::view::BackgroundFlags flags) {
     initDrawing(page, cr, dontRenderEditingStroke);
@@ -75,9 +81,16 @@ void DocumentView::drawPage(ConstPageRef page, cairo_t* cr, bool dontRenderEditi
     xoj::view::Context context{cr, (xoj::view::NonAudioTreatment)this->markAudioStroke,
                                (xoj::view::EditionTreatment) !this->dontRenderEditingStroke, xoj::view::NORMAL_COLOR};
     for (const Layer* layer: page->getLayersView()) {
-        if (layer->isVisible()) {
+        if (this->layerFilter ? this->layerFilter(*layer) : layer->isVisible()) {
             xoj::view::LayerView layerView(layer);
             layerView.draw(context);
+        } else if (!this->layerFilter && this->hiddenAnswersOpacity > 0.0 && utn::isHiddenAnswers(*layer)) {
+            // Teacher-only preview of hidden answers
+            cairo_push_group(cr);
+            xoj::view::LayerView layerView(layer);
+            layerView.draw(context);
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, this->hiddenAnswersOpacity);
         }
     }
 

@@ -39,7 +39,7 @@ static GtkWidget* makeChild(const char* desc) {
 
 auto FontButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* btn = gtk_button_new();
-    gtk_widget_set_can_focus(btn, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(btn, getToolDisplayName().c_str());
     gtk_actionable_set_action_name(GTK_ACTIONABLE(btn),
                                    (std::string("win.") + Action_toString(Action::SELECT_FONT)).c_str());

@@ -27,6 +27,7 @@
 #include "control/xojfile/XmlParser.h"  // for XmlParser
 #include "model/BackgroundImage.h"      // for BackgroundImage
 #include "model/Document.h"             // for Document
+#include "model/LayerAudience.h"        // for prepareLoadedLayer
 #include "model/Font.h"                 // for XojFont
 #include "model/Image.h"                // for Image
 #include "model/Layer.h"                // for Layer
@@ -292,14 +293,22 @@ void LoadHandler::loadBgPdf(bool attach, const fs::path& filename) {
 void LoadHandler::addLayer(const std::optional<std::string_view>& name) {
     xoj_assert(!this->layer);
     this->layer = std::make_unique<Layer>();
+    this->layerAudience.reset();
 
     if (name) {
         this->layer->setName(std::string{*name});
     }
 }
 
+void LoadHandler::setLayerAudience(std::string_view audience) {
+    this->layerAudience = utn::audienceFromString(audience);
+}
+
 void LoadHandler::finalizeLayer() {
     xoj_assert(this->layer);
+    // Answers start hidden; UTN 0.2 files are recognised by their layer names
+    utn::prepareLoadedLayer(*this->layer, this->layerAudience);
+    this->layerAudience.reset();
     this->page->addLayer(this->layer.release());
 }
 

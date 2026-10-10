@@ -854,12 +854,14 @@ auto XojPageView::onKeyPressEvent(const KeyEvent& event) -> bool {
         }
     }
 
-    // UTN: resize the eraser quickly with [ and ]
-    if (!this->textEditor && (event.keyval == GDK_KEY_bracketleft || event.keyval == GDK_KEY_bracketright)) {
+    // UTN: resize the eraser quickly with [ and ] (only while erasing, so the keys stay free elsewhere)
+    if (!this->textEditor && (event.keyval == GDK_KEY_bracketleft || event.keyval == GDK_KEY_bracketright) &&
+        this->xournal->getControl()->getToolHandler()->getToolType() == TOOL_ERASER) {
         auto* tools = this->xournal->getControl()->getToolHandler();
         double thickness = tools->getEraserThickness();
         thickness += event.keyval == GDK_KEY_bracketright ? 0.5 : -0.5;
         tools->setEraserThickness(thickness);
+        tools->fireToolChanged();  // the properties bar slider follows
         return true;
     }
 
@@ -901,6 +903,7 @@ auto XojPageView::onKeyReleaseEvent(const KeyEvent& event) -> bool {
 }
 
 void XojPageView::rerenderPage(bool sizeChanged) {
+    this->xournal->getControl()->notifyCanvasChanged(this->page.get());
     this->rerenderComplete = true;
     this->sizeChanged = sizeChanged;
     this->xournal->getControl()->getScheduler()->addRerenderPage(this);
@@ -968,6 +971,7 @@ auto XojPageView::toWidgetCoordinates(const xoj::util::Rectangle<double>& r) con
 }
 
 void XojPageView::rerenderRect(double x, double y, double width, double height) {
+    this->xournal->getControl()->notifyCanvasChanged(this->page.get());
     if (this->rerenderComplete) {
         return;
     }

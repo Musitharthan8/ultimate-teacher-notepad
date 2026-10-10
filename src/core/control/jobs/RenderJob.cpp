@@ -111,6 +111,10 @@ void RenderJob::renderToBuffer(cairo_t* cr) const {
     localView.setMarkAudioStroke(this->view->getXournal()->getControl()->getToolHandler()->getToolType() ==
                                  TOOL_PLAY_OBJECT);
     localView.setPdfCache(this->view->xournal->getCache());
+    // UTN: the teacher sees hidden answers faintly while students watch a separate Student View
+    if (this->view->getXournal()->getControl()->isGhostHiddenAnswers()) {
+        localView.setHiddenAnswersOpacity(0.4);
+    }
 
     std::shared_lock<Document> lock(*this->view->xournal->getDocument());
     localView.drawPage(this->view->page, cr, false);

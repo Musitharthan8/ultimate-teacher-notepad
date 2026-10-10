@@ -70,7 +70,7 @@ GtkWidget* createStampGrid(Control* control, GtkPopover* popover, const std::arr
 
     for (const auto& stamp: stamps) {
         GtkWidget* button = gtk_button_new_with_label(stamp.label);
-        gtk_widget_set_can_focus(button, false);
+        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
         gtk_widget_set_hexpand(button, true);
 
         g_object_set_data(G_OBJECT(button), "utn-control", control);
@@ -167,7 +167,7 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_box_append(panel, GTK_WIDGET(notebook));
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
-    gtk_widget_set_can_focus(GTK_WIDGET(menuButton), false);
+    gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));

@@ -77,6 +77,7 @@
 #include "model/Font.h"                                          // for XojFont
 #include "model/Image.h"                                         // for Image
 #include "model/Layer.h"                                         // for Layer
+#include "model/LayerAudience.h"                                 // for isHiddenAnswers
 #include "model/LineStyle.h"                                     // for Line...
 #include "model/Link.h"                                          // for Link
 #include "model/PageType.h"                                      // for Page...
@@ -656,6 +657,154 @@ void Control::setToolDrawingType(DrawingType type) {
         if (win) {
             this->toolHandler->fireToolChanged();
         }
+    }
+}
+
+size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
+    const size_t current = getCurrentPageNo();
+    std::vector<size_t> changedPages;
+    size_t changedLayers = 0;
+    {
+        std::unique_lock lock(*this->doc);
+        const size_t count = this->doc->getPageCount();
+        for (size_t i = 0; i < count; ++i) {
+            // Hiding is always lesson-wide; revealing is per page unless asked otherwise
+            if (revealed && !allPages && i != current) {
+                continue;
+            }
+            bool pageChanged = false;
+            for (Layer* layer: this->doc->getPage(i)->getLayers()) {
+                if (layer->getAudience() == LayerAudience::Answers && layer->isVisible() != revealed) {
+                    layer->setVisible(revealed);
+                    pageChanged = true;
+                    ++changedLayers;
+                }
+            }
+            if (pageChanged) {
+                changedPages.push_back(i);
+            }
+        }
+    }
+
+    // Never leave the teacher writing on a layer that has just been hidden
+    if (!revealed && this->win) {
+        PageRef page = getCurrentPage();
+        if (page && page->getSelectedLayer() && page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
+            const auto& layers = page->getLayers();
+            for (size_t i = layers.size(); i > 0; --i) {
+                if (layers.at(i - 1)->getAudience() != LayerAudience::Answers) {
+                    this->layerController->switchToLay(i);  // layer ids count from 1 (0 = background)
+                    break;
+                }
+            }
+        }
+    }
+
+    for (size_t page: changedPages) {
+        firePageChanged(page);
+    }
+    if (this->win && changedLayers > 0) {
+        // Refresh the layer checkboxes; the pages were redrawn above
+        this->layerController->fireRebuildLayerMenu();
+    }
+    return changedLayers;
+}
+
+void Control::startAnswersLayer() {
+    // Check first: creation invokes the layer menu and must never run with no active page.
+    if (!getCurrentPage()) {
+        return;
+    }
+    this->layerController->addNewLayer(false);
+
+    // Set the audience and a collision-free name together, before notifying the UI.
+    // Do not call LayerController's naming helpers while holding the document mutex:
+    // those helpers acquire their own shared/unique locks.
+    {
+        std::unique_lock lock(*this->doc);
+        PageRef page = getCurrentPage();
+        if (!page || !page->getSelectedLayer()) {
+            return;
+        }
+        Layer* selected = page->getSelectedLayer();
+        std::string base(utn::ANSWERS_LAYER_NAME);
+        std::string name = base;
+        for (unsigned int suffix = 2;; ++suffix) {
+            bool exists = false;
+            for (const Layer* layer: page->getLayers()) {
+                if (layer != selected && layer->hasName() && layer->getName() == name) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                break;
+            }
+            name = base + " " + std::to_string(suffix);
+        }
+        selected->setAudience(LayerAudience::Answers);
+        selected->setName(name);
+    }
+    this->layerController->fireRebuildLayerMenu();
+}
+
+size_t Control::countHiddenAnswersOnCurrentPage() {
+    PageRef page = getCurrentPage();
+    if (!page) {
+        return 0;
+    }
+    std::shared_lock lock(*this->doc);
+    size_t hidden = 0;
+    for (Layer* layer: page->getLayers()) {
+        if (utn::isHiddenAnswers(*layer)) {
+            ++hidden;
+        }
+    }
+    return hidden;
+}
+
+void Control::setGhostHiddenAnswers(bool ghost) {
+    if (this->ghostHiddenAnswers == ghost) {
+        return;
+    }
+    this->ghostHiddenAnswers = ghost;
+    // Redraw only the pages that hold hidden answers
+    std::vector<size_t> pages;
+    {
+        std::shared_lock lock(*this->doc);
+        const size_t count = this->doc->getPageCount();
+        for (size_t i = 0; i < count; ++i) {
+            for (Layer* layer: this->doc->getPage(i)->getLayers()) {
+                if (utn::isHiddenAnswers(*layer)) {
+                    pages.push_back(i);
+                    break;
+                }
+            }
+        }
+    }
+    for (size_t page: pages) {
+        firePageChanged(page);
+    }
+}
+
+bool Control::isGhostHiddenAnswers() const { return this->ghostHiddenAnswers; }
+
+size_t Control::addCanvasChangedListener(CanvasChangedCallback callback) {
+    std::lock_guard lock(this->canvasListenersMutex);
+    const size_t id = this->nextCanvasListenerId++;
+    this->canvasListeners.emplace_back(id, std::move(callback));
+    return id;
+}
+
+void Control::removeCanvasChangedListener(size_t id) {
+    std::lock_guard lock(this->canvasListenersMutex);
+    std::erase_if(this->canvasListeners, [id](const auto& entry) { return entry.first == id; });
+}
+
+void Control::notifyCanvasChanged(const XojPage* page) {
+    std::lock_guard lock(this->canvasListenersMutex);
+    for (const auto& [id, callback]: this->canvasListeners) {
+        callback(page);
     }
 }
 

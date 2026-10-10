@@ -23,6 +23,7 @@
 
 #include "control/xojfile/DocumentBuilderInterface.h"  // for DocumentBuilderInterface
 #include "model/Document.h"                            // for Document
+#include "model/Layer.h"                               // for LayerAudience
 #include "model/DocumentHandler.h"                     // for DocumentHandler
 #include "model/PageRef.h"                             // for PageRef
 #include "model/Stroke.h"                              // for Stroke, StrokeTool,...
@@ -97,6 +98,7 @@ private:
     void setBgPdf(size_t pageno) override;
     void loadBgPdf(bool attach, const fs::path& filename) override;
     void addLayer(const std::optional<std::string_view>& name) override;
+    void setLayerAudience(std::string_view audience) override;
     void finalizeLayer() override;
     void addStroke(StrokeTool tool, Color color, double width, int fill, StrokeCapStyle capStyle,
                    const LineStyle& lineStyle, fs::path filename, size_t timestamp) override;
@@ -207,6 +209,7 @@ private:
 
     PageRef page;
     std::unique_ptr<Layer> layer;
+    std::optional<LayerAudience> layerAudience;  ///< UTN: audience read for the layer being loaded
     std::unique_ptr<Stroke> stroke;
     std::unique_ptr<Text> text;
     std::unique_ptr<Image> image;

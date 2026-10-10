@@ -18,7 +18,7 @@ PluginToolButton::~PluginToolButton() = default;
 
 auto PluginToolButton::createItem(bool) -> xoj::util::WidgetSPtr {
     GtkWidget* btn = gtk_button_new();
-    gtk_widget_set_can_focus(btn, false);  // todo(gtk4) not necessary anymore
+    gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
 
     gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
     gtk_button_set_icon_name(GTK_BUTTON(btn), t->iconName.c_str());

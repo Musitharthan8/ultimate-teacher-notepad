@@ -556,3 +556,42 @@ window.utnShell.utnHighContrast .utn-context-hint,
 window.utnShell.utnHighContrast .utn-popover-title {
     opacity: 1;
 }
+
+/* Student View status pill: the state is written in words and coloured, never colour alone. */
+window.utnShell .utn-sv-pill {
+    border-radius: 999px;
+    padding: 2px 12px;
+}
+window.utnShell .utn-sv-pill .utn-sv-dot { font-size: 0.9em; }
+window.utnShell .utn-sv-off .utn-sv-dot,
+window.utnShell .utn-sv-same .utn-sv-dot { color: #7a8590; }
+window.utnShell .utn-sv-live .utn-sv-dot { color: #126c63; }
+window.utnShell .utn-sv-frozen .utn-sv-dot { color: #b77900; }
+window.utnShell .utn-sv-blank .utn-sv-dot { color: #b3261e; }
+window.utnShell .utn-sv-live { background-color: alpha(#126c63, 0.14); }
+window.utnShell .utn-sv-frozen { background-color: alpha(#e0a100, 0.20); }
+window.utnShell .utn-sv-blank { background-color: alpha(#b3261e, 0.16); }
+window.utnShell.darkMode .utn-sv-live .utn-sv-dot { color: #55d6c2; }
+window.utnShell.darkMode .utn-sv-frozen .utn-sv-dot { color: #ffc94a; }
+window.utnShell.darkMode .utn-sv-blank .utn-sv-dot { color: #f2b8b5; }
+window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: #ffff00; }
+
+/* Toasts sit above the lesson bar and use the chrome colours. */
+.utn-toast {
+    background-color: #1d2329;
+    color: #f2f4f6;
+    border-radius: 10px;
+    padding: 8px 14px;
+    box-shadow: 0 2px 8px alpha(#000000, 0.25);
+}
+.utn-toast button { color: #55d6c2; }
+window.utnShell.utnHighContrast .utn-toast {
+    background-color: #000000;
+    color: #ffffff;
+    border: 2px solid #ffffff;
+}
+
+/* Blank screen on a single display: the teacher's canvas is covered too, because students see it. */
+.utn-blank-cover { background-color: #000000; }
+.utn-blank-cover label { color: #ffffff; }
+.utn-blank-title { font-size: 1.6em; font-weight: bold; }

@@ -25,6 +25,7 @@
 #include "model/Image.h"                       // for Image
 #include "model/Layer.h"                       // for Layer
 #include "model/LineStyle.h"                   // for LineStyle
+#include "model/LayerAudience.h"               // for audienceToString
 #include "model/Link.h"                        // for Link
 #include "model/PageType.h"                    // for PageType
 #include "model/Point.h"                       // for Point
@@ -186,6 +187,9 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
     page->addChild(layer);
     if (l->hasName()) {
         layer->setAttrib(xoj::xml_attrs::NAME_STR, l->getName().c_str());
+    }
+    if (l->getAudience() != LayerAudience::Everyone) {
+        layer->setAttrib(xoj::xml_attrs::UTN_AUDIENCE_STR, std::string(utn::audienceToString(l->getAudience())));
     }
 
     for (const auto& e: l->getElementsView()) {

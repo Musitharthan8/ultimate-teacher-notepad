@@ -147,7 +147,8 @@ void Settings::loadDefault() {
     this->snapGridTolerance = 0.50;
     this->snapGridSize = DEFAULT_GRID_SIZE;
 
-    this->strokeRecognizerMinSize = 40;
+    // UTN: recognise small classroom diagrams while leaving the threshold adjustable.
+    this->strokeRecognizerMinSize = 18;
 
     this->touchDrawing = false;
     this->gtkTouchInertialScrolling = true;

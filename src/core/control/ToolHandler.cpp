@@ -208,6 +208,10 @@ void ToolHandler::selectTool(ToolType type) {
 }
 
 void ToolHandler::setTeacherToolPolicy(bool enabled) {
+    if (enabled && !this->teacherToolPolicy) {
+        // An inherited shape pattern must not silently make freehand handwriting dashed.
+        this->explicitTeacherInkStyle = false;
+    }
     this->teacherToolPolicy = enabled;
     if (enabled) {
         // Drop shape modes that may have been stored for the highlighter by a Classic layout or imported settings.
@@ -365,8 +369,8 @@ void ToolHandler::setTextLineSpacing(double spacing) {
 auto ToolHandler::getThickness() const -> double {
     Tool* tool = this->activeTool;
 
-    // UTN: use continuous thickness for the toolbar eraser
-    if (tool == this->tools[TOOL_ERASER - TOOL_PEN].get()) {
+    // UTN: every eraser, including a stylus eraser end (a separate button tool), uses the continuous size
+    if (tool->getToolType() == TOOL_ERASER) {
         return this->eraserThickness;
     }
 
@@ -549,8 +553,16 @@ void ToolHandler::setButtonSize(ToolSize size, Button button) {
 
 void ToolHandler::setLineStyle(const LineStyle& style) {
     Tool* tool = this->toolbarSelectedTool;
+    if (this->teacherToolPolicy && tool->getToolType() == TOOL_PEN &&
+        tool->getDrawingType() == DRAWING_TYPE_DEFAULT) {
+        this->explicitTeacherInkStyle = true;
+    }
     tool->setLineStyle(style);
     this->stateChangeListener->toolLineStyleChanged();
+}
+
+bool ToolHandler::hasExplicitTeacherInkStyle() const {
+    return this->explicitTeacherInkStyle;
 }
 
 void ToolHandler::setColor(Color color, bool userSelection) {

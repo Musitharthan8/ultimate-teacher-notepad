@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "control/UtnLayout.h"  // for isTeacherLayout
+#include "gui/UtnToast.h"        // for UtnToast
 #include <regex>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
@@ -85,6 +86,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     GtkOverlay* overlay = GTK_OVERLAY(get("mainOverlay"));
     this->pdfFloatingToolBox = std::make_unique<PdfFloatingToolbox>(this, overlay);
     this->floatingToolbox = std::make_unique<FloatingToolbox>(this, overlay);
+    this->toast = std::make_unique<UtnToast>(overlay);
 
     for (size_t i = 0; i < TOOLBAR_DEFINITIONS_LEN; i++) {
         this->toolbarWidgets[i].reset(get(TOOLBAR_DEFINITIONS[i].guiName), xoj::util::ref);
@@ -117,6 +119,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
                     g_debug("Window moved to monitor \"%s\"", monitorName);
                     win->setDPI();
                 }
+                win->updateCompactLayout(gtk_widget_get_allocated_width(widget));
                 return false;
             }),
             this);
@@ -674,6 +677,8 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     // UTN uses a dedicated shell style while Classic layouts stay untouched.
     GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
     const bool utnShell = utn::isTeacherLayout(d->getId());
+    this->compactLayoutDirty = true;
+    updateCompactLayout(gtk_widget_get_allocated_width(GTK_WIDGET(this->window)));
     // Tool state follows the layout: teacher layouts never keep hidden shape modes on Highlight.
     control->getToolHandler()->setTeacherToolPolicy(utnShell);
     control->getToolHandler()->fireToolChanged();
@@ -765,6 +770,58 @@ void MainWindow::loadMainCSS(GladeSearchpath* gladeSearchPath, const gchar* cssF
 PdfFloatingToolbox* MainWindow::getPdfToolbox() const { return this->pdfFloatingToolBox.get(); }
 
 FloatingToolbox* MainWindow::getFloatingToolbox() const { return this->floatingToolbox.get(); }
+
+void MainWindow::showToast(const std::string& message, bool offerUndo) {
+    if (!offerUndo) {
+        toast->show(message);
+        return;
+    }
+    toast->show(message, _("Undo"), [ctrl = this->control]() { ctrl->getActionDatabase()->fireActivateAction(Action::UNDO); });
+}
+
+UtnToast* MainWindow::getToast() const { return this->toast.get(); }
+
+namespace {
+void setRailLabelsVisible(GtkWidget* widget, bool visible) {
+    if (g_strcmp0(gtk_widget_get_name(widget), "utnRailLabel") == 0) {
+        gtk_widget_set_visible(widget, visible);
+        return;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            setRailLabelsVisible(GTK_WIDGET(child->data), visible);
+        }
+        g_list_free(children);
+    }
+}
+}  // namespace
+
+void MainWindow::updateCompactLayout(int width) {
+    // Hysteresis: enter compact under 1080 px, leave above 1120 px, so dragging the edge does not flicker
+    const bool wasCompact = this->compactLayout;
+    if (!wasCompact && width >= 200 && width < 1080) {  // ignore the 1 px size before the window is shown
+        this->compactLayout = true;
+    } else if (wasCompact && width > 1120) {
+        this->compactLayout = false;
+    }
+    if (wasCompact == this->compactLayout && !this->compactLayoutDirty) {
+        return;
+    }
+    this->compactLayoutDirty = false;
+    GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
+    if (this->compactLayout) {
+        gtk_style_context_add_class(context, "utnCompact");
+    } else {
+        gtk_style_context_remove_class(context, "utnCompact");
+    }
+    // Compact rail: icons only; names stay in tooltips and accessible names
+    for (const auto& toolbar: this->toolbarWidgets) {
+        if (toolbar) {
+            setRailLabelsVisible(toolbar.get(), !this->compactLayout);
+        }
+    }
+}
 
 void MainWindow::setDPI() const {
     if (auto dpi = this->getControl()->getSettings()->getDisplayDpi(); dpi == -1) {

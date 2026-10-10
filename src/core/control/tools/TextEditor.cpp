@@ -1,5 +1,8 @@
 #include "TextEditor.h"
 
+#include <algorithm>
+#include <exception>
+#include <string_view>
 #include <cctype>
 #include <cstring>  // for strcmp, size_t
 #include <memory>   // for allocator, make_unique, __shared_p...
@@ -13,6 +16,7 @@
 #include "control/Control.h"  // for Control
 #include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"
+#include "control/tools/ListContinuation.h"  // for utn::list::listContinuation
 #include "gui/FlyingClickableIcon.h"
 #include "gui/XournalppCursor.h"  // for XournalppCursor
 #include "model/Document.h"       // for Document
@@ -538,8 +542,35 @@ void TextEditor::iMCommitCallback(GtkIMContext* context, const gchar* str, TextE
     }
 
     if (!strcmp(str, "\n")) {
-        if (!gtk_text_buffer_insert_interactive_at_cursor(te->buffer.get(), "\n", 1, true)) {
-            gtk_widget_error_bell(te->xournalWidget);
+        // UTN: continue bulleted and numbered lists while typing. The existing list buttons
+        // insert text prefixes, so Enter needs to preserve those prefixes on the next line.
+        // Pressing Enter on an empty list item ends the list, as in ordinary word processors.
+        std::string prefix;
+        bool emptyListItem = false;
+        if (!hadSelection) {
+            GtkTextIter cursor = getIteratorAtCursor(te->buffer.get());
+            if (gtk_text_iter_ends_line(&cursor)) {
+                GtkTextIter start = cursor;
+                gtk_text_iter_set_line_offset(&start, 0);
+                auto line = xoj::util::OwnedCString::assumeOwnership(
+                        gtk_text_buffer_get_text(te->buffer.get(), &start, &cursor, false));
+                const auto continuation = utn::list::listContinuation(line.get());
+                prefix = continuation.prefix;
+                if (!prefix.empty() && continuation.emptyItem) {
+                    emptyListItem = true;
+                    gtk_text_buffer_delete(te->buffer.get(), &start, &cursor);
+                }
+            }
+        }
+
+        if (!emptyListItem) {
+            const std::string inserted = std::string("\n") + prefix;
+            if (!gtk_text_buffer_insert_interactive_at_cursor(te->buffer.get(), inserted.c_str(),
+                                                               static_cast<gint>(inserted.size()), true)) {
+                gtk_widget_error_bell(te->xournalWidget);
+            } else {
+                te->contentsChanged(true);
+            }
         } else {
             te->contentsChanged(true);
         }
