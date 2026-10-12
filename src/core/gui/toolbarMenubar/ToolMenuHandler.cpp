@@ -312,7 +312,7 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
         {"PEN", nullptr, N_("Write and draw freehand")},
         {"SMART_HIGHLIGHTER", nullptr, N_("Highlight text. The arrow chooses freehand, snapping or underline")},
         {"UTN_COLOURS", N_("Colours"), N_("Quick swatches and a full custom colour picker")},
-        {"ERASER", nullptr, N_("Erase ink. Text and Answer Boxes stay; use Select to delete them")},
+        {"ERASER", nullptr, N_("Choose Ink, Stroke or Object Eraser. Object Eraser removes text and Answer Boxes.")},
         {"UTN_TEXT", nullptr, N_("Click the page to type")},
         {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
         {"TEACHER_STAMP", N_("Feedback"), N_("Place a comment from the Feedback Bank")},
