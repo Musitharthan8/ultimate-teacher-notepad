@@ -1011,3 +1011,40 @@ TEST(EraseHandler, wholeStrokeMultiDeleteUndoRestoresOrder) {
     undo.undo();
     EXPECT_EQ(elementOrder(page), before);
 }
+
+ 
+// Separate pointer samples can each delete a different object in one drag.
+// Removal indices shift between erase() calls; Undo must still restore the original z-order.
+TEST(EraseHandler, objectEraserUndoPreservesOrderAcrossPointerEvents) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 50, 380, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));  // A
+    page->getSelectedLayer()->addElement(makePngImage(160, 200, 40, 20));  // B (untouched)
+    page->getSelectedLayer()->addElement(makePngImage(300, 100, 40, 20));  // C
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 4U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(110, 110);  // Remove A in the first pointer event.
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 2U);
+    eraser.erase(310, 110);  // Remove C in the next event; its live index is now shifted.
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    ASSERT_TRUE(undo.canUndo());
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}
