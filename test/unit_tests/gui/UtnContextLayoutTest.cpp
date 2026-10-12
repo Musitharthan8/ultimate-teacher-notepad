@@ -38,8 +38,10 @@ std::string readKey(GKeyFile* file, const char* group, const char* key) {
 GKeyFile* loadTemplate(KeyFileGuard& guard) {
     guard.file = g_key_file_new();
     g_key_file_set_list_separator(guard.file, ',');
-    const std::string path = std::string(PROJECT_SOURCE_DIR) + "/resources-templates/toolbar.ini.in";
-    EXPECT_TRUE(g_key_file_load_from_file(guard.file, path.c_str(), G_KEY_FILE_NONE, nullptr)) << path;
+    // PROJECT_SOURCE_DIR is a u8 literal (char8_t in C++20), so build the path as u8string first.
+    const std::u8string path = std::u8string(PROJECT_SOURCE_DIR) + u8"/resources-templates/toolbar.ini.in";
+    const auto* utf8 = reinterpret_cast<const char*>(path.c_str());
+    EXPECT_TRUE(g_key_file_load_from_file(guard.file, utf8, G_KEY_FILE_NONE, nullptr)) << utf8;
     return guard.file;
 }
 }  // namespace
