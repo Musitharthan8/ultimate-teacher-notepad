@@ -284,7 +284,19 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     rebuild(control->getToolHandler()->getToolType());
     gtk_widget_show_all(GTK_WIDGET(box));
     if (!horizontal) {
-        return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+        // Side panel beside the tool rail. A tall palette (colour swatches plus controls) scrolls vertically instead
+        // of falling into the toolbar's overflow menu, where teachers would not find it.
+        GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
+        gtk_widget_set_name(scroller, "utnContextSide");
+        auto* side = GTK_SCROLLED_WINDOW(scroller);
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_set_propagate_natural_width(side, true);
+        gtk_scrolled_window_set_min_content_height(side, 160);
+        gtk_scrolled_window_set_overlay_scrolling(side, true);
+        gtk_scrolled_window_set_shadow_type(side, GTK_SHADOW_NONE);
+        gtk_container_add(GTK_CONTAINER(scroller), GTK_WIDGET(box));
+        gtk_widget_show_all(scroller);
+        return xoj::util::WidgetSPtr(scroller, xoj::util::adopt);
     }
 
     // Sizing chain: the toolbar wraps this viewport in an expanding GtkToolItem (expandsInToolbar), so the bar
