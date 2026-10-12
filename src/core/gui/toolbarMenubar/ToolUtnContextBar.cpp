@@ -392,7 +392,13 @@ void ToolUtnContextBar::appendBadge(const char* name) {
     gtk_box_append(box, badge);
 }
 
-void ToolUtnContextBar::appendSeparator() { gtk_box_append(box, gtk_separator_new(GTK_ORIENTATION_VERTICAL)); }
+void ToolUtnContextBar::appendSeparator() {
+    // A separator runs across the box: vertical in the horizontal strip, horizontal in the side panel.
+    const bool sideOrientation =
+            gtk_orientable_get_orientation(GTK_ORIENTABLE(box)) == GTK_ORIENTATION_VERTICAL;
+    gtk_box_append(box,
+                   gtk_separator_new(sideOrientation ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL));
+}
 
 void ToolUtnContextBar::appendHint(const char* text) {
     GtkWidget* label = gtk_label_new(text);
