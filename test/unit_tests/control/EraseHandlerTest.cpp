@@ -25,6 +25,7 @@
 #include "gui/LegacyRedrawable.h"
 #include "model/Document.h"
 #include "model/Image.h"
+#include "model/Text.h"
 #include "model/Layer.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
@@ -770,4 +771,210 @@ TEST(EraseHandler, objectEraserFarAwayIsNoOp) {
     EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
     EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
     EXPECT_FALSE(undo.canUndo());
+}
+
+namespace {
+std::unique_ptr<Text> makeTextObject(const std::string& content, double x, double y, bool answerBox) {
+    auto text = std::make_unique<Text>();
+    text->setText(content);
+    text->setBoxEnabled(answerBox);
+    text->setTransformation(xoj::util::Matrix::TRANSLATION(x, y));
+    return text;
+}
+
+// Sweeps horizontally across the middle of an object's bounding box, from just outside one edge to just outside the other.
+void sweepAcrossObject(EraseHandler& eraser, const Element* object) {
+    const auto box = object->getBoundingBox();
+    const double cy = box.y + box.height / 2;
+    eraser.erase(box.x - 20, cy);
+    eraser.erase(box.x + box.width + 20, cy);
+}
+
+std::vector<const Element*> elementOrder(const PageRef& page) {
+    std::vector<const Element*> out;
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        out.push_back(e.get());
+    }
+    return out;
+}
+}  // namespace
+
+TEST(EraseHandler, objectEraserDeletesWholeTextObjectNotGlyphs) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    auto text = makeTextObject("Hello", 100, 100, false);
+    const Element* textPtr = text.get();
+    page->getSelectedLayer()->addElement(std::move(text));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    sweepAcrossObject(eraser, textPtr);
+    eraser.finalize();
+    EXPECT_EQ(countType(page, ELEMENT_TEXT), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+
+    undo.undo();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 1U);
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_EQ(t->getText(), "Hello");
+            EXPECT_FALSE(t->isBoxEnabled());
+        }
+    }
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_TEXT), 0U);
+}
+
+TEST(EraseHandler, objectEraserRemovesAnswerBoxAsOneObject) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    auto answer = makeTextObject("42", 100, 100, true);
+    const Element* answerPtr = answer.get();
+    const auto boxBefore = answerPtr->getBoundingBox();
+    page->getSelectedLayer()->addElement(std::move(answer));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    sweepAcrossObject(eraser, answerPtr);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+
+    undo.undo();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 1U);
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_TRUE(t->isBoxEnabled());
+            EXPECT_EQ(t->getText(), "42");
+            EXPECT_EQ(t->getBoundingBox(), boxBefore);
+        }
+    }
+}
+
+// One gesture removes two objects in the same layer. Undo must put every object back at its original position.
+TEST(EraseHandler, objectEraserMultiObjectGestureUndoRestoresOrder) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 50, 380, 50);
+    auto imageA = makePngImage(100, 100, 40, 20);
+    auto imageB = makePngImage(160, 200, 40, 20);
+    auto imageC = makePngImage(300, 100, 40, 20);
+    page->getSelectedLayer()->addElement(std::move(imageA));
+    page->getSelectedLayer()->addElement(std::move(imageB));
+    page->getSelectedLayer()->addElement(std::move(imageC));
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 4U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    // Crosses the first and third images on y = 110; the second image sits at y = 200 and is untouched.
+    eraser.erase(60, 110);
+    eraser.erase(340, 110);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    ASSERT_EQ(elementOrder(page).size(), 2U);
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}
+
+// The object eraser must never delete from a hidden layer: the teacher cannot see that content.
+TEST(EraseHandler, objectEraserLeavesHiddenLayerAlone) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+    page->getSelectedLayer()->setVisible(false);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    EXPECT_FALSE(undo.canUndo());
+}
+
+// An Answer Box that survives an object-erase of a neighbouring image keeps its box after save and reload.
+TEST(EraseHandler, answerBoxSurvivesObjectEraseAndXoppReload) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    page->getSelectedLayer()->addElement(makeTextObject("Q1", 20, 20, true));
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    document.addPage(page);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        const Element* image = nullptr;
+        for (const auto& e: page->getSelectedLayer()->getElements()) {
+            if (e->getType() == ELEMENT_IMAGE) {
+                image = e.get();
+            }
+        }
+        ASSERT_NE(image, nullptr);
+        sweepAcrossObject(eraser, image);
+        eraser.finalize();
+    }
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+
+    TemporaryFile temporary{fs::temp_directory_path() /
+                            ("utn-answer-box-" + std::to_string(g_get_monotonic_time()) + ".xopp")};
+    SaveHandler saver;
+    saver.prepareSave(&document, temporary.path);
+    saver.saveTo(temporary.path);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+
+    auto restored = LoadHandler{}.loadDocument(temporary.path);
+    ASSERT_NE(restored, nullptr);
+    ASSERT_EQ(restored->getPageCount(), 1U);
+    const auto reloaded = restored->getPage(0);
+    EXPECT_EQ(countType(reloaded, ELEMENT_IMAGE), 0U);
+    ASSERT_EQ(countType(reloaded, ELEMENT_TEXT), 1U);
+    for (const auto& e: reloaded->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_TRUE(t->isBoxEnabled());
+            EXPECT_EQ(t->getText(), "Q1");
+        }
+    }
 }

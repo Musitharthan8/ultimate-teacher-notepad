@@ -130,20 +130,29 @@ void EraseHandler::erase(double x, double y) {
 
     if (handler->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
         // Object eraser: removes text, images and other non-stroke elements. Strokes are never touched.
-        std::vector<Element*> objects;
-        for (Element* e: xoj::refElementContainer(l->getElements())) {
-            if (e->getType() != ELEMENT_STROKE && e->getBoundingBox().intersects(eraserRect).has_value()) {
-                objects.push_back(e);
-            }
-        }
-        for (Element* object: objects) {
-            for (size_t i = 1; i <= steps; ++i) {
-                const double t = static_cast<double>(i) / steps;
-                eraseObject(l, object, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
-                            rerenderRange);
-                if (l->indexOf(object) == -1) {
-                    break;
+        // Hidden layers are never edited: the object eraser must not delete content the teacher cannot see.
+        if (l->isVisible()) {
+            // Decide every hit first (a hit depends only on the object's own box and the pointer samples), then remove
+            // from the highest index down. Each removal then happens at the element's original index, which is the
+            // position DeleteUndoAction restores, so one undo step puts back every object where it was.
+            std::vector<std::pair<Element::Index, Element*>> hits;
+            for (Element* e: xoj::refElementContainer(l->getElements())) {
+                if (e->getType() == ELEMENT_STROKE || !e->getBoundingBox().intersects(eraserRect).has_value()) {
+                    continue;
                 }
+                const auto box = e->getBoundingBox();
+                for (size_t i = 1; i <= steps; ++i) {
+                    const double t = static_cast<double>(i) / steps;
+                    const utn::eraser::Vec sample{start.x + (x - start.x) * t, start.y + (y - start.y) * t};
+                    if (utn::eraser::circleTouchesRect(sample, sampleRadius, box.x, box.y, box.width, box.height)) {
+                        hits.emplace_back(l->indexOf(e), e);
+                        break;
+                    }
+                }
+            }
+            std::sort(hits.begin(), hits.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (const auto& hit: hits) {
+                eraseObject(l, hit.second, rerenderRange);
             }
         }
     } else {
@@ -242,18 +251,14 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
     }
 }
 
-void EraseHandler::eraseObject(Layer* l, Element* e, double x, double y, double radius, Range& range) {
-    const xoj::util::Rectangle<double> box = e->getBoundingBox();
-    if (!utn::eraser::circleTouchesRect(utn::eraser::Vec{x, y}, radius, box.x, box.y, box.width, box.height)) {
-        return;
-    }
+void EraseHandler::eraseObject(Layer* l, Element* e, Range& range) {
     this->doc->lock();
     auto [element, pos] = l->removeElement(e);
     this->doc->unlock();
     if (pos == -1) {
         return;
     }
-    range = range.unite(Range(box));
+    range = range.unite(Range(element->getBoundingBox()));
 
     // One undo step per gesture, as for whole-stroke deletion
     if (!this->eraseDeleteUndoAction) {
