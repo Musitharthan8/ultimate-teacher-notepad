@@ -718,11 +718,14 @@ void Control::startAnswersLayer() {
     this->layerController->addNewLayer(false);
 
     // Set the audience and a collision-free name together, before notifying the UI.
-    // Do not call LayerController's naming helpers while holding the document mutex:
-    // those helpers acquire their own shared/unique locks.
+    // Do not call Control::getCurrentPage() or LayerController's naming helpers while
+    // holding the document mutex: those helpers acquire another lock on the same
+    // non-recursive document mutex and caused Start Answers Layer to crash/deadlock.
     {
         std::unique_lock lock(*this->doc);
-        PageRef page = getCurrentPage();
+        // The document is already exclusively locked. Read the current page
+        // directly rather than reacquiring a shared lock through getCurrentPage().
+        PageRef page = this->doc->getPage(getCurrentPageNo());
         if (!page || !page->getSelectedLayer()) {
             return;
         }
