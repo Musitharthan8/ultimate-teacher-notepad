@@ -128,6 +128,18 @@ void EraseHandler::erase(double x, double y) {
     Range rerenderRange;
     Layer* l = page->getSelectedLayer();
 
+    // A drag consists of multiple erase() events. Capture the pre-gesture ordering once,
+    // before any whole-element removals. Sorting hits within an individual event is not
+    // enough: the first event may have already shifted the indices seen by later events.
+    const auto eraserType = handler->getEraserType();
+    if ((eraserType == ERASER_TYPE_DELETE_STROKE || eraserType == ERASER_TYPE_DELETE_OBJECT) &&
+        originalDeletePositions.empty() && !eraseDeleteUndoAction) {
+        std::ptrdiff_t index = 0;
+        for (const auto& element: l->getElements()) {
+            originalDeletePositions.emplace(element.get(), index++);
+        }
+    }
+
     if (handler->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
         // Object eraser: removes text, images and other non-stroke elements. Strokes are never touched.
         // Hidden layers are never edited: the object eraser must not delete content the teacher cannot see.
@@ -272,7 +284,9 @@ void EraseHandler::removeWholeStroke(Layer* l, Stroke* s, Range& range) {
         this->eraseDeleteUndoAction = eraseDel.get();
         this->undo->addUndoAction(std::move(eraseDel));
     }
-    this->eraseDeleteUndoAction->addElement(l, std::move(stroke), pos);
+    const auto original = originalDeletePositions.find(s);
+    const auto undoPos = original == originalDeletePositions.end() ? pos : original->second;
+    this->eraseDeleteUndoAction->addElement(l, std::move(stroke), undoPos);
 }
 
 void EraseHandler::eraseObject(Layer* l, Element* e, Range& range) {
@@ -290,11 +304,14 @@ void EraseHandler::eraseObject(Layer* l, Element* e, Range& range) {
         this->eraseDeleteUndoAction = eraseDel.get();
         this->undo->addUndoAction(std::move(eraseDel));
     }
-    this->eraseDeleteUndoAction->addElement(l, std::move(element), pos);
+    const auto original = originalDeletePositions.find(e);
+    const auto undoPos = original == originalDeletePositions.end() ? pos : original->second;
+    this->eraseDeleteUndoAction->addElement(l, std::move(element), undoPos);
 }
 
 void EraseHandler::finalize() {
     previousPoint.reset();
+    originalDeletePositions.clear();
     if (this->eraseUndoAction) {
         std::unique_lock<Document> lock(*doc);
         this->eraseUndoAction->finalize();
