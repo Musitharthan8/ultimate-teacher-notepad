@@ -515,6 +515,29 @@ window.utnShell.utnTouch #tbLeft1 button {
 }
 window.utnShell.utnTouch #utnContextBar button { padding: 8px 10px; }
 
+/* Adjacent Eraser tool panel: four always-visible modes, not a hidden arrow dropdown.
+   GTK's checked radio-button state makes the active behaviour easy to recognise. */
+window.utnShell #utnContextSide .utn-eraser-modes button {
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+window.utnShell #utnContextSide .utn-eraser-modes button:checked {
+    background-color: alpha(#168b7e, 0.18);
+    border-color: #168b7e;
+}
+window.utnShell.darkMode #utnContextSide .utn-eraser-modes button:checked {
+    background-color: alpha(#55d6c2, 0.24);
+    border-color: #55d6c2;
+}
+window.utnShell.utnTouch #utnContextSide .utn-eraser-modes button {
+    min-height: 46px;
+}
+window.utnShell.utnHighContrast #utnContextSide .utn-eraser-modes button:checked {
+    border-width: 2px;
+    border-color: currentColor;
+}
+
 /* Shared UTN controls: colour swatches, size buttons, menus. */
 window.utnShell .utn-swatch {
     min-width: 26px;
