@@ -1,5 +1,6 @@
 #include "CircleRecognizer.h"
 
+#include <algorithm>  // for max
 #include <cmath>     // for hypot, cos, fabs, sin, M_PI
 #include <iterator>  // for begin, end, next
 #include <memory>
@@ -48,12 +49,17 @@ auto CircleRecognizer::scoreCircle(Stroke* s, Inertia& inertia) -> double {
     double x0 = inertia.centerX();
     double y0 = inertia.centerY();
 
+    // Pen jitter is a fixed number of page units, so for a small circle it is a large part of the radius and a
+    // hand-drawn circle could fail the score. Forgive a small deviation for small circles only. Larger circles are
+    // scored exactly as before, so the accuracy of large diagrams is unchanged.
+    const double allowance = r0 < CIRCLE_SMALL_RADIUS ? CIRCLE_JITTER_ALLOWANCE : 0.0;
+
     auto const& pv = s->getPointVector();
     for (auto pt_1st = begin(pv), pt_2nd = std::next(pt_1st), p_end_i = end(pv); pt_1st != p_end_i && pt_2nd != p_end_i;
          ++pt_2nd, ++pt_1st) {
         double dm = hypot(pt_2nd->x - pt_1st->x, pt_2nd->y - pt_1st->y);
-        double deltar = hypot(pt_1st->x - x0, pt_1st->y - y0) - r0;
-        sum += dm * fabs(deltar);
+        double deltar = std::max(0.0, std::abs(hypot(pt_1st->x - x0, pt_1st->y - y0) - r0) - allowance);
+        sum += dm * deltar;
     }
 
     return sum / (divisor);
