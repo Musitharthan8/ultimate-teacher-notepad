@@ -798,6 +798,9 @@ void ToolHandler::loadSettings() {
                 if (st.getString("type", type)) {
                     if (type == "deleteStroke") {
                         setEraserType(ERASER_TYPE_DELETE_STROKE);
+                    } else if (type == "deleteObject") {
+                        // The contextual Object Eraser must remain selected after restarting UTN.
+                        setEraserType(ERASER_TYPE_DELETE_OBJECT);
                     } else if (type == "whiteout") {
                         setEraserType(ERASER_TYPE_WHITEOUT);
                     } else {
