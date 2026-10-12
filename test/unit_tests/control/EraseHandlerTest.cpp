@@ -1144,6 +1144,7 @@ TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
         eraser.erase(250, 150);
         eraser.finalize();
 
-        EXPECT_LT(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+        // Whole-stroke removes the stroke; the partial eraser splits it, which adds points. Either way it changes.
+        EXPECT_NE(remainingPoints(page).size(), before) << eraserTypeToString(mode);
     }
 }
