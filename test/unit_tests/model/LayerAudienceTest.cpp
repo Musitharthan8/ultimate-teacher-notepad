@@ -137,3 +137,43 @@ TEST(LayerAudience, audienceSurvivesSaveAndReload) {
     EXPECT_FALSE(layers.at(1)->isVisible()) << "Answers must be hidden when a lesson is opened";
     EXPECT_EQ(layers.at(2)->getAudience(), LayerAudience::TeacherOnly);
 }
+
+TEST(LayerAudience, writableLayerAfterHideSkipsHiddenAnswers) {
+    // Answers on top and in the middle: the pen must land on the topmost ordinary layer, layer 1 here
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answersA = makeLayer(LayerAudience::Answers, false);
+    auto answersB = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{ordinary.get(), answersA.get(), answersB.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 1u);
+}
+
+TEST(LayerAudience, writableLayerAfterHidePrefersTopmostOrdinaryLayer) {
+    // Answers at the bottom, ordinary in the middle, answers on top: the pen goes to layer 2
+    auto answersBottom = makeLayer(LayerAudience::Answers, false);
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answersTop = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{answersBottom.get(), ordinary.get(), answersTop.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 2u);
+}
+
+TEST(LayerAudience, writableLayerAfterHideIgnoresTeacherOnlyAsAnswers) {
+    // Teacher-only notes are not answers: the pen may stay on them
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    auto teacher = makeLayer(LayerAudience::TeacherOnly, true);
+    std::vector<Layer*> layers{answers.get(), teacher.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 2u);
+}
+
+TEST(LayerAudience, writableLayerAfterHideNoneWhenOnlyAnswersExist) {
+    // Nothing safe to write on: the caller must not pretend a layer is writable
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{answers.get()};
+    EXPECT_FALSE(utn::writableLayerIdAfterHide(layers).has_value());
+    EXPECT_FALSE(utn::writableLayerIdAfterHide({}).has_value());
+}

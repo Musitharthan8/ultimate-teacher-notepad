@@ -673,11 +673,21 @@ size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
                 continue;
             }
             bool pageChanged = false;
-            for (Layer* layer: this->doc->getPage(i)->getLayers()) {
+            PageRef page = this->doc->getPage(i);
+            for (Layer* layer: page->getLayers()) {
                 if (layer->getAudience() == LayerAudience::Answers && layer->isVisible() != revealed) {
                     layer->setVisible(revealed);
                     pageChanged = true;
                     ++changedLayers;
+                }
+            }
+            // Hiding is lesson-wide, so the pen must leave hidden answers on every page, not only the current one.
+            // The current page is moved below through the layer controller so the layer menu follows.
+            const bool currentPageHandledLater = i == current && this->win;
+            if (!revealed && !currentPageHandledLater && page->getLayerCount() > 0 &&
+                page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
+                if (auto id = utn::writableLayerIdAfterHide(page->getLayers())) {
+                    page->setSelectedLayerId(*id);
                 }
             }
             if (pageChanged) {
@@ -689,13 +699,9 @@ size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
     // Never leave the teacher writing on a layer that has just been hidden
     if (!revealed && this->win) {
         PageRef page = getCurrentPage();
-        if (page && page->getSelectedLayer() && page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
-            const auto& layers = page->getLayers();
-            for (size_t i = layers.size(); i > 0; --i) {
-                if (layers.at(i - 1)->getAudience() != LayerAudience::Answers) {
-                    this->layerController->switchToLay(i);  // layer ids count from 1 (0 = background)
-                    break;
-                }
+        if (page && page->getLayerCount() > 0 && page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
+            if (auto id = utn::writableLayerIdAfterHide(page->getLayers())) {
+                this->layerController->switchToLay(*id);
             }
         }
     }
