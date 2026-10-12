@@ -515,6 +515,27 @@ window.utnShell.utnTouch #tbLeft1 button {
 }
 window.utnShell.utnTouch #utnContextBar button { padding: 8px 10px; }
 
+/* Shape picker in the adjacent pen panel: same checked-state language as the eraser modes. */
+window.utnShell #utnContextSide .utn-shape-picker button {
+    min-height: 32px;
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+window.utnShell #utnContextSide .utn-shape-picker button:checked {
+    background-color: alpha(#168b7e, 0.18);
+    border-color: #168b7e;
+}
+window.utnShell.darkMode #utnContextSide .utn-shape-picker button:checked {
+    background-color: alpha(#55d6c2, 0.24);
+    border-color: #55d6c2;
+}
+window.utnShell.utnTouch #utnContextSide .utn-shape-picker button {
+    min-height: 48px;
+}
+window.utnShell.utnHighContrast #utnContextSide .utn-shape-picker button:checked {
+    border-width: 3px;
+}
+
 /* Adjacent Eraser tool panel: four always-visible modes, not a hidden arrow dropdown.
    GTK's checked radio-button state makes the active behaviour easy to recognise. */
 window.utnShell #utnContextSide .utn-eraser-modes button {

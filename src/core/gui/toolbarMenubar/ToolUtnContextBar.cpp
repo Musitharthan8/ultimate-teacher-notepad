@@ -335,6 +335,8 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
 
     switch (tool) {
         case TOOL_PEN:
+            // The shape picker is always first, so switching between freehand and shapes never needs the top strip
+            appendShapePicker(tools->getDrawingType());
             if (tools->getDrawingType() != DRAWING_TYPE_DEFAULT) {
                 appendShapeControls(tools->getDrawingType());
             } else {
@@ -538,6 +540,66 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
 }
 
 // --- tools ------------------------------------------------------------------------------------------------------
+
+void ToolUtnContextBar::appendShapePicker(DrawingType current) {
+    struct ShapeChoice {
+        DrawingType type;
+        const char* label;
+        const char* hint;
+    };
+    static constexpr std::array<ShapeChoice, 6> CHOICES{{
+            {DRAWING_TYPE_DEFAULT, N_("Freehand"), N_("Write freehand with the pen")},
+            {DRAWING_TYPE_RECTANGLE, N_("Rectangle"), N_("Draw a rectangle")},
+            {DRAWING_TYPE_ELLIPSE, N_("Ellipse"), N_("Draw an ellipse or circle")},
+            {DRAWING_TYPE_LINE, N_("Line"), N_("Draw a straight line")},
+            {DRAWING_TYPE_ARROW, N_("Arrow"), N_("Draw an arrow")},
+            {DRAWING_TYPE_SHAPE_RECOGNIZER, N_("Smart Shape"), N_("Draw a rough circle or box and let UTN tidy it")},
+    }};
+
+    GtkWidget* title = gtk_label_new(_("Shape"));
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_widget_add_css_class(title, "utn-context-title");
+    gtk_box_append(box, title);
+
+    // A radio group, like the eraser modes: exactly one choice is checked and the change is visible at a glance
+    GtkGrid* grid = GTK_GRID(gtk_grid_new());
+    gtk_widget_add_css_class(GTK_WIDGET(grid), "utn-shape-picker");
+    gtk_grid_set_row_spacing(grid, 4);
+    gtk_grid_set_column_spacing(grid, 4);
+    GtkWidget* first = nullptr;
+    int column = 0;
+    int row = 0;
+    for (const auto& choice: CHOICES) {
+        GtkWidget* button = first ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first), _(choice.label))
+                                  : gtk_radio_button_new_with_label(nullptr, _(choice.label));
+        first = first ? first : button;
+        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
+        gtk_widget_add_css_class(button, "utn-shape-mode");
+        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
+        gtk_widget_set_tooltip_text(button, _(choice.hint));
+        utn::setAccessibleName(button, _(choice.label));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), current == choice.type);
+        g_object_set_data(G_OBJECT(button), "utn-control", control);
+        g_object_set_data(G_OBJECT(button), "utn-drawing-type", GINT_TO_POINTER(static_cast<int>(choice.type)));
+        // "clicked", not "toggled": choosing a shape rebuilds this bar, which destroys the button mid-signal.
+        // The handler therefore touches no widget after the call that may rebuild.
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
+                             auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+                             auto type = static_cast<DrawingType>(
+                                     GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-drawing-type")));
+                             ctrl->selectTool(TOOL_PEN);
+                             ctrl->setToolDrawingType(type);
+                         }),
+                         nullptr);
+        gtk_grid_attach(grid, button, column, row, 1, 1);
+        if (++column == 2) {
+            column = 0;
+            ++row;
+        }
+    }
+    gtk_box_append(box, GTK_WIDGET(grid));
+    appendSeparator();
+}
 
 void ToolUtnContextBar::appendPenControls() {
     appendColourControls(Palette::Ink);

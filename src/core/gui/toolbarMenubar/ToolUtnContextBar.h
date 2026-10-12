@@ -52,6 +52,7 @@ private:
 
     // One section per tool
     void appendPenControls();
+    void appendShapePicker(DrawingType current);
     void appendShapeControls(DrawingType type);
     void appendHighlightControls();
     void appendEraserControls();
