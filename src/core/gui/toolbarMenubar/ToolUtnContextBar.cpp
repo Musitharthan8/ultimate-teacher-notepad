@@ -33,6 +33,8 @@
 
 #include "AnswerBoxStyles.h"  // for ANSWER_BOX_STYLES
 #include "HighlightModes.h"   // for HIGHLIGHT_MODES
+#include "EraserModes.h"     // for ERASER_MODES
+#include "util/GVariantTemplate.h"  // for getGVariantValue
 #include "UtnWidgets.h"
 
 namespace {
@@ -663,8 +665,65 @@ void ToolUtnContextBar::appendHighlightControls() {
 }
 
 void ToolUtnContextBar::appendEraserControls() {
-    GtkWidget* scale = newScale(0.5, 30.0, 0.5, control->getToolHandler()->getEraserThickness(), 1);
-    gtk_widget_set_size_request(scale, 180, -1);
+    auto* tools = control->getToolHandler();
+
+    // Keep all eraser modes directly visible beside the main rail, not hidden in the
+    // toolbar-arrow menu. Radio-style buttons also show the selected mode at a glance.
+    GtkWidget* modeLabel = gtk_label_new(_("Eraser mode"));
+    gtk_widget_add_css_class(modeLabel, "utn-context-title");
+    gtk_box_append(box, modeLabel);
+
+    const auto orientation = gtk_orientable_get_orientation(GTK_ORIENTABLE(box));
+    GtkBox* modes = GTK_BOX(gtk_box_new(orientation, 2));
+    gtk_widget_add_css_class(GTK_WIDGET(modes), "utn-eraser-modes");
+
+    GtkWidget* first = nullptr;
+    for (const auto& entry: utn::ERASER_MODES) {
+        GtkWidget* button = first ?
+                gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first), _(entry.label)) :
+                gtk_radio_button_new_with_label(nullptr, _(entry.label));
+        first = first ? first : button;
+        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
+        gtk_widget_add_css_class(button, "utn-eraser-mode");
+        gtk_widget_set_focus_on_click(button, false);
+        gtk_widget_set_tooltip_text(button, _(entry.hint));
+        utn::setAccessibleName(button, _(entry.label));
+        g_object_set_data(G_OBJECT(button), "utn-eraser-type",
+                          GINT_TO_POINTER(static_cast<int>(entry.type)));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), tools->getEraserType() == entry.type);
+
+        // The old Eraser arrow still exists and can change the mode. Mirror its GAction
+        // state in the sidebar without generating another user action or feedback loop.
+        auto action = control->getActionDatabase()->getAction(Action::TOOL_ERASER_TYPE);
+        g_signal_connect_object(G_OBJECT(action.get()), "notify::state",
+                                G_CALLBACK(+[](GObject* actionObject, GParamSpec*, gpointer widget) {
+                                    xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(actionObject)),
+                                                                   xoj::util::adopt);
+                                    if (!state) {
+                                        return;
+                                    }
+                                    const auto current = getGVariantValue<EraserType>(state.get());
+                                    const auto type = static_cast<EraserType>(GPOINTER_TO_INT(
+                                            g_object_get_data(G_OBJECT(widget), "utn-eraser-type")));
+                                    utn::syncToggle(GTK_TOGGLE_BUTTON(widget), current == type);
+                                }), button, GConnectFlags(0));
+
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             if (utn::isSyncing(GTK_WIDGET(button)) ||
+                                 !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button))) {
+                                 return;  // state refresh / deselected radio
+                             }
+                             const auto type = static_cast<EraserType>(GPOINTER_TO_INT(
+                                     g_object_get_data(G_OBJECT(button), "utn-eraser-type")));
+                             static_cast<Control*>(data)->setEraserType(type);
+                         }), control);
+        gtk_box_append(modes, button);
+    }
+    gtk_box_append(box, GTK_WIDGET(modes));
+
+    appendSeparator();
+    GtkWidget* scale = newScale(0.5, 30.0, 0.5, tools->getEraserThickness(), 1);
+    gtk_widget_set_size_request(scale, orientation == GTK_ORIENTATION_VERTICAL ? 140 : 180, -1);
     gtk_widget_set_tooltip_text(scale, _("Eraser size. The [ and ] keys also change it."));
     utn::setAccessibleName(scale, _("Eraser size"));
     g_signal_connect(scale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
@@ -677,7 +736,7 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_box_append(box, scale);
 
     appendSeparator();
-    appendHint(_("Erases ink only. Use Select to delete text and boxes."));
+    appendHint(_("Ink erases strokes; Object removes whole boxes and pictures. Undo restores them."));
 }
 
 void ToolUtnContextBar::appendTextControls() {
