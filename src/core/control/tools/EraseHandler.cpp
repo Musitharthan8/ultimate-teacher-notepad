@@ -102,6 +102,15 @@ EraseHandler::~EraseHandler() {
  * Handle eraser event: "Delete Stroke" and "Standard", Whiteout is not handled here
  */
 void EraseHandler::erase(double x, double y) {
+    // A hidden answers layer can remain selected (for example if the page has
+    // no ordinary layer). Never erase invisible content, regardless of mode.
+    // Check before changing previousPoint or creating an undo action so a hidden
+    // gesture cannot sweep into visible ink if layer visibility changes mid-drag.
+    Layer* l = page->getSelectedLayer();
+    if (!l || !l->isVisible()) {
+        return;
+    }
+
     this->halfEraserSize = this->handler->getThickness();
     const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
     previousPoint = xoj::util::Point<double>{x, y};
@@ -126,7 +135,6 @@ void EraseHandler::erase(double x, double y) {
             std::abs(x - start.x) + 2 * filterRadius, std::abs(y - start.y) + 2 * filterRadius};
 
     Range rerenderRange;
-    Layer* l = page->getSelectedLayer();
 
     // A drag consists of multiple erase() events. Capture the pre-gesture ordering once,
     // before any whole-element removals. Sorting hits within an individual event is not
@@ -142,8 +150,7 @@ void EraseHandler::erase(double x, double y) {
 
     if (handler->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
         // Object eraser: removes text, images and other non-stroke elements. Strokes are never touched.
-        // Hidden layers are never edited: the object eraser must not delete content the teacher cannot see.
-        if (l->isVisible()) {
+        {
             // Decide every hit first (a hit depends only on the object's own box and the pointer samples), then remove
             // from the highest index down. Each removal then happens at the element's original index, which is the
             // position DeleteUndoAction restores, so one undo step puts back every object where it was.
