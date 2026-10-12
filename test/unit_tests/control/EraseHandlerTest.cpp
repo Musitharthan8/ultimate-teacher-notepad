@@ -24,11 +24,13 @@
 #include "model/eraser/CircularEraser.h"
 #include "gui/LegacyRedrawable.h"
 #include "model/Document.h"
+#include "model/Image.h"
 #include "model/Layer.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "undo/UndoRedoHandler.h"
 #include "util/Color.h"
+#include "util/Matrix.h"
 #include "filesystem.h"
 
 namespace {
@@ -659,4 +661,113 @@ TEST(EraseHandler, erasedPageExportsToPdf) {
     in.read(header, 4);
     EXPECT_EQ(std::string(header), "%PDF");
     EXPECT_GT(fs::file_size(pdf.path), 100U);
+}
+
+namespace {
+// Builds a PNG-backed Image of the given size at (x, y), so the object eraser sees a real bounding box.
+std::unique_ptr<Image> makePngImage(double x, double y, int w, int h) {
+    GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, w, h);
+    gchar* buffer = nullptr;
+    gsize length = 0;
+    gdk_pixbuf_save_to_buffer(pixbuf, &buffer, &length, "png", nullptr, nullptr);
+    g_object_unref(pixbuf);
+    auto image = std::make_unique<Image>();
+    image->setImage(std::string(buffer, length));
+    g_free(buffer);
+    image->setTransformation(xoj::util::Matrix::TRANSLATION(x, y));
+    return image;
+}
+
+size_t countType(const PageRef& page, ElementType type) {
+    size_t n = 0;
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        n += (e->getType() == type) ? 1U : 0U;
+    }
+    return n;
+}
+}  // namespace
+
+// Object eraser: an element is removed only when the eraser disc touches its bounding box, and strokes are untouched.
+TEST(EraseHandler, objectEraserRemovesImageButNotStrokes) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    // Sweep through the image, and also across the stroke at y = 50 (which must survive)
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.erase(160, 50);
+    eraser.erase(200, 50);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+    const auto* stroke = static_cast<Stroke*>(page->getSelectedLayer()->getElements().front().get());
+    EXPECT_EQ(stroke->getPointCount(), 2U);
+    ASSERT_TRUE(undo.canUndo());
+}
+
+TEST(EraseHandler, objectEraserSupportsUndoRedo) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        undo.undo();
+        EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+        EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+        ASSERT_TRUE(undo.canRedo());
+
+        undo.redo();
+        EXPECT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+        EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+        ASSERT_TRUE(undo.canUndo());
+    }
+}
+
+// A gesture that touches nothing must not create an undo step.
+TEST(EraseHandler, objectEraserFarAwayIsNoOp) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(250, 250);
+    eraser.erase(270, 260);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+    EXPECT_FALSE(undo.canUndo());
 }

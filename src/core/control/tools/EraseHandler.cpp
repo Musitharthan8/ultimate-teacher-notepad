@@ -127,20 +127,41 @@ void EraseHandler::erase(double x, double y) {
 
     Range rerenderRange;
     Layer* l = page->getSelectedLayer();
-    std::vector<Stroke*> candidates;
-    // Removing whole strokes invalidates the layer's iterators.
-    for (Element* e: xoj::refElementContainer(l->getElements())) {
-        if (e->getType() == ELEMENT_STROKE && inkMayIntersect(*static_cast<Stroke*>(e), eraserRect)) {
-            candidates.push_back(static_cast<Stroke*>(e));
+
+    if (handler->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
+        // Object eraser: removes text, images and other non-stroke elements. Strokes are never touched.
+        std::vector<Element*> objects;
+        for (Element* e: xoj::refElementContainer(l->getElements())) {
+            if (e->getType() != ELEMENT_STROKE && e->getBoundingBox().intersects(eraserRect).has_value()) {
+                objects.push_back(e);
+            }
         }
-    }
-    for (Stroke* stroke: candidates) {
-        for (size_t i = 1; i <= steps; ++i) {
-            const double t = static_cast<double>(i) / steps;
-            eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
-                        rerenderRange);
-            if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
-                break;
+        for (Element* object: objects) {
+            for (size_t i = 1; i <= steps; ++i) {
+                const double t = static_cast<double>(i) / steps;
+                eraseObject(l, object, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                            rerenderRange);
+                if (l->indexOf(object) == -1) {
+                    break;
+                }
+            }
+        }
+    } else {
+        std::vector<Stroke*> candidates;
+        // Removing whole strokes invalidates the layer's iterators.
+        for (Element* e: xoj::refElementContainer(l->getElements())) {
+            if (e->getType() == ELEMENT_STROKE && inkMayIntersect(*static_cast<Stroke*>(e), eraserRect)) {
+                candidates.push_back(static_cast<Stroke*>(e));
+            }
+        }
+        for (Stroke* stroke: candidates) {
+            for (size_t i = 1; i <= steps; ++i) {
+                const double t = static_cast<double>(i) / steps;
+                eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                            rerenderRange);
+                if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
+                    break;
+                }
             }
         }
     }
@@ -219,6 +240,28 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
         }
         erasable->erase(Point(x, y), radius, range);
     }
+}
+
+void EraseHandler::eraseObject(Layer* l, Element* e, double x, double y, double radius, Range& range) {
+    const xoj::util::Rectangle<double> box = e->getBoundingBox();
+    if (!utn::eraser::circleTouchesRect(utn::eraser::Vec{x, y}, radius, box.x, box.y, box.width, box.height)) {
+        return;
+    }
+    this->doc->lock();
+    auto [element, pos] = l->removeElement(e);
+    this->doc->unlock();
+    if (pos == -1) {
+        return;
+    }
+    range = range.unite(Range(box));
+
+    // One undo step per gesture, as for whole-stroke deletion
+    if (!this->eraseDeleteUndoAction) {
+        auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true, this->doc);
+        this->eraseDeleteUndoAction = eraseDel.get();
+        this->undo->addUndoAction(std::move(eraseDel));
+    }
+    this->eraseDeleteUndoAction->addElement(l, std::move(element), pos);
 }
 
 void EraseHandler::finalize() {
