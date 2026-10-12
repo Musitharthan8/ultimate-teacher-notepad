@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "config-test.h"  // for PROJECT_SOURCE_DIR
+#include "gui/toolbarMenubar/EraserModes.h"
 
 namespace {
 struct KeyFileGuard {
@@ -54,4 +55,19 @@ TEST(UtnContextLayout, teacherProfilesPlaceContextPanelBesideToolRail) {
         EXPECT_NE(readKey(file, group, "toolbarLeft2").find("UTN_CONTEXT"), std::string::npos) << group;
         EXPECT_EQ(readKey(file, group, "toolbarTop2").find("UTN_CONTEXT"), std::string::npos) << group;
     }
+}
+
+TEST(UtnContextLayout, eraserModesExposeObjectEraseAndKeepSavedEnumValues) {
+    ASSERT_EQ(utn::ERASER_MODES.size(), 4U);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DEFAULT), 0);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DELETE_STROKE), 1);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DELETE_OBJECT), 2);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_WHITEOUT), 3);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_NONE), 0);
+
+    for (const auto& mode: utn::ERASER_MODES) {
+        const auto saved = std::string(eraserTypeToString(mode.type));
+        EXPECT_EQ(eraserTypeFromString(saved), mode.type);
+    }
+    EXPECT_EQ(eraserTypeToString(ERASER_TYPE_DELETE_OBJECT), "deleteObject");
 }
