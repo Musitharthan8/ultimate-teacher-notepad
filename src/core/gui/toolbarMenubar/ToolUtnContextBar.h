@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include <gtk/gtk.h>
@@ -62,4 +63,8 @@ private:
 
     Control* control;
     GtkBox* box = nullptr;
+
+    // ToolHandler cannot remove listeners. Its tool-changed listener holds a weak reference to this token, so it does
+    // nothing once this bar has been destroyed with its toolbar window.
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true);
 };

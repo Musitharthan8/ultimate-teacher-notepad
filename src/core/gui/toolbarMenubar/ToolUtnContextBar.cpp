@@ -258,7 +258,12 @@ GtkWidget* newMenuButton(const char* label, const char* hint, GtkPopover* popove
 
 ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control):
         AbstractToolItem(std::move(id), Category::TOOLS), control(control) {
-    control->getToolHandler()->addToolChangedListener([this](ToolType tool) {
+    // The handler outlives this bar when the window closes, so check the token before touching this object
+    std::weak_ptr<bool> alive = this->alive;
+    control->getToolHandler()->addToolChangedListener([this, alive](ToolType tool) {
+        if (alive.expired()) {
+            return;
+        }
         if (this->box != nullptr) {
             rebuild(tool);
         }
