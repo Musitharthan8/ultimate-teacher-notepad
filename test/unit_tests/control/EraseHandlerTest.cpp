@@ -1048,3 +1048,45 @@ TEST(EraseHandler, objectEraserUndoPreservesOrderAcrossPointerEvents) {
     undo.undo();
     EXPECT_EQ(elementOrder(page), before);
 }
+
+
+// Hiding answers across the whole lesson can leave a hidden Answers layer
+// selected on another page (especially when it has no ordinary layer).
+// The pen should never erase strokes that students/teachers cannot see.
+// Object Eraser has a separate guard regression; this covers BOTH ink modes.
+TEST(EraseHandler, hiddenAnswersOnAnotherPageResistAllInkEraserModes) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto visiblePage = std::make_shared<XojPage>(300, 300);
+        auto answersPage = std::make_shared<XojPage>(300, 300);
+        addLine(visiblePage, 50, 100, 250, 100);
+        addLine(answersPage, 50, 100, 250, 100);
+        Layer* answers = answersPage->getSelectedLayer();
+        answers->setAudience(LayerAudience::Answers);
+        answers->setVisible(false);
+
+        Document document(nullptr);
+        document.addPage(visiblePage);
+        document.addPage(answersPage);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+
+        // Simulate erasing on a non-current page that kept its hidden Answers layer selected.
+        EraseHandler eraser(&undo, &document, answersPage, &tools, &view);
+        eraser.erase(90, 100);
+        eraser.erase(140, 100);
+        eraser.finalize();
+
+        ASSERT_EQ(answers->getElements().size(), 1U) << eraserTypeToString(mode);
+        ASSERT_EQ(answers->getElements().front()->getType(), ELEMENT_STROKE);
+        const auto* stroke = static_cast<const Stroke*>(answers->getElements().front().get());
+        EXPECT_EQ(stroke->getPointCount(), 2U) << eraserTypeToString(mode);
+        EXPECT_EQ(stroke->getErasable(), nullptr) << eraserTypeToString(mode);
+        EXPECT_FALSE(undo.canUndo()) << eraserTypeToString(mode);
+        EXPECT_EQ(view.redraws, 0U) << eraserTypeToString(mode);
+        EXPECT_EQ(visiblePage->getSelectedLayer()->getElements().size(), 1U);
+    }
+}
