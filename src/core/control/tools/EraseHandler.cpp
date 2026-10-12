@@ -104,10 +104,12 @@ EraseHandler::~EraseHandler() {
 void EraseHandler::erase(double x, double y) {
     // A hidden answers layer can remain selected (for example if the page has
     // no ordinary layer). Never erase invisible content, regardless of mode.
-    // Check before changing previousPoint or creating an undo action so a hidden
-    // gesture cannot sweep into visible ink if layer visibility changes mid-drag.
+    // Create no undo action here, so a hidden gesture cannot sweep into visible ink.
+    // Forget the last point too: if the layer is revealed later in the same drag, the
+    // next visible sample must start a new sweep, not join the pre-hide point to it.
     Layer* l = page->getSelectedLayer();
     if (!l || !l->isVisible()) {
+        previousPoint.reset();
         return;
     }
 

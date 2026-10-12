@@ -1090,3 +1090,60 @@ TEST(EraseHandler, hiddenAnswersOnAnotherPageResistAllInkEraserModes) {
         EXPECT_EQ(visiblePage->getSelectedLayer()->getElements().size(), 1U);
     }
 }
+
+// The layer is hidden in the middle of one eraser drag and revealed before the drag ends. Samples received
+// while hidden are ignored, so the first visible sample after the reveal must start a new gesture. It must not
+// sweep back to the pre-hide point and erase ink the teacher never saw while it was hidden.
+TEST(EraseHandler, revealMidGestureDoesNotSweepAcrossHiddenSamples) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        addLine(page, 150, 50, 150, 250);  // vertical stroke at x = 150, crossed only by the sweep
+        Layer* layer = page->getSelectedLayer();
+        Document document(nullptr);
+        document.addPage(page);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        const auto before = remainingPoints(page).size();
+
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(50, 150);      // visible: far from the stroke
+        layer->setVisible(false);   // hidden mid-gesture
+        eraser.erase(100, 150);     // ignored while hidden
+        layer->setVisible(true);    // revealed before the drag ends
+        eraser.erase(250, 150);     // first visible sample after the reveal: must not sweep from x = 50
+        eraser.finalize();
+
+        EXPECT_EQ(layer->getElements().size(), 1U) << eraserTypeToString(mode);
+        EXPECT_EQ(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+        EXPECT_EQ(view.redraws, 0U) << eraserTypeToString(mode);
+    }
+}
+
+// Control for the test above: the same drag without a hide still erases the stroke it crosses.
+TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        addLine(page, 150, 50, 150, 250);
+        Document document(nullptr);
+        document.addPage(page);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        const auto before = remainingPoints(page).size();
+
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(50, 150);
+        eraser.erase(100, 150);
+        eraser.erase(250, 150);
+        eraser.finalize();
+
+        EXPECT_LT(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+    }
+}
