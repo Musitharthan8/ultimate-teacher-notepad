@@ -41,6 +41,7 @@ public:
 private:
     void eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range);
     void eraseObject(Layer* l, Element* e, Range& range);
+    void removeWholeStroke(Layer* l, Stroke* s, Range& range);
 
 private:
     PageRef page;

@@ -978,3 +978,36 @@ TEST(EraseHandler, answerBoxSurvivesObjectEraseAndXoppReload) {
         }
     }
 }
+
+// Whole-stroke deletion in one gesture removes two strokes around a third. Undo must restore all three in order.
+TEST(EraseHandler, wholeStrokeMultiDeleteUndoRestoresOrder) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 100, 120, 100);  // S0: crossed by the gesture
+    addLine(page, 20, 200, 280, 200);  // S1: well clear of the gesture, must survive
+    addLine(page, 200, 100, 280, 100);  // S2: crossed by the gesture
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 3U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 100);
+    eraser.erase(240, 100);
+    eraser.finalize();
+    ASSERT_EQ(elementOrder(page).size(), 1U);
+    EXPECT_EQ(elementOrder(page).front(), before[1]);
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(elementOrder(page).size(), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}

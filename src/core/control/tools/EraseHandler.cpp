@@ -163,13 +163,39 @@ void EraseHandler::erase(double x, double y) {
                 candidates.push_back(static_cast<Stroke*>(e));
             }
         }
-        for (Stroke* stroke: candidates) {
-            for (size_t i = 1; i <= steps; ++i) {
-                const double t = static_cast<double>(i) / steps;
-                eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
-                            rerenderRange);
-                if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE && l->indexOf(stroke) == -1) {
-                    break;
+        if (handler->getEraserType() == ERASER_TYPE_DELETE_STROKE) {
+            // Decide every whole-stroke hit before removing anything, then remove from the highest index down. Each
+            // removal then happens at the stroke's original index, which is the position DeleteUndoAction restores.
+            std::vector<std::pair<Element::Index, Stroke*>> hits;
+            for (Stroke* stroke: candidates) {
+                if (stroke->getErasable()) {
+                    // Already edited by the partial eraser: keep the established path (in-place erasing, no removal)
+                    for (size_t i = 1; i <= steps; ++i) {
+                        const double t = static_cast<double>(i) / steps;
+                        eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                                    rerenderRange);
+                    }
+                    continue;
+                }
+                for (size_t i = 1; i <= steps; ++i) {
+                    const double t = static_cast<double>(i) / steps;
+                    const utn::eraser::Vec sample{start.x + (x - start.x) * t, start.y + (y - start.y) * t};
+                    if (wholeStrokeTouchesDisc(*stroke, sample, sampleRadius)) {
+                        hits.emplace_back(l->indexOf(stroke), stroke);
+                        break;
+                    }
+                }
+            }
+            std::sort(hits.begin(), hits.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (const auto& hit: hits) {
+                removeWholeStroke(l, hit.second, rerenderRange);
+            }
+        } else {
+            for (Stroke* stroke: candidates) {
+                for (size_t i = 1; i <= steps; ++i) {
+                    const double t = static_cast<double>(i) / steps;
+                    eraseStroke(l, stroke, start.x + (x - start.x) * t, start.y + (y - start.y) * t, sampleRadius,
+                                rerenderRange);
                 }
             }
         }
@@ -190,26 +216,7 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
                 return;
             }
 
-            // delete the entire stroke
-            this->doc->lock();
-            auto [stroke, pos] = l->removeElement(s);
-            this->doc->unlock();
-
-            if (pos == -1) {
-                return;
-            }
-            range = range.unite(Range(s->getBoundingBox()));
-
-            // removed the if statement - this prevents us from putting multiple elements into a
-            // stroke erase operation, but it also prevents the crashing and layer issues!
-            if (!this->eraseDeleteUndoAction) {
-                auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true, this->doc);
-                // Todo check dangerous: this->eraseDeleteUndoAction could be a dangling reference
-                this->eraseDeleteUndoAction = eraseDel.get();
-                this->undo->addUndoAction(std::move(eraseDel));
-            }
-
-            this->eraseDeleteUndoAction->addElement(l, std::move(stroke), pos);
+            removeWholeStroke(l, s, range);
         } else {  // Default eraser
             auto pos = l->indexOf(s);
             if (pos == -1) {
@@ -249,6 +256,23 @@ void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double r
         }
         erasable->erase(Point(x, y), radius, range);
     }
+}
+
+void EraseHandler::removeWholeStroke(Layer* l, Stroke* s, Range& range) {
+    this->doc->lock();
+    auto [stroke, pos] = l->removeElement(s);
+    this->doc->unlock();
+    if (pos == -1) {
+        return;
+    }
+    range = range.unite(Range(s->getBoundingBox()));
+
+    if (!this->eraseDeleteUndoAction) {
+        auto eraseDel = std::make_unique<DeleteUndoAction>(this->page, true, this->doc);
+        this->eraseDeleteUndoAction = eraseDel.get();
+        this->undo->addUndoAction(std::move(eraseDel));
+    }
+    this->eraseDeleteUndoAction->addElement(l, std::move(stroke), pos);
 }
 
 void EraseHandler::eraseObject(Layer* l, Element* e, Range& range) {
