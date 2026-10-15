@@ -7,7 +7,8 @@ mode=${2:-all}
 script_dir=$(cd "$(dirname "$0")" && pwd)
 prefix=${MSYSTEM_PREFIX:-/mingw64}
 version=0.2.1-beta
-setup_dir="$build_dir/utn-dist"
+# Never delete a previous bundle: a tester may still be running it.
+setup_dir=$(mktemp -d "$build_dir/utn-dist.XXXXXX")
 output_dir="$build_dir/utn-release"
 [[ -f "$build_dir/xournalpp.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
 # These are dedicated packaging directories, never the installed application.
@@ -17,7 +18,7 @@ for target in "$setup_dir" "$output_dir"; do
         echo "Unsafe packaging directory: $target" >&2; exit 1;
     }
 done
-rm -rf "$setup_dir" "$output_dir"
+rm -rf "$output_dir"
 mkdir -p "$setup_dir/lib" "$output_dir"
 cmake --install "$build_dir" --prefix "$setup_dir"
 cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
