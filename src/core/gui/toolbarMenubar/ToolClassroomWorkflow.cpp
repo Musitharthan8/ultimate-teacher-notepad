@@ -10,6 +10,7 @@
 #include <gio/gio.h>
 
 #include "AnswerBoxStyles.h"  // for MARKING_COMMENT_STYLE
+#include "SignaturePad.h"
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "enums/Action.enum.h"
@@ -18,6 +19,97 @@
 #include "util/i18n.h"
 
 namespace {
+using utn::SignaturePad;
+using utn::paintSignature;
+
+void openSignaturePad(Control* control) {
+    auto* dialog = gtk_dialog_new_with_buttons(_("Draw signature"), control->getGtkWindow(),
+            GTK_DIALOG_MODAL, _("Cancel"), GTK_RESPONSE_CANCEL, _("Clear"), 1, _("Save PNG…"), 2,
+            _("Insert"), GTK_RESPONSE_ACCEPT, nullptr);
+    SignaturePad pad;
+    auto* area = gtk_drawing_area_new();
+    atk_object_set_name(gtk_widget_get_accessible(area), _("Signature drawing area"));
+    gtk_widget_set_size_request(area, 480, 180);
+    gtk_widget_add_events(area, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK);
+    g_signal_connect(area, "draw", G_CALLBACK(+[](GtkWidget*, cairo_t* cr, gpointer data) -> gboolean {
+        cairo_set_source_rgb(cr, 1, 1, 1);
+        cairo_paint(cr);
+        paintSignature(cr, *static_cast<SignaturePad*>(data));
+        return TRUE;
+    }), &pad);
+    g_signal_connect(area, "button-press-event", G_CALLBACK(+[](GtkWidget* widget, GdkEventButton* e, gpointer data) -> gboolean {
+        if (e->button != 1) return FALSE;
+        auto& pad = *static_cast<SignaturePad*>(data);
+        pad.drawing = true;
+        pad.strokes.push_back({{e->x, e->y}});
+        gtk_widget_queue_draw(widget);
+        return TRUE;
+    }), &pad);
+    g_signal_connect(area, "motion-notify-event", G_CALLBACK(+[](GtkWidget* widget, GdkEventMotion* e, gpointer data) -> gboolean {
+        auto& pad = *static_cast<SignaturePad*>(data);
+        if (!pad.drawing) return FALSE;
+        pad.strokes.back().push_back({e->x, e->y});
+        gtk_widget_queue_draw(widget);
+        return TRUE;
+    }), &pad);
+    g_signal_connect(area, "button-release-event", G_CALLBACK(+[](GtkWidget*, GdkEventButton* e, gpointer data) -> gboolean {
+        if (e->button != 1) return FALSE;
+        static_cast<SignaturePad*>(data)->drawing = false;
+        return TRUE;
+    }), &pad);
+    auto* content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    gtk_box_pack_start(GTK_BOX(content), gtk_label_new(_("Draw with your pen or mouse. Insert adds a movable image.")), FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(content), area, TRUE, TRUE, 8);
+    gtk_widget_show_all(dialog);
+    for (;;) {
+        const auto response = gtk_dialog_run(GTK_DIALOG(dialog));
+        if (response == 1) {
+            pad.strokes.clear();
+            pad.drawing = false;
+            gtk_widget_queue_draw(area);
+            continue;
+        }
+        if ((response == GTK_RESPONSE_ACCEPT || response == 2) && !pad.strokes.empty()) {
+            const int width = gtk_widget_get_allocated_width(area);
+            const int height = gtk_widget_get_allocated_height(area);
+            auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+            auto* cr = cairo_create(surface);
+            paintSignature(cr, pad);
+            auto* image = gdk_pixbuf_get_from_surface(surface, 0, 0, width, height);
+            if (image) {
+                if (response == GTK_RESPONSE_ACCEPT) {
+                    control->clearSelectionEndText();
+                    control->clipboardPasteImage(image);
+                } else {
+                    auto* chooser = gtk_file_chooser_native_new(_("Save signature"), GTK_WINDOW(dialog),
+                            GTK_FILE_CHOOSER_ACTION_SAVE, _("Save"), _("Cancel"));
+                    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(chooser), "signature.png");
+                    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(chooser), TRUE);
+                    if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(chooser)) == GTK_RESPONSE_ACCEPT) {
+                        gchar* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser));
+                        GError* error = nullptr;
+                        if (filename && !gdk_pixbuf_save(image, filename, "png", &error, nullptr)) {
+                            auto* message = gtk_message_dialog_new(GTK_WINDOW(dialog), GTK_DIALOG_MODAL,
+                                    GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", error ? error->message : _("Could not save signature."));
+                            gtk_dialog_run(GTK_DIALOG(message));
+                            gtk_widget_destroy(message);
+                        }
+                        g_clear_error(&error);
+                        g_free(filename);
+                    }
+                    g_object_unref(chooser);
+                }
+                g_object_unref(image);
+            }
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+        }
+        if (response == 2) continue;
+        break;
+    }
+    gtk_widget_destroy(dialog);
+}
+
 enum class Command { SCAN, PASTE_IMAGE, IMAGE, COMMENT, MARKING, TEACHING };
 
 GtkBox* makePanel(GtkNotebook* tabs, const char* label) {
@@ -26,7 +118,11 @@ GtkBox* makePanel(GtkNotebook* tabs, const char* label) {
     gtk_widget_set_margin_end(GTK_WIDGET(box), 10);
     gtk_widget_set_margin_top(GTK_WIDGET(box), 10);
     gtk_widget_set_margin_bottom(GTK_WIDGET(box), 10);
-    gtk_notebook_append_page(tabs, GTK_WIDGET(box), gtk_label_new(label));
+    auto* scroll = gtk_scrolled_window_new(nullptr, nullptr);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(scroll, 400, 420);
+    gtk_container_add(GTK_CONTAINER(scroll), GTK_WIDGET(box));
+    gtk_notebook_append_page(tabs, scroll, gtk_label_new(label));
     return box;
 }
 
@@ -176,8 +272,12 @@ try {
 #endif
 }
 
-void readAloud(GtkWidget* textView, GtkWidget* label) {
+void readAloud(GtkWidget* textView, GtkWidget* label, int rate, int volume, int pitch, const char* voice) {
 #ifdef _WIN32
+    if (g_object_get_data(G_OBJECT(label), "utn-speech-process")) {
+        setResult(label, _("Stop the current reading before starting another."));
+        return;
+    }
     GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(textView));
     GtkTextIter start, end;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
@@ -193,13 +293,26 @@ void readAloud(GtkWidget* textView, GtkWidget* label) {
         return;
     }
     static constexpr char command[] = R"UTN(
+$ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Speech
 $speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer
-$speaker.Speak($env:UTN_SPEAK_TEXT)
+try {
+  if ($env:UTN_SPEAK_VOICE) { $speaker.SelectVoice($env:UTN_SPEAK_VOICE) }
+  $speaker.Rate=[int]$env:UTN_SPEAK_RATE
+  $speaker.Volume=[int]$env:UTN_SPEAK_VOLUME
+  $text=[Security.SecurityElement]::Escape($env:UTN_SPEAK_TEXT)
+  $pitch=([int]$env:UTN_SPEAK_PITCH).ToString('+#;-#;0')+'st'
+  $language=$speaker.Voice.Culture.Name
+  $speaker.SpeakSsml('<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="'+$language+'"><prosody pitch="'+$pitch+'">'+$text+'</prosody></speak>')
+} finally { $speaker.Dispose() }
 )UTN";
     GSubprocessLauncher* launcher = g_subprocess_launcher_new(
             GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE));
     g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_TEXT", passage, TRUE);
+    g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_RATE", std::to_string(rate).c_str(), TRUE);
+    g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_VOLUME", std::to_string(volume).c_str(), TRUE);
+    g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_PITCH", std::to_string(pitch).c_str(), TRUE);
+    g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_VOICE", voice ? voice : "", TRUE);
     g_free(passage);
     GError* error = nullptr;
     GSubprocess* process = g_subprocess_launcher_spawn(launcher, &error, "powershell.exe",
@@ -211,6 +324,8 @@ $speaker.Speak($env:UTN_SPEAK_TEXT)
         return;
     }
     setResult(label, _("Reading aloud using the installed Windows voice…"));
+    g_object_set_data_full(G_OBJECT(label), "utn-speech-process", g_object_ref(process), g_object_unref);
+    g_object_set_data(G_OBJECT(label), "utn-speech-stopped", nullptr);
     g_subprocess_communicate_utf8_async(process, nullptr, nullptr, +[](GObject* source, GAsyncResult* result,
                                                                       gpointer userData) {
         GtkWidget* status = GTK_WIDGET(userData);
@@ -219,12 +334,14 @@ $speaker.Speak($env:UTN_SPEAK_TEXT)
         GError* error = nullptr;
         const gboolean ok = g_subprocess_communicate_utf8_finish(
                 G_SUBPROCESS(source), result, &output, &errors, &error);
-        setResult(status, ok && !error && g_subprocess_get_successful(G_SUBPROCESS(source)) ?
+        const bool stopped = g_object_get_data(G_OBJECT(status), "utn-speech-stopped") != nullptr;
+        setResult(status, stopped ? _("Reading stopped.") : ok && !error && g_subprocess_get_successful(G_SUBPROCESS(source)) ?
                                   _("Finished reading.") :
                                   ((errors && *errors) ? errors : _("Windows speech could not complete.")));
         if (error) g_error_free(error);
         g_free(output);
         g_free(errors);
+        g_object_set_data(G_OBJECT(status), "utn-speech-process", nullptr);
         g_object_unref(status);
     }, g_object_ref(label));
     g_object_unref(process);
@@ -295,6 +412,19 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
               Action::ANNOTATE_PDF);
     addHint(materials, _("Keep notebooks and their picture files in the same folder. Text in scans cannot be selected."));
 
+    auto* signature = newMenuEntry(_("Draw and insert signature…"));
+    g_object_set_data(G_OBJECT(signature), "utn-control", control);
+    g_signal_connect_object(signature, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+        auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
+        gtk_popover_popdown(GTK_POPOVER(data));
+        openSignaturePad(ctrl);
+    }), popover, GConnectFlags(0));
+    gtk_box_append(materials, signature);
+    addHint(materials, _("Signatures are embedded as images. Save PNG to reuse via Insert picture from file; select an inserted signature to resize, rotate or copy it."));
+    addAction(materials, popover, _("Record audio"), _("Start or stop recording with the existing notebook audio tool"), Action::AUDIO_RECORD);
+    addAction(materials, popover, _("Play / pause audio"), _("Play or pause notebook audio"), Action::AUDIO_PAUSE_PLAYBACK);
+    addAction(materials, popover, _("Stop audio"), _("Stop notebook audio playback"), Action::AUDIO_STOP_PLAYBACK);
+
     auto* pages = makePanel(tabs, _("Pages"));
     addAction(pages, popover, _("Insert blank page"), _("Add an empty page after this one"),
               Action::NEW_PAGE_AFTER);
@@ -337,13 +467,90 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     GtkWidget* speechStatus = gtk_label_new(_("Ready to read."));
     gtk_label_set_line_wrap(GTK_LABEL(speechStatus), TRUE);
     GtkWidget* speak = gtk_button_new_with_label(_("Read Aloud"));
+    gtk_box_append(reading, gtk_label_new(_("Installed voice")));
+    GtkWidget* voice = gtk_combo_box_text_new();
+    atk_object_set_name(gtk_widget_get_accessible(voice), _("Installed voice"));
+    g_signal_connect(voice, "destroy", G_CALLBACK(+[](GtkWidget* widget, gpointer) {
+        g_object_set_data(G_OBJECT(widget), "utn-destroyed", GINT_TO_POINTER(1));
+    }), nullptr);
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(voice), "", _("System default"));
+    gtk_combo_box_set_active(GTK_COMBO_BOX(voice), 0);
+    gtk_box_append(reading, voice);
+#ifdef _WIN32
+    GSubprocess* voices = g_subprocess_new(
+            GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE), nullptr,
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Speech; "
+            "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            "try {$s.GetInstalledVoices() | Where-Object Enabled | ForEach-Object {$_.VoiceInfo.Name}} finally {$s.Dispose()}", nullptr);
+    if (voices) {
+        g_subprocess_communicate_utf8_async(voices, nullptr, nullptr, +[](GObject* source, GAsyncResult* result, gpointer data) {
+            gchar* output = nullptr;
+            gchar* errors = nullptr;
+            GError* error = nullptr;
+            if (g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &output, &errors, &error) &&
+                !error && g_subprocess_get_successful(G_SUBPROCESS(source)) && output &&
+                !g_object_get_data(G_OBJECT(data), "utn-destroyed")) {
+                gchar** names = g_strsplit(output, "\n", -1);
+                for (gchar** name = names; *name; ++name) {
+                    g_strstrip(*name);
+                    if (**name) gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(data), *name, *name);
+                }
+                g_strfreev(names);
+            }
+            g_clear_error(&error);
+            g_free(output);
+            g_free(errors);
+            g_object_unref(data);
+        }, g_object_ref(voice));
+        g_object_unref(voices);
+    }
+#endif
+    gtk_box_append(reading, gtk_label_new(_("Reading speed (−10 slow to 10 fast)")));
+    GtkWidget* rate = gtk_spin_button_new_with_range(-10, 10, 1);
+    atk_object_set_name(gtk_widget_get_accessible(rate), _("Reading speed"));
+    gtk_box_append(reading, rate);
+    gtk_box_append(reading, gtk_label_new(_("Volume (%)")));
+    GtkWidget* volume = gtk_spin_button_new_with_range(0, 100, 5);
+    atk_object_set_name(gtk_widget_get_accessible(volume), _("Reading volume"));
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(volume), 100);
+    gtk_box_append(reading, volume);
+    gtk_box_append(reading, gtk_label_new(_("Pitch (semitones; voice support varies)")));
+    GtkWidget* pitch = gtk_spin_button_new_with_range(-10, 10, 1);
+    atk_object_set_name(gtk_widget_get_accessible(pitch), _("Reading pitch"));
+    gtk_box_append(reading, pitch);
+    g_object_set_data(G_OBJECT(speak), "utn-speech-pitch", pitch);
+    g_object_set_data(G_OBJECT(speak), "utn-speech-voice", voice);
+    g_object_set_data(G_OBJECT(speak), "utn-speech-rate", rate);
+    g_object_set_data(G_OBJECT(speak), "utn-speech-volume", volume);
     g_object_set_data(G_OBJECT(speak), "utn-speech-input", passage);
     g_object_set_data(G_OBJECT(speak), "utn-speech-status", speechStatus);
     g_signal_connect(speak, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
         readAloud(GTK_WIDGET(g_object_get_data(G_OBJECT(button), "utn-speech-input")),
-                  GTK_WIDGET(g_object_get_data(G_OBJECT(button), "utn-speech-status")));
+                  GTK_WIDGET(g_object_get_data(G_OBJECT(button), "utn-speech-status")),
+                  gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_object_get_data(G_OBJECT(button), "utn-speech-rate"))),
+                  gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_object_get_data(G_OBJECT(button), "utn-speech-volume"))),
+                  gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_object_get_data(G_OBJECT(button), "utn-speech-pitch"))),
+                  gtk_combo_box_get_active_id(GTK_COMBO_BOX(g_object_get_data(G_OBJECT(button), "utn-speech-voice"))));
     }), nullptr);
     gtk_box_append(reading, speak);
+    GtkWidget* stop = gtk_button_new_with_label(_("Stop reading"));
+    g_signal_connect_object(stop, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+        auto* status = GTK_WIDGET(data);
+        auto* process = static_cast<GSubprocess*>(g_object_get_data(G_OBJECT(status), "utn-speech-process"));
+        if (process) {
+            g_object_set_data(G_OBJECT(status), "utn-speech-stopped", GINT_TO_POINTER(1));
+            g_subprocess_force_exit(process);
+        }
+    }), speechStatus, GConnectFlags(0));
+    gtk_box_append(reading, stop);
+    g_signal_connect_object(passage, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
+        auto* process = static_cast<GSubprocess*>(g_object_get_data(G_OBJECT(data), "utn-speech-process"));
+        if (process) {
+            g_object_set_data(G_OBJECT(data), "utn-speech-stopped", GINT_TO_POINTER(1));
+            g_subprocess_force_exit(process);
+        }
+    }), speechStatus, GConnectFlags(0));
     gtk_box_append(reading, speechStatus);
 
     gtk_box_append(reading, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
