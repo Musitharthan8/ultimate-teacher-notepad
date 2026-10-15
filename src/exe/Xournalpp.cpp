@@ -63,10 +63,19 @@ void setupUtnRuntime() {
         g_warning("Could not prepare UTN image loaders: %s", error.message().c_str());
         return;
     }
-    const auto file = folder / "loaders.cache";
+    // Portable and installed copies may run together. A shared filename could make
+    // one copy load the other's modules (or fail to replace an in-use Windows file).
+    auto* digest = g_compute_checksum_for_string(G_CHECKSUM_SHA256, cache.data(), cache.size());
+    const auto file = folder / (std::string("loaders-") + digest + ".cache");
+    g_free(digest);
     const auto filename = Util::toGFilename(file);
+    gchar* existing = nullptr;
+    gsize length = 0;
+    const bool unchanged = g_file_get_contents(filename.c_str(), &existing, &length, nullptr) &&
+                           std::string(existing, length) == cache;
+    g_free(existing);
     GError* writeError = nullptr;
-    if (g_file_set_contents(filename.c_str(), cache.data(), cache.size(), &writeError)) {
+    if (unchanged || g_file_set_contents(filename.c_str(), cache.data(), cache.size(), &writeError)) {
         g_setenv("GDK_PIXBUF_MODULE_FILE", filename.c_str(), true);
     } else {
         g_warning("Could not write UTN image loaders: %s", writeError->message);

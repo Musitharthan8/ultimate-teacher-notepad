@@ -449,6 +449,14 @@ window.utnShell .utn-context-title {
 
 window.utnShell popover.toolbar {
     border-radius: 10px;
+    background-color: @theme_bg_color;
+    color: @theme_fg_color;
+}
+
+/* A classroom popup can overlap the tool rail; keep its text on an opaque surface. */
+window.utnShell popover.toolbar notebook {
+    background-color: @theme_bg_color;
+    color: @theme_fg_color;
 }
 
 window.utnShell popover.toolbar button {
