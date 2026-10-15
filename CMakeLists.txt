@@ -499,3 +499,8 @@ if (NOT DEFINED CPACK_GENERATOR)
 endif ()
 
 include(CPack)
+
+# Explicit developer diagnostic; never built by default or installed.
+add_executable(utn-eraser-visual-probe EXCLUDE_FROM_ALL tools/eraser-visual-probe.cpp)
+target_link_libraries(utn-eraser-visual-probe PRIVATE xoj::core xoj::util)
+target_compile_features(utn-eraser-visual-probe PRIVATE cxx_std_20)
