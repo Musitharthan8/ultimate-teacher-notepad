@@ -32,16 +32,22 @@
 #include "undo/UndoRedoHandler.h"
 #include "util/Color.h"
 #include "util/Matrix.h"
+#include "view/TextView.h"
+#include "view/View.h"
 #include "filesystem.h"
 
 namespace {
 class EraseTestView: public LegacyRedrawable {
 public:
     unsigned redraws = 0;
+    xoj::util::Rectangle<double> dirty{};
     void repaintArea(double, double, double, double) const override {}
     void repaintPage() const override {}
     void rerenderPage(bool) override {}
-    void rerenderRect(double, double, double, double) override { ++redraws; }
+    void rerenderRect(double x, double y, double w, double h) override {
+        ++redraws;
+        dirty = {x, y, w, h};
+    }
     GdkRGBA getSelectionColor() override { return {}; }
     void deleteViewBuffer() override {}
 };
@@ -1146,5 +1152,59 @@ TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
 
         // Whole-stroke removes the stroke; the partial eraser splits it, which adds points. Either way it changes.
         EXPECT_NE(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+    }
+}
+
+// Element-count tests miss stale pixels in the page cache. Draw the real text/box,
+// erase it, and clear only the invalidated device-pixel region as a partial redraw does.
+TEST(EraseHandler, objectEraseInvalidatesEveryRenderedAnswerBoxPixel) {
+    for (double zoom: {0.56, 1.0, 1.33, 2.0}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        auto answer = makeTextObject("Answer 42", 100.3, 100.7, true);
+        answer->setBoxBorderWidth(10);
+        answer->setBoxPadding(8);
+        const auto bounds = answer->getBoundingBox();
+        auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 600, 600);
+        auto* cr = cairo_create(surface);
+        cairo_scale(cr, zoom, zoom);
+        xoj::view::TextView(answer.get()).draw(xoj::view::Context::createDefault(cr));
+        cairo_surface_flush(surface);
+        size_t originalPixels = 0;
+        for (int y = 0; y < 600; ++y) {
+            const auto* row = reinterpret_cast<const uint32_t*>(cairo_image_surface_get_data(surface) +
+                                       y * cairo_image_surface_get_stride(surface));
+            for (int x = 0; x < 600; ++x) originalPixels += (row[x] >> 24) != 0;
+        }
+        ASSERT_GT(originalPixels, 0U);
+        page->getSelectedLayer()->addElement(std::move(answer));
+        Document document(nullptr);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(5);
+        tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        eraser.finalize();
+        ASSERT_EQ(countType(page, ELEMENT_TEXT), 0U);
+        ASSERT_GT(view.redraws, 0U);
+        cairo_identity_matrix(cr);
+        const auto& dirty = view.dirty;
+        const double left = std::floor(dirty.x * zoom), top = std::floor(dirty.y * zoom);
+        cairo_rectangle(cr, left, top, std::ceil((dirty.x + dirty.width) * zoom) - left,
+                        std::ceil((dirty.y + dirty.height) * zoom) - top);
+        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        cairo_fill(cr);
+        cairo_surface_flush(surface);
+        size_t remaining = 0;
+        for (int y = 0; y < 600; ++y) {
+            const auto* row = reinterpret_cast<const uint32_t*>(cairo_image_surface_get_data(surface) +
+                                       y * cairo_image_surface_get_stride(surface));
+            for (int x = 0; x < 600; ++x) remaining += (row[x] >> 24) != 0;
+        }
+        EXPECT_EQ(remaining, 0U) << "Stale answer-box pixels at zoom " << zoom;
+        cairo_destroy(cr);
+        cairo_surface_destroy(surface);
     }
 }

@@ -567,6 +567,23 @@ window.utnShell.utnHighContrast #utnContextSide .utn-eraser-modes button:checked
     border-color: currentColor;
 }
 
+/* A mode arrow belongs beside its tool, rather than consuming a second rail row. */
+window.utnShell #tbLeft1 button.utn-tool-arrow {
+    min-width: 12px;
+    min-height: 32px;
+    padding: 2px;
+    margin: 0;
+}
+window.utnShell #utnContextSide .utn-swatches button {
+    min-width: 24px;
+    min-height: 26px;
+    padding: 2px;
+}
+window.utnShell #utnContextSide {
+    padding: 8px 4px;
+    border-right: 1px solid alpha(@theme_fg_color, 0.15);
+}
+
 /* Shared UTN controls: colour swatches, size buttons, menus. */
 window.utnShell .utn-swatch {
     min-width: 26px;

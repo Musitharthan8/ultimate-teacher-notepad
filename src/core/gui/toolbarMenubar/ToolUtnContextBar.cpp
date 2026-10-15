@@ -275,7 +275,7 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_name(GTK_WIDGET(box), "utnContextBar");
     gtk_widget_set_margin_start(GTK_WIDGET(box), 4);
     gtk_widget_set_margin_end(GTK_WIDGET(box), 4);
-    gtk_widget_set_valign(GTK_WIDGET(box), GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(GTK_WIDGET(box), horizontal ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
 
     g_signal_connect(
             box,
@@ -296,10 +296,15 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
         gtk_widget_set_name(scroller, "utnContextSide");
         auto* side = GTK_SCROLLED_WINDOW(scroller);
-        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-        gtk_scrolled_window_set_propagate_natural_width(side, true);
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+        // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
+        gtk_scrolled_window_set_propagate_natural_width(side, false);
+        gtk_scrolled_window_set_min_content_width(side, 240);
+        gtk_scrolled_window_set_max_content_width(side, 240);
         gtk_scrolled_window_set_min_content_height(side, 160);
-        gtk_scrolled_window_set_overlay_scrolling(side, true);
+        gtk_scrolled_window_set_overlay_scrolling(side, false);
+        gtk_widget_set_vexpand(scroller, true);
+        gtk_widget_set_valign(scroller, GTK_ALIGN_FILL);
         gtk_scrolled_window_set_shadow_type(side, GTK_SHADOW_NONE);
         gtk_container_add(GTK_CONTAINER(scroller), GTK_WIDGET(box));
         gtk_widget_show_all(scroller);
@@ -387,6 +392,8 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     if (auto* viewport = gtk_widget_get_ancestor(GTK_WIDGET(box), GTK_TYPE_SCROLLED_WINDOW)) {
         auto* adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(viewport));
         gtk_adjustment_set_value(adjustment, gtk_adjustment_get_lower(adjustment));
+        adjustment = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(viewport));
+        gtk_adjustment_set_value(adjustment, gtk_adjustment_get_lower(adjustment));
     }
 }
 
@@ -410,7 +417,8 @@ void ToolUtnContextBar::appendSeparator() {
 void ToolUtnContextBar::appendHint(const char* text) {
     GtkWidget* label = gtk_label_new(text);
     gtk_widget_add_css_class(label, "utn-context-hint");
-    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_line_wrap(GTK_LABEL(label), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 28);
     gtk_box_append(box, label);
 }
 
@@ -809,7 +817,7 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_box_append(box, scale);
 
     appendSeparator();
-    appendHint(_("Ink erases strokes; Object removes whole boxes and pictures. Undo restores them."));
+    appendHint(_("Ink and Stroke erase handwriting. Choose Object to erase text, answer boxes or pictures. Undo restores them."));
 }
 
 void ToolUtnContextBar::appendTextControls() {

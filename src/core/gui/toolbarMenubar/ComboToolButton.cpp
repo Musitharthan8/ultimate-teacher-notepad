@@ -101,6 +101,7 @@ auto ComboToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     // Create item
     GtkMenuButton* menubutton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-arrow");
     gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
     gtk_menu_button_set_popover(menubutton, GTK_WIDGET(data->popover));
     gtk_menu_button_set_direction(menubutton,

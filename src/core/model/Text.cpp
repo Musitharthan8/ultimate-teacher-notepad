@@ -195,7 +195,12 @@ void Text::calcSize() const {
     const auto& matrix = this->getTransformation();
     if (this->boxEnabled) {
         auto boxBounds = computeAnswerBoxBounds(boxes, this->boxPadding, this->boxBorderWidth);
-        this->boundingBox = matrix * boxBounds;
+        // Cairo centres the border on this path. Invalidation and object erasing
+        // must include the outside half as well, otherwise cached edges remain.
+        const double border = this->boxBorderWidth * 0.5;
+        this->boundingBox = matrix * xoj::util::Rectangle<double>{
+                boxBounds.x - border, boxBounds.y - border,
+                boxBounds.width + 2 * border, boxBounds.height + 2 * border};
         this->snappedBounds = matrix * boxBounds;
     } else {
         this->boundingBox = matrix * this->effectiveBounds;
