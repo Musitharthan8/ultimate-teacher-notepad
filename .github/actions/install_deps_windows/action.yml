@@ -28,7 +28,6 @@ runs:
           mingw-w64-${{inputs.msys_package_env}}-libzip
           mingw-w64-${{inputs.msys_package_env}}-portaudio
           mingw-w64-${{inputs.msys_package_env}}-lua
-          mingw-w64-${{inputs.msys_package_env}}-gtksourceview4
           mingw-w64-${{inputs.msys_package_env}}-imagemagick
           make
           mingw-w64-${{inputs.msys_package_env}}-gobject-introspection-runtime
@@ -37,6 +36,15 @@ runs:
           mingw-w64-${{inputs.msys_package_env}}-zstd
     - shell: msys2 {0}
       run: |
+        set -euo pipefail
+        # TeX syntax highlighting is optional. MINGW64 no longer consistently
+        # publishes GtkSourceView 4; do not block the entire installer on it.
+        sourceview_package=mingw-w64-${{inputs.msys_package_env}}-gtksourceview4
+        if pacman -Si "$sourceview_package" >/dev/null 2>&1; then
+          pacman --noconfirm -S --needed "$sourceview_package"
+        else
+          echo '::notice::GtkSourceView 4 unavailable; build will use the plain TeX editor.'
+        fi
         # install LuaGObject via luarocks as long as there is no MinGW package
         # If this command fails because of a new Lua version, update package.sh as well
         luarocks install --lua-version=5.5 LuaGObject

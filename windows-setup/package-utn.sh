@@ -9,6 +9,12 @@ setup_dir="$build_dir/utn-dist"
 output_dir="$build_dir/utn-release"
 [[ -f "$build_dir/xournalpp.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
 # These are dedicated packaging directories, never the installed application.
+# Resolve existing symlinks before recursive removal and refuse escaped paths.
+for target in "$setup_dir" "$output_dir"; do
+    [[ "$build_dir" != / && ! -L "$target" && "$(realpath -m "$target")" == "$target" ]] || {
+        echo "Unsafe packaging directory: $target" >&2; exit 1;
+    }
+done
 rm -rf "$setup_dir" "$output_dir"
 mkdir -p "$setup_dir/lib" "$output_dir"
 cmake --install "$build_dir" --prefix "$setup_dir"
@@ -17,9 +23,12 @@ cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
 # GTK modules and Lua plugins load libraries that do not appear in the main EXE imports.
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$setup_dir/lib/"
 cp -r "$prefix/lib/girepository-1.0" "$setup_dir/lib/"
-for folder in icons glib-2.0 poppler gtksourceview-4 lua licenses; do
+for folder in icons glib-2.0 poppler lua licenses; do
     cp -r "$prefix/share/$folder" "$setup_dir/share/"
 done
+if [[ -d "$prefix/share/gtksourceview-4" ]]; then
+    cp -r "$prefix/share/gtksourceview-4" "$setup_dir/share/"
+fi
 cp -r "$prefix/lib/lua" "$setup_dir/lib/"
 cp "$prefix/bin/gspawn-win64-helper.exe" "$setup_dir/bin/"
 cp "$prefix/bin/gspawn-win64-helper-console.exe" "$setup_dir/bin/"
