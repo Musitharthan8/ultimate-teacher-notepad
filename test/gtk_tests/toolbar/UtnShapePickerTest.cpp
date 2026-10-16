@@ -127,13 +127,24 @@ TEST(UtnShapePickerFallback, gtkClicksThePreviousRadioWhileAGroupIsBuilt) {
     g_object_unref(freehand);
 }
 
-TEST(UtnShapePickerFallback, unknownCurrentShapeShowsFreehand) {
+// Visual pass 16 Oct: after Shapes & Lines › Double Arrow or Axes, the panel marked Freehand as selected
+TEST(UtnShapePickerFallback, shapeOnlyInShapesAndLinesMarksNoChoiceAndFreehandStillWorks) {
     if (!gtk_init_check(nullptr, nullptr)) {
         GTEST_SKIP() << "No display available";
     }
-    Recorder recorder;
-    GtkWidget* picker = GTK_WIDGET(g_object_ref_sink(utn::createShapePicker(DRAWING_TYPE_SPLINE, record, &recorder)));
-    EXPECT_TRUE(recorder.chosen.empty());
-    EXPECT_EQ(activeTypes(picker), std::vector<DrawingType>{DRAWING_TYPE_DEFAULT});
-    g_object_unref(picker);
+    for (DrawingType unlisted: {DRAWING_TYPE_DOUBLE_ARROW, DRAWING_TYPE_COORDINATE_SYSTEM, DRAWING_TYPE_SPLINE}) {
+        Recorder recorder;
+        GtkWidget* picker = GTK_WIDGET(g_object_ref_sink(utn::createShapePicker(unlisted, record, &recorder)));
+        EXPECT_TRUE(recorder.chosen.empty());
+        EXPECT_TRUE(activeTypes(picker).empty()) << "no listed shape may look selected";
+
+        for (GtkWidget* button: buttonsOf(picker)) {
+            if (utn::shapePickerButtonType(button) == DRAWING_TYPE_DEFAULT) {
+                gtk_button_clicked(GTK_BUTTON(button));
+            }
+        }
+        EXPECT_EQ(recorder.chosen, std::vector<DrawingType>{DRAWING_TYPE_DEFAULT});
+        EXPECT_EQ(activeTypes(picker), std::vector<DrawingType>{DRAWING_TYPE_DEFAULT});
+        g_object_unref(picker);
+    }
 }

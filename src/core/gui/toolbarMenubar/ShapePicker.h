@@ -40,7 +40,8 @@ inline constexpr std::array<ShapeChoice, 6> SHAPE_CHOICES{{
 using ShapeChosen = void (*)(DrawingType type, gpointer data);
 
 /**
- * Two-column radio grid with @p current switched on (Freehand when @p current is not one of the choices).
+ * Two-column radio grid with @p current switched on. When @p current is not one of the choices (Double Arrow, Axes,
+ * which only Shapes & Lines offers), no choice is shown selected.
  * Returns: (transfer floating)
  */
 GtkWidget* createShapePicker(DrawingType current, ShapeChosen chosen, gpointer data);

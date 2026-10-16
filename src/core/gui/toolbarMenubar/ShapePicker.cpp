@@ -54,8 +54,20 @@ GtkWidget* createShapePicker(DrawingType current, ShapeChosen chosen, gpointer d
         buttons.push_back(button);
     }
 
+    if (!active) {
+        // A shape only Shapes & Lines offers (Double Arrow, Axes…): no listed choice may look selected, and Freehand
+        // must still answer a click. A radio group always has one active member, so an unlisted one holds that state.
+        GtkWidget* other = gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(first));
+        g_object_ref_sink(other);
+        g_object_set_data_full(G_OBJECT(grid), "utn-shape-other", other, +[](gpointer p) {
+            gtk_widget_destroy(GTK_WIDGET(p));
+            g_object_unref(p);
+        });
+        active = other;
+    }
+
     // Set the state before any handler exists: switching a radio on "clicks" the previous one
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(active ? active : first), true);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(active), true);
 
     for (GtkWidget* button: buttons) {
         g_object_set_data(G_OBJECT(button), CHOSEN_KEY, reinterpret_cast<gpointer>(chosen));

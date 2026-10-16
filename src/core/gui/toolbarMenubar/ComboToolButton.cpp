@@ -64,8 +64,13 @@ static void setProminentIconCallback(GObject* a, GParamSpec*, ComboToolInstanceD
                 }
             }
             g_list_free(children);
+        } else if (GTK_IS_IMAGE(child)) {
+            gtk_image_set_from_icon_name(GTK_IMAGE(child), it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
         } else {
-            gtk_button_set_child(data->btn, gtk_image_new_from_icon_name(it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR));
+            // A new GTK3 widget starts hidden: an unshown replacement left the button blank until restart
+            GtkWidget* image = gtk_image_new_from_icon_name(it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
+            gtk_widget_show(image);
+            gtk_button_set_child(data->btn, image);
         }
         gtk_widget_set_tooltip_text(GTK_WIDGET(data->btn), it->name.c_str());
         gtk_actionable_set_action_target_value(GTK_ACTIONABLE(data->btn), state.get());
