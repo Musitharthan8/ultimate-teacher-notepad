@@ -34,6 +34,7 @@
 #include "AnswerBoxStyles.h"  // for ANSWER_BOX_STYLES
 #include "HighlightModes.h"   // for HIGHLIGHT_MODES
 #include "EraserModes.h"     // for ERASER_MODES
+#include "ShapePicker.h"     // for createShapePicker
 #include "util/GVariantTemplate.h"  // for getGVariantValue
 #include "UtnWidgets.h"
 
@@ -296,7 +297,8 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
         gtk_widget_set_name(scroller, "utnContextSide");
         auto* side = GTK_SCROLLED_WINDOW(scroller);
-        gtk_scrolled_window_set_policy(side, GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+        // Controls wrap to the panel width instead; a sideways scrollbar hid the XL size in the touch layout
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
         gtk_scrolled_window_set_propagate_natural_width(side, false);
         gtk_scrolled_window_set_min_content_width(side, 240);
@@ -339,6 +341,23 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     if (box == nullptr) {
         return;
     }
+    if (rebuilding) {
+        // A control changed the tool while the bar was being built. Finish this build, then show the newest state
+        // once, instead of appending a second set of controls into the half-built bar.
+        rebuildPending = true;
+        return;
+    }
+    rebuilding = true;
+    populate(tool);
+    while (rebuildPending && box != nullptr) {
+        rebuildPending = false;
+        populate(control->getToolHandler()->getToolType());
+    }
+    rebuildPending = false;
+    rebuilding = false;
+}
+
+void ToolUtnContextBar::populate(ToolType tool) {
     clearBox(box);
     auto* tools = control->getToolHandler();
     appendBadge(badgeName(tools, tool));
@@ -422,6 +441,37 @@ void ToolUtnContextBar::appendHint(const char* text) {
     gtk_box_append(box, label);
 }
 
+auto ToolUtnContextBar::isSidePanel() const -> bool {
+    return gtk_orientable_get_orientation(GTK_ORIENTABLE(box)) == GTK_ORIENTATION_VERTICAL;
+}
+
+auto ToolUtnContextBar::isTouchUi() const -> bool {
+    bool touchUi = false;
+    control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
+    return touchUi;
+}
+
+auto ToolUtnContextBar::newControlGroup(int columns, int spacing) -> GtkWidget* {
+    if (columns <= 0) {
+        return gtk_box_new(GTK_ORIENTATION_HORIZONTAL, spacing);
+    }
+    GtkWidget* grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), spacing);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), spacing);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), true);
+    g_object_set_data(G_OBJECT(grid), "utn-columns", GINT_TO_POINTER(columns));
+    return grid;
+}
+
+void ToolUtnContextBar::addToGroup(GtkWidget* group, GtkWidget* child, int index) {
+    if (GTK_IS_GRID(group)) {
+        const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        gtk_grid_attach(GTK_GRID(group), child, index % columns, index / columns, 1, 1);
+    } else {
+        gtk_box_append(GTK_BOX(group), child);
+    }
+}
+
 auto ToolUtnContextBar::appendButton(const char* label, const char* hint) -> GtkWidget* {
     GtkWidget* button = gtk_button_new_with_label(label);
     gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
@@ -440,8 +490,10 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
         return window && window->getXournal() && window->getXournal()->getSelection();
     }();
 
-    GtkBox* group = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2));
-    gtk_widget_add_css_class(GTK_WIDGET(group), "utn-swatches");
+    // Five swatches plus "More colours"; in the touch-size side panel they wrap onto two rows of three
+    GtkWidget* group = newControlGroup(isSidePanel() && isTouchUi() ? 3 : 0, 2);
+    gtk_widget_add_css_class(group, "utn-swatches");
+    int index = 0;
     for (const auto& swatch: swatches) {
         GtkWidget* button = utn::createColourSwatch(swatch.colour, _(swatch.name));
         gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
@@ -466,7 +518,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                              g_list_free(siblings);
                          }),
                          control);
-        gtk_box_append(group, button);
+        addToGroup(group, button, index++);
     }
 
     // A selection reports white as its tool colour; start the chooser from black instead
@@ -494,8 +546,8 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                          g_list_free(siblings);
                      }),
                      control);
-    gtk_box_append(group, more);
-    gtk_box_append(box, GTK_WIDGET(group));
+    addToGroup(group, more, index);
+    gtk_box_append(box, group);
 }
 
 void ToolUtnContextBar::appendSizeControls(ToolType tool) {
@@ -505,12 +557,17 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                              tool == TOOL_PEN         ? tools->getPenSize() :
                                                         TOOL_SIZE_NONE;
 
-    GtkBox* group = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
-    gtk_widget_add_css_class(GTK_WIDGET(group), "linked");
-    gtk_widget_add_css_class(GTK_WIDGET(group), "utn-sizes");
-    utn::setAccessibleName(GTK_WIDGET(group), _("Size"));
+    // All five presets must stay reachable: the touch-size side panel shows them as XS S M / L XL
+    const int columns = isSidePanel() && isTouchUi() ? 3 : 0;
+    GtkWidget* group = newControlGroup(columns, columns ? 2 : 0);
+    if (!columns) {
+        gtk_widget_add_css_class(group, "linked");
+    }
+    gtk_widget_add_css_class(group, "utn-sizes");
+    utn::setAccessibleName(group, _("Size"));
 
     GtkWidget* first = nullptr;
+    int index = 0;
     for (const auto& entry: SIZES) {
         // Radio buttons show the current size; a selection may mix sizes, so it gets plain buttons
         GtkWidget* button = forSelection ? gtk_button_new_with_label(entry.label) :
@@ -547,70 +604,38 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                              }
                          }),
                          control);
-        gtk_box_append(group, button);
+        addToGroup(group, button, index++);
     }
-    gtk_box_append(box, GTK_WIDGET(group));
+    gtk_box_append(box, group);
 }
 
 // --- tools ------------------------------------------------------------------------------------------------------
 
 void ToolUtnContextBar::appendShapePicker(DrawingType current) {
-    struct ShapeChoice {
-        DrawingType type;
-        const char* label;
-        const char* hint;
-    };
-    static constexpr std::array<ShapeChoice, 6> CHOICES{{
-            {DRAWING_TYPE_DEFAULT, N_("Freehand"), N_("Write freehand with the pen")},
-            {DRAWING_TYPE_RECTANGLE, N_("Rectangle"), N_("Draw a rectangle")},
-            {DRAWING_TYPE_ELLIPSE, N_("Ellipse"), N_("Draw an ellipse or circle")},
-            {DRAWING_TYPE_LINE, N_("Line"), N_("Draw a straight line")},
-            {DRAWING_TYPE_ARROW, N_("Arrow"), N_("Draw an arrow")},
-            {DRAWING_TYPE_SHAPE_RECOGNIZER, N_("Smart Shape"), N_("Draw a rough circle or box and let UTN tidy it")},
-    }};
-
     GtkWidget* title = gtk_label_new(_("Shape"));
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_widget_add_css_class(title, "utn-context-title");
     gtk_box_append(box, title);
 
-    // A radio group, like the eraser modes: exactly one choice is checked and the change is visible at a glance
-    GtkGrid* grid = GTK_GRID(gtk_grid_new());
-    gtk_widget_add_css_class(GTK_WIDGET(grid), "utn-shape-picker");
-    gtk_grid_set_row_spacing(grid, 4);
-    gtk_grid_set_column_spacing(grid, 4);
-    GtkWidget* first = nullptr;
-    int column = 0;
-    int row = 0;
-    for (const auto& choice: CHOICES) {
-        GtkWidget* button = first ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first), _(choice.label))
-                                  : gtk_radio_button_new_with_label(nullptr, _(choice.label));
-        first = first ? first : button;
-        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
-        gtk_widget_add_css_class(button, "utn-shape-mode");
-        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
-        gtk_widget_set_tooltip_text(button, _(choice.hint));
-        utn::setAccessibleName(button, _(choice.label));
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), current == choice.type);
-        g_object_set_data(G_OBJECT(button), "utn-control", control);
-        g_object_set_data(G_OBJECT(button), "utn-drawing-type", GINT_TO_POINTER(static_cast<int>(choice.type)));
-        // "clicked", not "toggled": choosing a shape rebuilds this bar, which destroys the button mid-signal.
-        // The handler therefore touches no widget after the call that may rebuild.
-        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
-                             auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
-                             auto type = static_cast<DrawingType>(
-                                     GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-drawing-type")));
-                             ctrl->selectTool(TOOL_PEN);
-                             ctrl->setToolDrawingType(type);
-                         }),
-                         nullptr);
-        gtk_grid_attach(grid, button, column, row, 1, 1);
-        if (++column == 2) {
-            column = 0;
-            ++row;
-        }
-    }
-    gtk_box_append(box, GTK_WIDGET(grid));
+    // A radio group, like the eraser modes: exactly one choice is checked and the change is visible at a glance.
+    // Applying a shape rebuilds this bar, so the change waits until the radio's own signal has finished.
+    gtk_box_append(box, utn::createShapePicker(
+                                current,
+                                [](DrawingType type, gpointer data) {
+                                    struct Request {
+                                        Control* control;
+                                        DrawingType type;
+                                    };
+                                    g_idle_add(+[](gpointer p) -> gboolean {
+                                                   auto* request = static_cast<Request*>(p);
+                                                   request->control->selectTool(TOOL_PEN);
+                                                   request->control->setToolDrawingType(request->type);
+                                                   delete request;
+                                                   return G_SOURCE_REMOVE;
+                                               },
+                                               new Request{static_cast<Control*>(data), type});
+                                },
+                                control));
     appendSeparator();
 }
 
@@ -687,13 +712,6 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
                          control);
         gtk_box_append(box, threshold);
     }
-
-    appendSeparator();
-    GtkWidget* freehand = appendButton(_("Back to Pen"), _("Stop drawing shapes and write freehand"));
-    g_signal_connect(freehand, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                         static_cast<Control*>(data)->setToolDrawingType(DRAWING_TYPE_DEFAULT);
-                     }),
-                     control);
 }
 
 void ToolUtnContextBar::appendHighlightControls() {

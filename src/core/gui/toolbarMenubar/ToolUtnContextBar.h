@@ -42,6 +42,7 @@ private:
     enum class Palette { Ink, Highlight };
 
     void rebuild(ToolType tool);
+    void populate(ToolType tool);
 
     // Shared building blocks, used in this order by every tool
     void appendBadge(const char* name);
@@ -50,6 +51,14 @@ private:
     void appendSeparator();
     void appendHint(const char* text);
     GtkWidget* appendButton(const char* label, const char* hint);
+
+    /// The vertical panel beside the tool rail (not the horizontal strip)
+    bool isSidePanel() const;
+    /// Appearance › Larger buttons for touch and stylus
+    bool isTouchUi() const;
+    /// A row of controls, or a grid wrapping after @p columns when @p columns > 0
+    static GtkWidget* newControlGroup(int columns, int spacing);
+    static void addToGroup(GtkWidget* group, GtkWidget* child, int index);
 
     // One section per tool
     void appendPenControls();
@@ -63,6 +72,8 @@ private:
 
     Control* control;
     GtkBox* box = nullptr;
+    bool rebuilding = false;      ///< populate() is running
+    bool rebuildPending = false;  ///< the tool changed during populate()
 
     // ToolHandler cannot remove listeners. Its tool-changed listener holds a weak reference to this token, so it does
     // nothing once this bar has been destroyed with its toolbar window.
