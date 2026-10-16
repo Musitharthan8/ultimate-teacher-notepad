@@ -285,6 +285,20 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
     }
 
     const DrawingHandlerRoute route = drawingHandlerRoute(*h);
+
+    // UTN: new content never goes onto a hidden layer (such as hidden answers after reopening a lesson), where
+    // nobody would see it
+    const ToolType tool = h->getToolType();
+    if (route != DrawingHandlerRoute::None || tool == TOOL_TEXT || tool == TOOL_LATEX || tool == TOOL_IMAGE) {
+        LayerController* layers = control->getLayerController();
+        if (layers->getCurrentPage() == this->page && layers->ensureVisibleInkLayer(control->isGhostHiddenAnswers())) {
+            if (MainWindow* win = control->getWindow()) {
+                win->showToast(FS(_F("The selected layer is hidden, so this goes on \"{1}\"") %
+                                  layers->getCurrentLayerName()));
+            }
+        }
+    }
+
     if (route != DrawingHandlerRoute::None && route != DrawingHandlerRoute::Spline) {
 
         if (this->inputHandler) {

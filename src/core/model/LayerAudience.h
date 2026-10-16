@@ -43,6 +43,13 @@ bool isHiddenAnswers(const Layer& layer);
 std::optional<Layer::Index> writableLayerIdAfterHide(const std::vector<Layer*>& layers);
 
 /**
+ * Where new ink must go when the selected layer (1-based ID, 0 meaning the bottom layer) is hidden, so nothing is
+ * drawn where nobody can see it: the topmost visible layer that is not an answers layer. Nothing when the selected
+ * layer is visible, or when the page has no such layer.
+ */
+std::optional<Layer::Index> visibleLayerIdForInk(const std::vector<Layer*>& layers, Layer::Index selected);
+
+/**
  * Prepare a freshly loaded layer: apply the legacy name rule when the file had no audience attribute, and start
  * every answers layer hidden so opening a lesson never shows answers.
  */

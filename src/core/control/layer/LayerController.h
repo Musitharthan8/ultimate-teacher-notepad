@@ -82,6 +82,16 @@ public:
     void switchToLay(Layer::Index layerId, bool hideShow = false, bool clearSelection = true);
     void setLayerVisible(Layer::Index layerId, bool visible);
 
+    /**
+     * Call before a tool adds content to the current page: nothing may land on a hidden layer, where nobody would see
+     * it. Moves to the topmost visible layer that is not an answers layer; shows an ordinary layer the teacher hid
+     * when there is none; starts a new layer when the page holds only hidden answers otherwise.
+     * @param answersShowFaintly hidden answers are drawn faintly for the teacher (Student View on a second monitor),
+     *        so the teacher may keep writing answers there
+     * @return whether the active layer changed
+     */
+    bool ensureVisibleInkLayer(bool answersShowFaintly);
+
     PageRef getCurrentPage() const;
     size_t getCurrentPageId() const;
 

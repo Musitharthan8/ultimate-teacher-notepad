@@ -71,6 +71,22 @@ auto writableLayerIdAfterHide(const std::vector<Layer*>& layers) -> std::optiona
     return std::nullopt;
 }
 
+auto visibleLayerIdForInk(const std::vector<Layer*>& layers, Layer::Index selected) -> std::optional<Layer::Index> {
+    if (layers.empty()) {
+        return std::nullopt;
+    }
+    const Layer::Index current = selected == 0 ? 1 : selected;  // as XojPage::getSelectedLayer reads it
+    if (current <= layers.size() && layers[current - 1]->isVisible()) {
+        return std::nullopt;
+    }
+    for (size_t i = layers.size(); i > 0; --i) {
+        if (layers[i - 1]->isVisible() && layers[i - 1]->getAudience() != LayerAudience::Answers) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
 void prepareLoadedLayer(Layer& layer, std::optional<LayerAudience> savedAudience) {
     const LayerAudience audience =
             savedAudience ? *savedAudience : (layer.hasName() ? audienceFromLegacyName(layer.getName()) : LayerAudience::Everyone);
