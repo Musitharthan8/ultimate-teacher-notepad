@@ -110,10 +110,11 @@ TEST_F(UtnPropertiesBar, propertiesItemExpandsInToolbar) {
     ASSERT_TRUE(GTK_IS_TOOL_ITEM(item.get()));
     EXPECT_TRUE(gtk_tool_item_get_expand(GTK_TOOL_ITEM(item.get())));
 
-    // Vertical toolbars and ordinary items keep upstream sizing
+    // Beside the tool rail the panel also fills its toolbar, so a tall palette scrolls instead of being clipped
+    // (728181fc1). Ordinary items keep upstream sizing.
     PropertiesProbe vertical(4);
     auto verticalItem = vertical.createToolItem(false);
-    EXPECT_FALSE(gtk_tool_item_get_expand(GTK_TOOL_ITEM(verticalItem.get())));
+    EXPECT_TRUE(gtk_tool_item_get_expand(GTK_TOOL_ITEM(verticalItem.get())));
 }
 
 TEST_F(UtnPropertiesBar, viewportRequestsItsControlsNaturalWidth) {
