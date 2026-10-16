@@ -272,6 +272,15 @@ try {
 #endif
 }
 
+// Windows SpeechSynthesizer: Rate -10..10 and pitch in semitones, both 0 for the voice's normal delivery
+constexpr int DEFAULT_SPEECH_RATE = 0;
+constexpr int DEFAULT_SPEECH_VOLUME = 100;
+constexpr int DEFAULT_SPEECH_PITCH = 0;
+// Last choices in this session; the popover is rebuilt whenever the layout changes
+int speechRate = DEFAULT_SPEECH_RATE;
+int speechVolume = DEFAULT_SPEECH_VOLUME;
+int speechPitch = DEFAULT_SPEECH_PITCH;
+
 void readAloud(GtkWidget* textView, GtkWidget* label, int rate, int volume, int pitch, const char* voice) {
 #ifdef _WIN32
     if (g_object_get_data(G_OBJECT(label), "utn-speech-process")) {
@@ -348,6 +357,17 @@ try {
 #else
     setResult(label, _("Read Aloud uses Windows speech and is not available on this system."));
 #endif
+}
+
+#define OCR_MISSING_MESSAGE                                                                                        \
+    _("Text recognition needs the free Tesseract OCR program, which is not installed on this computer. Install "     \
+      "Tesseract and make sure \"tesseract\" is on PATH, then try again. Everything else in UTN works without it.")
+
+bool isOcrInstalled() {
+    gchar* path = g_find_program_in_path("tesseract");
+    const bool found = path != nullptr;
+    g_free(path);
+    return found;
 }
 
 void selectImageForOcr(GtkWidget* label, GtkWindow* parent) {
@@ -506,19 +526,39 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
         g_object_unref(voices);
     }
 #endif
-    gtk_box_append(reading, gtk_label_new(_("Reading speed (−10 slow to 10 fast)")));
-    GtkWidget* rate = gtk_spin_button_new_with_range(-10, 10, 1);
-    atk_object_set_name(gtk_widget_get_accessible(rate), _("Reading speed"));
-    gtk_box_append(reading, rate);
-    gtk_box_append(reading, gtk_label_new(_("Volume (%)")));
-    GtkWidget* volume = gtk_spin_button_new_with_range(0, 100, 5);
-    atk_object_set_name(gtk_widget_get_accessible(volume), _("Reading volume"));
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(volume), 100);
-    gtk_box_append(reading, volume);
-    gtk_box_append(reading, gtk_label_new(_("Pitch (semitones; voice support varies)")));
-    GtkWidget* pitch = gtk_spin_button_new_with_range(-10, 10, 1);
-    atk_object_set_name(gtk_widget_get_accessible(pitch), _("Reading pitch"));
-    gtk_box_append(reading, pitch);
+    // A new spin button starts at its minimum, which read every passage at the slowest speed and lowest pitch.
+    // Start from the voice's normal speed and pitch, and keep the teacher's choice while UTN is open.
+    auto addSpeechSetting = [reading](const char* label, const char* name, int min, int max, int step, int* value) {
+        gtk_box_append(reading, gtk_label_new(label));
+        GtkWidget* spin = gtk_spin_button_new_with_range(min, max, step);
+        atk_object_set_name(gtk_widget_get_accessible(spin), name);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), *value);
+        g_signal_connect(spin, "value-changed", G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
+                             *static_cast<int*>(data) = gtk_spin_button_get_value_as_int(spin);
+                         }),
+                         value);
+        gtk_box_append(reading, spin);
+        return spin;
+    };
+    GtkWidget* rate = addSpeechSetting(_("Reading speed (−10 slow, 0 normal, 10 fast)"), _("Reading speed"), -10, 10, 1,
+                                       &speechRate);
+    GtkWidget* volume = addSpeechSetting(_("Volume (%)"), _("Reading volume"), 0, 100, 5, &speechVolume);
+    GtkWidget* pitch = addSpeechSetting(_("Pitch (semitones, 0 normal; voice support varies)"), _("Reading pitch"),
+                                        -10, 10, 1, &speechPitch);
+    GtkWidget* resetSpeech = gtk_button_new_with_label(_("Normal speed, volume and pitch"));
+    g_object_set_data(G_OBJECT(resetSpeech), "utn-speech-rate", rate);
+    g_object_set_data(G_OBJECT(resetSpeech), "utn-speech-volume", volume);
+    g_object_set_data(G_OBJECT(resetSpeech), "utn-speech-pitch", pitch);
+    g_signal_connect(resetSpeech, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer) {
+                         auto spin = [button](const char* key) {
+                             return GTK_SPIN_BUTTON(g_object_get_data(G_OBJECT(button), key));
+                         };
+                         gtk_spin_button_set_value(spin("utn-speech-rate"), DEFAULT_SPEECH_RATE);
+                         gtk_spin_button_set_value(spin("utn-speech-volume"), DEFAULT_SPEECH_VOLUME);
+                         gtk_spin_button_set_value(spin("utn-speech-pitch"), DEFAULT_SPEECH_PITCH);
+                     }),
+                     nullptr);
+    gtk_box_append(reading, resetSpeech);
     g_object_set_data(G_OBJECT(speak), "utn-speech-pitch", pitch);
     g_object_set_data(G_OBJECT(speak), "utn-speech-voice", voice);
     g_object_set_data(G_OBJECT(speak), "utn-speech-rate", rate);
@@ -578,7 +618,8 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
 
     auto* ocr = makePanel(tabs, _("OCR"));
     addHint(ocr, _("Extract text from a scanned PNG or JPEG. Requires Tesseract OCR on PATH for this developer preview."));
-    GtkWidget* ocrResult = gtk_label_new(_("Choose an image to recognise its text."));
+    GtkWidget* ocrResult = gtk_label_new(isOcrInstalled() ? _("Choose an image to recognise its text.") :
+                                                            OCR_MISSING_MESSAGE);
     gtk_label_set_xalign(GTK_LABEL(ocrResult), 0);
     gtk_label_set_line_wrap(GTK_LABEL(ocrResult), TRUE);
     gtk_label_set_selectable(GTK_LABEL(ocrResult), TRUE);
@@ -586,8 +627,13 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     GtkWidget* scan = gtk_button_new_with_label(_("Recognise text in image…"));
     g_object_set_data(G_OBJECT(scan), "utn-ocr-result", ocrResult);
     g_signal_connect(scan, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
-        selectImageForOcr(GTK_WIDGET(g_object_get_data(G_OBJECT(button), "utn-ocr-result")),
-                          GTK_WINDOW(data));
+        auto* result = GTK_WIDGET(g_object_get_data(G_OBJECT(button), "utn-ocr-result"));
+        // Say so before the teacher picks a file, rather than after
+        if (!isOcrInstalled()) {
+            setResult(result, OCR_MISSING_MESSAGE);
+            return;
+        }
+        selectImageForOcr(result, GTK_WINDOW(data));
     }), control->getGtkWindow());
     gtk_box_append(ocr, scan);
     GtkWidget* ocrScroll = gtk_scrolled_window_new(nullptr, nullptr);
