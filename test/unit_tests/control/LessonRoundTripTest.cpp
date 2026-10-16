@@ -80,6 +80,8 @@ void expectLesson(Document& doc) {
 
     EXPECT_EQ(answers.getAudience(), LayerAudience::Answers);
     EXPECT_FALSE(answers.isVisible()) << "opening a lesson must never show its answers";
+    // Visual pass 16 Oct: the hidden answers layer was left selected, so new ink was invisible after reopening
+    EXPECT_EQ(page->getSelectedLayer(), &lesson) << "new ink must go to a visible layer after opening";
     EXPECT_NE(textWith(elementsOf(answers), "HIDDEN ANSWER 42"), nullptr);
 }
 
