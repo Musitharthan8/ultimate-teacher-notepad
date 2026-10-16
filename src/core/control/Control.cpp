@@ -1236,7 +1236,14 @@ void Control::setViewPairedPages(bool enabled) {
 
 void Control::setViewFullscreenMode(bool enabled) {
     if (enabled) {
+        // Full screen is for more room: it must not reopen a sidebar the teacher has closed
+        const bool sidebarClosed = !settings->getViewModes().at(VIEW_MODE_DEFAULT).showSidebar;
         this->loadViewMode(VIEW_MODE_FULLSCREEN);
+        if (sidebarClosed && settings->isSidebarVisible()) {
+            settings->setSidebarVisible(false);
+            win->setSidebarVisible(false);
+            actionDB->setActionState(Action::SHOW_SIDEBAR, false);
+        }
     } else {
         this->loadViewMode(VIEW_MODE_DEFAULT);
     }
