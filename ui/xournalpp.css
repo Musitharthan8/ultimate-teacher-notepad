@@ -625,6 +625,32 @@ window.utnShell.utnHighContrast #utnContextSide .utn-eraser-modes button:checked
     border-width: 2px;
     border-color: currentColor;
 }
+/* The rules above outrank the general High Contrast button states, so repeat them here: the visual pass found a
+   selected Shape as dark grey text on dark teal. */
+window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch),
+window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) {
+    background-image: none;
+    background-color: #000000;
+    color: #ffffff;
+    border-color: #ffffff;
+}
+window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):hover,
+window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):hover {
+    background-color: #ffffff;
+    color: #000000;
+}
+window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):checked,
+window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):active,
+window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):checked,
+window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):active {
+    background-color: #ffff00;
+    color: #000000;
+    border-color: #ffff00;
+}
+window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch) label,
+window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) label {
+    color: inherit;
+}
 
 /* A mode arrow belongs beside its tool, rather than consuming a second rail row. */
 window.utnShell #tbLeft1 button.utn-tool-arrow {
@@ -733,3 +759,37 @@ window.utnShell.utnHighContrast .utn-toast {
 .utn-blank-cover { background-color: #000000; }
 .utn-blank-cover label { color: #ffffff; }
 .utn-blank-title { font-size: 1.6em; font-weight: bold; }
+
+/* Delete / Delete Box: always shown as an available red action. The theme's destructive style drew grey text
+   until hover, so teachers read it as disabled. */
+window.utnShell button.destructive-action {
+    background-image: none;
+    background-color: alpha(#b3261e, 0.08);
+    color: #b3261e;
+    border: 1px solid alpha(#b3261e, 0.55);
+}
+window.utnShell button.destructive-action label { color: inherit; }
+window.utnShell button.destructive-action:hover {
+    background-color: #b3261e;
+    color: #ffffff;
+}
+window.utnShell.darkMode button.destructive-action {
+    background-color: alpha(#f2b8b5, 0.10);
+    color: #f2b8b5;
+    border-color: alpha(#f2b8b5, 0.60);
+}
+window.utnShell.darkMode button.destructive-action:hover {
+    background-color: #f2b8b5;
+    color: #000000;
+}
+window.utnShell.utnHighContrast #utnContextSide button.destructive-action,
+window.utnShell.utnHighContrast #utnContextBar button.destructive-action {
+    background-color: #000000;
+    color: #ff8080;
+    border: 2px solid #ff8080;
+}
+window.utnShell.utnHighContrast #utnContextSide button.destructive-action:hover,
+window.utnShell.utnHighContrast #utnContextBar button.destructive-action:hover {
+    background-color: #ff8080;
+    color: #000000;
+}

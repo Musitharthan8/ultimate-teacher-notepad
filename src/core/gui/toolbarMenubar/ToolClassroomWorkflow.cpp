@@ -224,6 +224,18 @@ void readProcessOutput(GObject* source, GAsyncResult* result, gpointer userData)
     g_object_unref(label);
 }
 
+/// Windows PowerShell from the Windows folder, so speech and the dictionary work even when PATH has been trimmed
+std::string powershellPath() {
+    const char* systemRoot = g_getenv("SystemRoot");
+    if (!systemRoot || !*systemRoot) {
+        return "powershell.exe";
+    }
+    gchar* path = g_build_filename(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe", nullptr);
+    std::string result = g_file_test(path, G_FILE_TEST_IS_EXECUTABLE) ? path : "powershell.exe";
+    g_free(path);
+    return result;
+}
+
 // Windows PowerShell is present in supported Windows installations. The dictionary does not
 // require browser navigation; PowerShell performs the HTTPS request and formats the source data.
 void runDictionary(GtkWidget* entry, GtkWidget* label) {
@@ -249,18 +261,24 @@ try {
   }
   $lines -join [Environment]::NewLine
 } catch {
-  'No dictionary result. Check the spelling and Internet connection.'
+  $status=0
+  try { $status=[int]$_.Exception.Response.StatusCode } catch {}
+  if ($status -eq 404) {
+    'The online dictionary has no entry for this word. Check the spelling, or try a simpler form (for example "teach" for "teacher").'
+  } else {
+    'The online dictionary could not be reached. Check the Internet connection and try again.'
+  }
 }
 )UTN";
     GSubprocessLauncher* launcher = g_subprocess_launcher_new(
             GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE));
     g_subprocess_launcher_setenv(launcher, "UTN_LOOKUP_WORD", word, TRUE);
     GError* error = nullptr;
-    GSubprocess* process = g_subprocess_launcher_spawn(launcher, &error, "powershell.exe",
+    GSubprocess* process = g_subprocess_launcher_spawn(launcher, &error, powershellPath().c_str(),
                                                       "-NoProfile", "-NonInteractive", "-Command", command, nullptr);
     g_object_unref(launcher);
     if (!process) {
-        setResult(label, error ? error->message : _("Could not start the online dictionary."));
+        setResult(label, _("Could not start Windows PowerShell, which the online dictionary uses."));
         if (error) g_error_free(error);
         return;
     }
@@ -324,11 +342,11 @@ try {
     g_subprocess_launcher_setenv(launcher, "UTN_SPEAK_VOICE", voice ? voice : "", TRUE);
     g_free(passage);
     GError* error = nullptr;
-    GSubprocess* process = g_subprocess_launcher_spawn(launcher, &error, "powershell.exe",
+    GSubprocess* process = g_subprocess_launcher_spawn(launcher, &error, powershellPath().c_str(),
                                                       "-NoProfile", "-NonInteractive", "-Command", command, nullptr);
     g_object_unref(launcher);
     if (!process) {
-        setResult(label, error ? error->message : _("Windows speech could not start."));
+        setResult(label, _("Could not start Windows PowerShell, which Read Aloud uses for Windows speech."));
         if (error) g_error_free(error);
         return;
     }
@@ -499,7 +517,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
 #ifdef _WIN32
     GSubprocess* voices = g_subprocess_new(
             GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE), nullptr,
-            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            powershellPath().c_str(), "-NoProfile", "-NonInteractive", "-Command",
             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Speech; "
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             "try {$s.GetInstalledVoices() | Where-Object Enabled | ForEach-Object {$_.VoiceInfo.Name}} finally {$s.Dispose()}", nullptr);

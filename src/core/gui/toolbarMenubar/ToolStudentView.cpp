@@ -33,6 +33,13 @@ constexpr guint REDRAW_INTERVAL_MS = 40;
 
 constexpr const char* STATE_CLASSES[] = {"utn-sv-off", "utn-sv-same", "utn-sv-live", "utn-sv-frozen", "utn-sv-blank"};
 
+/// A choice in the Students menu closes it, like its other entries; otherwise the next click only dismissed the menu
+void closeMenu(GtkWidget* entry) {
+    if (auto* popover = g_object_get_data(G_OBJECT(entry), "utn-popover")) {
+        gtk_popover_popdown(GTK_POPOVER(popover));
+    }
+}
+
 /// Draw the current page as students may see it, centred and scaled into width × height
 void renderStudentFrame(Control* control, cairo_t* cr, double width, double height) {
     cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
@@ -276,10 +283,12 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     freezeToggle = gtk_toggle_button_new_with_label(_("Freeze this page"));
     g_signal_connect(freezeToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                          if (!utn::isSyncing(GTK_WIDGET(button))) {
+                             closeMenu(GTK_WIDGET(button));
                              static_cast<ToolStudentView*>(data)->setFrozen(gtk_toggle_button_get_active(button));
                          }
                      }),
                      this);
+    g_object_set_data(G_OBJECT(freezeToggle), "utn-popover", popover);
     gtk_box_append(panel, freezeToggle);
 
     blankToggle = gtk_toggle_button_new_with_label(_("Blank screen"));
@@ -287,10 +296,12 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_add_css_class(blankToggle, "utn-danger");
     g_signal_connect(blankToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                          if (!utn::isSyncing(GTK_WIDGET(button))) {
+                             closeMenu(GTK_WIDGET(button));
                              static_cast<ToolStudentView*>(data)->setBlanked(gtk_toggle_button_get_active(button));
                          }
                      }),
                      this);
+    g_object_set_data(G_OBJECT(blankToggle), "utn-popover", popover);
     gtk_box_append(panel, blankToggle);
 
     fullButton = utn::appendMenuButton(panel, popover, _("Full screen"),
