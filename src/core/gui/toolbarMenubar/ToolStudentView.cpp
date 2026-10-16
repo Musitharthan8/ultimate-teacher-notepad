@@ -174,16 +174,29 @@ void ToolStudentView::updateState() {
         gtk_label_set_text(GTK_LABEL(pillLabel), stateLabel(state));
         utn::setAccessibleName(pill, stateLabel(state));
     }
+    const bool open = window != nullptr;
     if (freezeToggle) {
-        const bool canFreeze = window != nullptr;
-        gtk_widget_set_sensitive(freezeToggle, canFreeze);
+        gtk_widget_set_sensitive(freezeToggle, open);
+        // The button says what it will do next, so a frozen class always has an obvious way back to live
+        gtk_button_set_label(GTK_BUTTON(freezeToggle), frozen ? _("Resume live view") : _("Freeze this page"));
         gtk_widget_set_tooltip_text(freezeToggle,
-                                    canFreeze ? _("Keep showing this page while you prepare the next step") :
-                                                _("Open Student View on the projector first"));
+                                    !open  ? _("Open Student View on the projector first") :
+                                    frozen ? _("Show students the page you are on now") :
+                                             _("Keep showing this page while you prepare the next step"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(freezeToggle), frozen);
     }
     if (blankToggle) {
+        gtk_button_set_label(GTK_BUTTON(blankToggle), blanked ? _("Show the page again") : _("Blank screen"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankToggle), blanked);
+    }
+    if (openButton) {
+        gtk_button_set_label(GTK_BUTTON(openButton), open ? _("Show Student View window") : _("Open on the projector"));
+    }
+    if (fullButton) {
+        gtk_widget_set_sensitive(fullButton, open);
+    }
+    if (closeButton) {
+        gtk_widget_set_sensitive(closeButton, open);
     }
 
     updateTeacherOutline(state);
@@ -198,6 +211,10 @@ void ToolStudentView::updateTeacherOutline(State state) {
     }
     if (!teacherOutline) {
         teacherOutline = gtk_drawing_area_new();
+        // Overlay pass-through only skips the overlay's own child window. A drawing area normally adds a GdkWindow
+        // of its own, which covered the whole teacher window (toolbars included) and swallowed every click while
+        // students were frozen, including clicks on the Students pill. Without a window it only paints.
+        gtk_widget_set_has_window(teacherOutline, false);
         gtk_widget_set_halign(teacherOutline, GTK_ALIGN_FILL);
         gtk_widget_set_valign(teacherOutline, GTK_ALIGN_FILL);
         g_signal_connect(teacherOutline, "draw", G_CALLBACK(+[](GtkWidget* widget, cairo_t* cr, gpointer data) -> gboolean {
@@ -249,14 +266,14 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     auto [popover, panel] = utn::createPopoverPanel(4);
     utn::appendPopoverHeading(panel, _("Student View"));
 
-    GtkWidget* open = utn::appendMenuButton(panel, popover, _("Open on the projector"),
-                                            _("Show the lesson on the second screen without your tools"));
-    g_signal_connect(open, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+    openButton = utn::appendMenuButton(panel, popover, _("Open on the projector"),
+                                       _("Show the lesson on the second screen without your tools"));
+    g_signal_connect(openButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<ToolStudentView*>(data)->showStudentView();
                      }),
                      this);
 
-    freezeToggle = gtk_toggle_button_new_with_label(_("Freeze"));
+    freezeToggle = gtk_toggle_button_new_with_label(_("Freeze this page"));
     g_signal_connect(freezeToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                          if (!utn::isSyncing(GTK_WIDGET(button))) {
                              static_cast<ToolStudentView*>(data)->setFrozen(gtk_toggle_button_get_active(button));
@@ -276,14 +293,15 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                      this);
     gtk_box_append(panel, blankToggle);
 
-    GtkWidget* full = utn::appendMenuButton(panel, popover, _("Full screen"),
-                                            _("Fill the projector with the student window"));
-    g_signal_connect(full, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+    fullButton = utn::appendMenuButton(panel, popover, _("Full screen"),
+                                       _("Fill the projector with the student window. F11 or Esc in that window "
+                                         "leaves full screen."));
+    g_signal_connect(fullButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<ToolStudentView*>(data)->setStudentFullscreen(true);
                      }),
                      this);
-    GtkWidget* close = utn::appendMenuButton(panel, popover, _("Close"), _("Close the student window"));
-    g_signal_connect(close, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+    closeButton = utn::appendMenuButton(panel, popover, _("Close Student View"), _("Close the student window"));
+    g_signal_connect(closeButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<ToolStudentView*>(data)->closeStudentView();
                      }),
                      this);
@@ -313,6 +331,9 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                              self->pillLabel = nullptr;
                              self->freezeToggle = nullptr;
                              self->blankToggle = nullptr;
+                             self->openButton = nullptr;
+                             self->fullButton = nullptr;
+                             self->closeButton = nullptr;
                          }
                      }),
                      this);
@@ -328,9 +349,11 @@ void ToolStudentView::showStudentView() {
     }
     showTeacherBlankCover(false);
 
-    GtkApplication* app = gtk_window_get_application(control->getGtkWindow());
-    window = gtk_application_window_new(app);
+    // A plain window: an application window would show the editor's menubar (File, Edit… Quit) to the class and
+    // would answer the application's keyboard shortcuts. The teacher window owns it and closes it on exit.
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), _("UTN Student View"));
+    gtk_window_set_icon_name(GTK_WINDOW(window), gtk_window_get_icon_name(control->getGtkWindow()));
     gtk_window_set_default_size(GTK_WINDOW(window), 1280, 720);
 
     drawingArea = gtk_drawing_area_new();

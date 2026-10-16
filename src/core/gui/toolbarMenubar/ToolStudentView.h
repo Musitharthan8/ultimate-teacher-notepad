@@ -88,6 +88,9 @@ private:
     GtkWidget* pillLabel = nullptr;
     GtkWidget* freezeToggle = nullptr;
     GtkWidget* blankToggle = nullptr;
+    GtkWidget* openButton = nullptr;
+    GtkWidget* fullButton = nullptr;
+    GtkWidget* closeButton = nullptr;
 
     GtkWidget* teacherCover = nullptr;
     /// Coloured frame round the teacher's canvas while students see a frozen or blank screen
