@@ -328,12 +328,19 @@ window.utnShell.utnHighContrast toolbar button {
     box-shadow: none;
 }
 
+/* Many tool icons are drawn white in High Contrast, so a white "selected" fill hid them (the active Select arrow
+   nearly vanished). The selected tool keeps a black fill and gets a thick yellow frame; hover is dark grey. */
+window.utnShell.utnHighContrast toolbar button:hover {
+    background-color: #333333;
+    color: #ffffff;
+    border-color: #ffffff;
+}
 window.utnShell.utnHighContrast toolbar button:checked,
 window.utnShell.utnHighContrast toolbar button:active,
-window.utnShell.utnHighContrast toolbar button:hover {
-    background-color: #ffffff;
-    color: #000000;
-    border-color: #ffffff;
+window.utnShell.utnHighContrast toolbar button:checked:hover {
+    background-color: #000000;
+    color: #ffff00;
+    border: 3px solid #ffff00;
 }
 
 
