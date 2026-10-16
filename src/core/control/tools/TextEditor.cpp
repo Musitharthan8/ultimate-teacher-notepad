@@ -16,6 +16,7 @@
 #include "control/Control.h"  // for Control
 #include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"
+#include "control/tools/FeedbackTypography.h"  // for utn::feedbackFont
 #include "control/tools/ListContinuation.h"  // for utn::list::listContinuation
 #include "gui/FlyingClickableIcon.h"
 #include "gui/XournalppCursor.h"  // for XournalppCursor
@@ -1471,9 +1472,12 @@ void TextEditor::initializeEditionAt(double x, double y) {
             this->textElement->setColor(h->getColor());
         }
 
-        this->textElement->setFont(control->getSettings()->getFont());
+        // Feedback comments are plain text: the styling last used for ordinary text must not cross out a "Good"
+        const bool feedback = h->hasTeacherStamp();
+        this->textElement->setFont(feedback ? utn::feedbackFont(control->getSettings()->getFont()) :
+                                              control->getSettings()->getFont());
 
-        if (h->hasTeacherStamp()) {
+        if (feedback) {
             this->textElement->setText(h->getTeacherStampText());
         }
 
@@ -1481,8 +1485,8 @@ void TextEditor::initializeEditionAt(double x, double y) {
                 xoj::util::Matrix::TRANSLATION(x, y - this->textElement->getBoundingBox().height / 2));
         this->textElement->setAlignment(h->getTextAlignment());
         this->textElement->setJustify(h->getTextJustify());
-        this->textElement->setUnderlined(h->getTextUnderline());
-        this->textElement->setStrikethrough(h->getTextStrikethrough());
+        this->textElement->setUnderlined(!feedback && h->getTextUnderline());
+        this->textElement->setStrikethrough(!feedback && h->getTextStrikethrough());
         this->textElement->setLineSpacing(h->getTextLineSpacing());
         this->textElement->setBoxEnabled(h->isAnswerBoxEnabled());
 
