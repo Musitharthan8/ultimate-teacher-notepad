@@ -485,6 +485,65 @@ window.utnShell.utnHighContrast spinbutton:focus {
     outline-color: #ffffff;
 }
 
+/* High Contrast states for every button, including those in popovers (Present, Appearance, Classroom) and the
+   properties panel, which the toolbar rules above do not reach. Each state sets its own text colour, so a selected
+   control can never show a dark label on a dark grey background. Checked is yellow, so it differs from hover. */
+window.utnShell.utnHighContrast popover {
+    background-color: #000000;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+}
+window.utnShell.utnHighContrast button {
+    background-image: none;
+    background-color: #000000;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    box-shadow: none;
+    text-shadow: none;
+    -gtk-icon-shadow: none;
+}
+window.utnShell.utnHighContrast button label,
+window.utnShell.utnHighContrast button image {
+    color: inherit;
+}
+window.utnShell.utnHighContrast button:hover {
+    background-color: #ffffff;
+    color: #000000;
+}
+window.utnShell.utnHighContrast button:checked,
+window.utnShell.utnHighContrast button:active,
+window.utnShell.utnHighContrast button:checked:hover {
+    background-color: #ffff00;
+    color: #000000;
+    border-color: #ffff00;
+}
+window.utnShell.utnHighContrast button:disabled,
+window.utnShell.utnHighContrast button:disabled:checked {
+    background-color: #000000;
+    color: #a0a0a0;
+    border-style: dashed;
+    border-color: #a0a0a0;
+}
+window.utnShell.utnHighContrast button:focus {
+    outline: 2px solid #00ffff;
+    outline-offset: 1px;
+}
+window.utnShell.utnHighContrast checkbutton check,
+window.utnShell.utnHighContrast radiobutton radio {
+    background-image: none;
+    background-color: #000000;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+}
+window.utnShell.utnHighContrast checkbutton check:checked,
+window.utnShell.utnHighContrast radiobutton radio:checked {
+    background-color: #ffff00;
+    color: #000000;
+}
+window.utnShell.utnHighContrast notebook tab:checked label {
+    color: #ffff00;
+}
+
 /* Keep classroom tool names readable beside their icons. */
 window.utnShell #tbLeft1 button {
     padding: 6px 8px;
