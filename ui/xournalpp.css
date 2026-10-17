@@ -7,6 +7,22 @@
  *  See: https://wiki.gnome.org/action/show/Projects/GTK/Inspector
  */
 
+
+/* UTN colour tokens. GTK3 CSS has no scoped variables, so light and dark values are separate names and the
+   window.darkMode rules pick the *_dark ones. Add a colour here before using it in a rule. */
+@define-color utn_accent #168b7e;
+@define-color utn_accent_strong #126c63;
+@define-color utn_accent_dark #55d6c2;
+@define-color utn_danger #b3261e;
+@define-color utn_danger_soft #f2b8b5;
+@define-color utn_danger_dark #ff8080;
+@define-color utn_surface #f7f8fb;
+@define-color utn_surface_rail #f5f7fa;
+@define-color utn_surface_dark #20242b;
+@define-color utn_surface_rail_dark #272c34;
+@define-color utn_border #dfe3e8;
+@define-color utn_border_soft #e7e9ed;
+@define-color utn_border_dark #343a44;
 #pdfFloatingToolGrid {
     padding: 7px;
 }
@@ -233,37 +249,37 @@ image.flying-icon.TR {
  * ------------------------------------------------------------------------- */
 
 window.utnShell menubar {
-    background-color: #f7f8fb;
-    border-bottom: 1px solid #dfe3e8;
+    background-color: @utn_surface;
+    border-bottom: 1px solid @utn_border;
 }
 
 window.utnShell #tbTop1 {
-    background-color: #f7f8fb;
-    border-bottom: 1px solid #dfe3e8;
+    background-color: @utn_surface;
+    border-bottom: 1px solid @utn_border;
     padding: 6px 8px;
 }
 
 window.utnShell #tbTop2 {
     background-color: #ffffff;
-    border-bottom: 1px solid #e7e9ed;
+    border-bottom: 1px solid @utn_border_soft;
     padding: 5px 8px;
 }
 
 window.utnShell #tbLeft1 {
-    background-color: #f5f7fa;
-    border-right: 1px solid #dfe3e8;
+    background-color: @utn_surface_rail;
+    border-right: 1px solid @utn_border;
     padding: 8px 5px;
 }
 
 window.utnShell #tbBottom1 {
-    background-color: #f7f8fb;
-    border-top: 1px solid #dfe3e8;
+    background-color: @utn_surface;
+    border-top: 1px solid @utn_border;
     padding: 3px 8px;
 }
 
 window.utnShell #sidebar {
-    background-color: #f7f8fb;
-    border-right: 1px solid #dfe3e8;
+    background-color: @utn_surface;
+    border-right: 1px solid @utn_border;
 }
 
 window.utnShell toolbar button,
@@ -279,8 +295,8 @@ window.utnShell #tbLeft1 button {
 
 window.utnShell toolbar button:checked,
 window.utnShell toolbar button:active {
-    background-color: alpha(#168b7e, 0.18);
-    border-color: alpha(#168b7e, 0.55);
+    background-color: alpha(@utn_accent, 0.18);
+    border-color: alpha(@utn_accent, 0.55);
 }
 
 window.utnShell toolbar separator {
@@ -292,22 +308,22 @@ window.utnShell.darkMode menubar,
 window.utnShell.darkMode #tbTop1,
 window.utnShell.darkMode #tbBottom1,
 window.utnShell.darkMode #sidebar {
-    background-color: #20242b;
-    color: #f5f7fa;
-    border-color: #343a44;
+    background-color: @utn_surface_dark;
+    color: @utn_surface_rail;
+    border-color: @utn_border_dark;
 }
 
 window.utnShell.darkMode #tbTop2,
 window.utnShell.darkMode #tbLeft1 {
-    background-color: #272c34;
-    color: #f5f7fa;
-    border-color: #343a44;
+    background-color: @utn_surface_rail_dark;
+    color: @utn_surface_rail;
+    border-color: @utn_border_dark;
 }
 
 window.utnShell.darkMode toolbar button:checked,
 window.utnShell.darkMode toolbar button:active {
-    background-color: alpha(#55d6c2, 0.28);
-    border-color: #55d6c2;
+    background-color: alpha(@utn_accent_dark, 0.28);
+    border-color: @utn_accent_dark;
 }
 
 /* High Contrast deliberately avoids subtle grey-on-grey states. */
@@ -359,15 +375,15 @@ window.utnShell .utn-context-hint {
 }
 
 window.utnShell .utn-context-badge {
-    background-color: alpha(#168b7e, 0.14);
-    border: 1px solid alpha(#168b7e, 0.50);
+    background-color: alpha(@utn_accent, 0.14);
+    border: 1px solid alpha(@utn_accent, 0.50);
     border-radius: 8px;
     padding: 4px 8px;
 }
 
 window.utnShell.darkMode .utn-context-badge {
-    background-color: alpha(#55d6c2, 0.22);
-    border-color: #55d6c2;
+    background-color: alpha(@utn_accent_dark, 0.22);
+    border-color: @utn_accent_dark;
 }
 
 window.utnShell.utnHighContrast .utn-context-badge {
@@ -417,7 +433,7 @@ window.utnShell #tbTop1 button:hover,
 window.utnShell #tbTop2 button:hover,
 window.utnShell #tbLeft1 button:hover,
 window.utnShell #tbBottom1 button:hover {
-    background-color: alpha(#168b7e, 0.10);
+    background-color: alpha(@utn_accent, 0.10);
 }
 
 window.utnShell #tbLeft1 {
@@ -476,14 +492,14 @@ window.utnShell spinbutton:focus {
     outline-style: solid;
     outline-width: 2px;
     outline-offset: 1px;
-    outline-color: alpha(#168b7e, 0.70);
+    outline-color: alpha(@utn_accent, 0.70);
 }
 
 window.utnShell.darkMode #tbTop1 button:hover,
 window.utnShell.darkMode #tbTop2 button:hover,
 window.utnShell.darkMode #tbLeft1 button:hover,
 window.utnShell.darkMode #tbBottom1 button:hover {
-    background-color: alpha(#55d6c2, 0.16);
+    background-color: alpha(@utn_accent_dark, 0.16);
 }
 
 window.utnShell.utnHighContrast button:focus,
@@ -561,12 +577,12 @@ window.utnShell #tbLeft1 label {
 
 /* UTN identity and calm, consistent desktop controls. */
 window.utnShell .utn-brand {
-    color: #126c63;
+    color: @utn_accent_strong;
     font-size: 1.3em;
     font-weight: bold;
     padding: 4px 10px;
 }
-window.utnShell.darkMode .utn-brand { color: #55d6c2; }
+window.utnShell.darkMode .utn-brand { color: @utn_accent_dark; }
 window.utnShell.utnHighContrast .utn-brand { color: #ffffff; }
 /* Kami-inspired compact icon rail: short, consistent hit targets with accessible hover help.
    Keep touch controls larger without permanent text labels consuming the worksheet width. */
@@ -596,12 +612,12 @@ window.utnShell #utnContextSide .utn-shape-picker button {
     border-radius: 8px;
 }
 window.utnShell #utnContextSide .utn-shape-picker button:checked {
-    background-color: alpha(#168b7e, 0.18);
-    border-color: #168b7e;
+    background-color: alpha(@utn_accent, 0.18);
+    border-color: @utn_accent;
 }
 window.utnShell.darkMode #utnContextSide .utn-shape-picker button:checked {
-    background-color: alpha(#55d6c2, 0.24);
-    border-color: #55d6c2;
+    background-color: alpha(@utn_accent_dark, 0.24);
+    border-color: @utn_accent_dark;
 }
 window.utnShell.utnTouch #utnContextSide .utn-shape-picker button {
     min-height: 48px;
@@ -618,12 +634,12 @@ window.utnShell #utnContextSide .utn-eraser-modes button {
     border-radius: 8px;
 }
 window.utnShell #utnContextSide .utn-eraser-modes button:checked {
-    background-color: alpha(#168b7e, 0.18);
-    border-color: #168b7e;
+    background-color: alpha(@utn_accent, 0.18);
+    border-color: @utn_accent;
 }
 window.utnShell.darkMode #utnContextSide .utn-eraser-modes button:checked {
-    background-color: alpha(#55d6c2, 0.24);
-    border-color: #55d6c2;
+    background-color: alpha(@utn_accent_dark, 0.24);
+    border-color: @utn_accent_dark;
 }
 window.utnShell.utnTouch #utnContextSide .utn-eraser-modes button {
     min-height: 46px;
@@ -661,7 +677,7 @@ window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) label {
 
 /* A mode arrow belongs beside its tool, rather than consuming a second rail row. */
 window.utnShell #tbLeft1 button.utn-tool-arrow {
-    min-width: 12px;
+    min-width: 24px;
     min-height: 32px;
     padding: 2px;
     margin: 0;
@@ -687,10 +703,10 @@ window.utnShell .utn-swatch {
     box-shadow: none;
 }
 window.utnShell .utn-swatch.utn-swatch-selected {
-    border-color: #126c63;
+    border-color: @utn_accent_strong;
 }
 window.utnShell.darkMode .utn-swatch.utn-swatch-selected {
-    border-color: #55d6c2;
+    border-color: @utn_accent_dark;
 }
 window.utnShell.utnHighContrast .utn-swatch {
     border-color: #000000;
@@ -736,15 +752,15 @@ window.utnShell .utn-sv-pill {
 window.utnShell .utn-sv-pill .utn-sv-dot { font-size: 0.9em; }
 window.utnShell .utn-sv-off .utn-sv-dot,
 window.utnShell .utn-sv-same .utn-sv-dot { color: #7a8590; }
-window.utnShell .utn-sv-live .utn-sv-dot { color: #126c63; }
+window.utnShell .utn-sv-live .utn-sv-dot { color: @utn_accent_strong; }
 window.utnShell .utn-sv-frozen .utn-sv-dot { color: #b77900; }
-window.utnShell .utn-sv-blank .utn-sv-dot { color: #b3261e; }
-window.utnShell .utn-sv-live { background-color: alpha(#126c63, 0.14); }
+window.utnShell .utn-sv-blank .utn-sv-dot { color: @utn_danger; }
+window.utnShell .utn-sv-live { background-color: alpha(@utn_accent_strong, 0.14); }
 window.utnShell .utn-sv-frozen { background-color: alpha(#e0a100, 0.20); }
-window.utnShell .utn-sv-blank { background-color: alpha(#b3261e, 0.16); }
-window.utnShell.darkMode .utn-sv-live .utn-sv-dot { color: #55d6c2; }
+window.utnShell .utn-sv-blank { background-color: alpha(@utn_danger, 0.16); }
+window.utnShell.darkMode .utn-sv-live .utn-sv-dot { color: @utn_accent_dark; }
 window.utnShell.darkMode .utn-sv-frozen .utn-sv-dot { color: #ffc94a; }
-window.utnShell.darkMode .utn-sv-blank .utn-sv-dot { color: #f2b8b5; }
+window.utnShell.darkMode .utn-sv-blank .utn-sv-dot { color: @utn_danger_soft; }
 window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: #ffff00; }
 
 /* Toasts sit above the lesson bar and use the chrome colours. */
@@ -755,7 +771,7 @@ window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: #ffff00; }
     padding: 8px 14px;
     box-shadow: 0 2px 8px alpha(#000000, 0.25);
 }
-.utn-toast button { color: #55d6c2; }
+.utn-toast button { color: @utn_accent_dark; }
 window.utnShell.utnHighContrast .utn-toast {
     background-color: #000000;
     color: #ffffff;
@@ -771,33 +787,33 @@ window.utnShell.utnHighContrast .utn-toast {
    until hover, so teachers read it as disabled. */
 window.utnShell button.destructive-action {
     background-image: none;
-    background-color: alpha(#b3261e, 0.08);
-    color: #b3261e;
-    border: 1px solid alpha(#b3261e, 0.55);
+    background-color: alpha(@utn_danger, 0.08);
+    color: @utn_danger;
+    border: 1px solid alpha(@utn_danger, 0.55);
 }
 window.utnShell button.destructive-action label { color: inherit; }
 window.utnShell button.destructive-action:hover {
-    background-color: #b3261e;
+    background-color: @utn_danger;
     color: #ffffff;
 }
 window.utnShell.darkMode button.destructive-action {
-    background-color: alpha(#f2b8b5, 0.10);
-    color: #f2b8b5;
-    border-color: alpha(#f2b8b5, 0.60);
+    background-color: alpha(@utn_danger_soft, 0.10);
+    color: @utn_danger_soft;
+    border-color: alpha(@utn_danger_soft, 0.60);
 }
 window.utnShell.darkMode button.destructive-action:hover {
-    background-color: #f2b8b5;
+    background-color: @utn_danger_soft;
     color: #000000;
 }
 window.utnShell.utnHighContrast #utnContextSide button.destructive-action,
 window.utnShell.utnHighContrast #utnContextBar button.destructive-action {
     background-color: #000000;
-    color: #ff8080;
-    border: 2px solid #ff8080;
+    color: @utn_danger_dark;
+    border: 2px solid @utn_danger_dark;
 }
 window.utnShell.utnHighContrast #utnContextSide button.destructive-action:hover,
 window.utnShell.utnHighContrast #utnContextBar button.destructive-action:hover {
-    background-color: #ff8080;
+    background-color: @utn_danger_dark;
     color: #000000;
 }
 /* A Delete that really is unavailable must still look it */
