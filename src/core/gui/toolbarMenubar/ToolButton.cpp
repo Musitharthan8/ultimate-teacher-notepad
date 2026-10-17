@@ -6,6 +6,7 @@
 #include <gtk/gtk.h>
 
 #include "gui/toolbarMenubar/AbstractToolItem.h"  // for AbstractToolItem
+#include "gui/toolbarMenubar/UtnWidgets.h"  // for showAcceleratorInTooltip
 #include "util/GVariantTemplate.h"
 #include "util/GtkUtil.h"
 #include "util/gtk4_helper.h"

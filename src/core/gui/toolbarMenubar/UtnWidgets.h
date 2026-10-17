@@ -31,6 +31,13 @@ GtkWidget* appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* labe
 void setAccessibleName(GtkWidget* widget, const char* name);
 
 /**
+ * Append the keyboard shortcut of the button's action to its tooltip, e.g. "Pen (Ctrl+Alt+P)".
+ * The shortcut is looked up when the tooltip opens, so it follows the user's key bindings and any later
+ * set_tooltip_text(). The button needs an action name; without a shortcut the tooltip is unchanged.
+ */
+void showAcceleratorInTooltip(GtkWidget* button);
+
+/**
  * Change a toggle's state without it counting as a user click.
  * GTK3 emits "clicked" for programmatic gtk_toggle_button_set_active(); handlers must check isSyncing() so that
  * keeping a button in step with the active tool never re-selects that tool.

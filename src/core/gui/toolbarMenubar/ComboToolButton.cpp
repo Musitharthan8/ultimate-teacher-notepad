@@ -6,6 +6,7 @@
 
 #include <gtk/gtk.h>
 
+#include "gui/toolbarMenubar/UtnWidgets.h"  // for showAcceleratorInTooltip
 #include "util/GtkUtil.h"  // for setToggleButtonUnreleasable
 #include "util/glib_casts.h"
 #include "util/gtk4_helper.h"  // for gtk_popover_new

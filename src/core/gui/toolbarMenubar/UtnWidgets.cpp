@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "util/Util.h"         // for argb_to_GdkRGBA
 #include "util/gtk4_helper.h"  // for gtk_box_append, gtk_popover_set_child
@@ -55,6 +56,41 @@ void setAccessibleName(GtkWidget* widget, const char* name) {
     if (AtkObject* accessible = gtk_widget_get_accessible(widget)) {
         atk_object_set_name(accessible, name);
     }
+}
+
+void showAcceleratorInTooltip(GtkWidget* button) {
+    g_signal_connect(button, "query-tooltip",
+                     G_CALLBACK(+[](GtkWidget* widget, gint, gint, gboolean, GtkTooltip* tooltip, gpointer) -> gboolean {
+                         gchar* text = gtk_widget_get_tooltip_text(widget);
+                         if (!text) {
+                             return FALSE;
+                         }
+                         std::string full = text;
+                         g_free(text);
+
+                         GApplication* app = g_application_get_default();
+                         const gchar* action = gtk_actionable_get_action_name(GTK_ACTIONABLE(widget));
+                         if (action && GTK_IS_APPLICATION(app)) {
+                             gchar* detailed = g_action_print_detailed_name(
+                                     action, gtk_actionable_get_action_target_value(GTK_ACTIONABLE(widget)));
+                             gchar** accels = gtk_application_get_accels_for_action(GTK_APPLICATION(app), detailed);
+                             guint key = 0;
+                             GdkModifierType mods{};
+                             if (accels && accels[0]) {
+                                 gtk_accelerator_parse(accels[0], &key, &mods);
+                             }
+                             if (key) {
+                                 gchar* label = gtk_accelerator_get_label(key, mods);
+                                 full += std::string(" (") + label + ")";
+                                 g_free(label);
+                             }
+                             g_strfreev(accels);
+                             g_free(detailed);
+                         }
+                         gtk_tooltip_set_text(tooltip, full.c_str());
+                         return TRUE;
+                     }),
+                     nullptr);
 }
 
 void syncToggle(GtkToggleButton* toggle, bool active) {
