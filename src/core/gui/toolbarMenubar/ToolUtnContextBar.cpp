@@ -301,8 +301,8 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
         gtk_scrolled_window_set_propagate_natural_width(side, false);
-        gtk_scrolled_window_set_min_content_width(side, 240);
-        gtk_scrolled_window_set_max_content_width(side, 240);
+        gtk_scrolled_window_set_min_content_width(side, 208);
+        gtk_scrolled_window_set_max_content_width(side, 208);
         gtk_scrolled_window_set_min_content_height(side, 160);
         gtk_scrolled_window_set_overlay_scrolling(side, false);
         gtk_widget_set_vexpand(scroller, true);
@@ -546,7 +546,14 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                          g_list_free(siblings);
                      }),
                      control);
-    addToGroup(group, more, index);
+    if (GTK_IS_GRID(group)) {
+        // The chooser button gets its own full-width row rather than a stray cell beside the last swatch
+        const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        gtk_widget_set_hexpand(more, true);
+        gtk_grid_attach(GTK_GRID(group), more, 0, (index + columns - 1) / columns, columns, 1);
+    } else {
+        addToGroup(group, more, index);
+    }
     gtk_box_append(box, group);
 }
 
