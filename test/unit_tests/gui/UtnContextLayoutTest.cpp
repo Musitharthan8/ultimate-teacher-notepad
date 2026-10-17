@@ -8,7 +8,9 @@
  * Based on Xournal++ GPLv2+
  */
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include <glib.h>
 #include <gtest/gtest.h>
