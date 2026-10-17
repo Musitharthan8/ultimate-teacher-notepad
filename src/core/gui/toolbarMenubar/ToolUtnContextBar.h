@@ -68,6 +68,8 @@ private:
     void appendEraserControls();
     void appendTextControls();
     void appendAnswerBoxStyleMenu();
+    /// Answers section of the Answer Box panel: a live status line plus Hide and Reveal
+    void appendAnswersVisibility();
     void appendSelectionControls(ToolType tool);
 
     Control* control;

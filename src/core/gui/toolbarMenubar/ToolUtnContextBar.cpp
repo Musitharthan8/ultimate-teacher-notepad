@@ -17,6 +17,8 @@
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
+#include "control/layer/LayerCtrlListener.h"
+#include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
 #include "gui/MainWindow.h"
@@ -153,6 +155,52 @@ void applyAnswerBoxStyleToEditor(Control* control) {
         editor->setBoxCornerRadius(tools->getAnswerBoxCornerRadius());
     }
 }
+
+/**
+ * Keeps a label in step with how many hidden answers layers the current page holds. It listens to layer changes, but
+ * those fire while the document lock may be held, so the label is refreshed from the main loop instead of in place.
+ * The label owns this object; destroying the label stops the listening.
+ */
+class AnswersStatus final: public LayerCtrlListener {
+public:
+    AnswersStatus(Control* control, GtkWidget* label): control(control), label(label) {
+        registerListener(control->getLayerController());
+        refresh();
+    }
+    ~AnswersStatus() override {
+        if (idle) {
+            g_source_remove(idle);
+        }
+        unregisterListener();
+    }
+
+    void rebuildLayerMenu() override { scheduleRefresh(); }
+    void layerVisibilityChanged() override { scheduleRefresh(); }
+    void updateSelectedLayer() override { scheduleRefresh(); }
+
+private:
+    void scheduleRefresh() {
+        if (idle) {
+            return;
+        }
+        idle = g_idle_add(+[](gpointer self) -> gboolean {
+            auto* status = static_cast<AnswersStatus*>(self);
+            status->idle = 0;
+            status->refresh();
+            return G_SOURCE_REMOVE;
+        }, this);
+    }
+
+    void refresh() {
+        const size_t hidden = control->countHiddenAnswersOnCurrentPage();
+        gtk_label_set_text(GTK_LABEL(label), hidden ? _("Hidden from students on this page") :
+                                                      _("No hidden answers on this page"));
+    }
+
+    Control* control;
+    GtkWidget* label;
+    guint idle = 0;
+};
 
 const char* drawingTypeName(DrawingType type) {
     switch (type) {
@@ -864,10 +912,21 @@ void ToolUtnContextBar::appendTextControls() {
     }
 
     if (mode == TextMode::AnswerBox) {
+        appendAnswersVisibility();
+        appendSeparator();
         GtkWidget* remove = appendButton(_("Delete Box"), _("Delete the Answer Box being edited. Undo restores it."));
         gtk_widget_add_css_class(remove, "destructive-action");
         g_signal_connect(remove, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                             static_cast<Control*>(data)->deleteEditedAnswerBox();
+                             auto* ctrl = static_cast<Control*>(data);
+                             auto* editor = ctrl->getTextEditor();
+                             if (!editor || !editor->getTextElement()->isBoxEnabled()) {
+                                 // The button stays enabled (the panel cannot track editing), so say why nothing happened
+                                 if (auto* win = ctrl->getWindow()) {
+                                     win->showToast(_("Click an Answer Box on the page first, then choose Delete Box"));
+                                 }
+                                 return;
+                             }
+                             ctrl->deleteEditedAnswerBox();
                          }),
                          control);
         appendSeparator();
@@ -1024,6 +1083,43 @@ void ToolUtnContextBar::appendTextControls() {
         appendSeparator();
         appendAnswerBoxStyleMenu();
     }
+}
+
+void ToolUtnContextBar::appendAnswersVisibility() {
+    GtkWidget* title = gtk_label_new(_("Answers"));
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_widget_add_css_class(title, "utn-context-title");
+    gtk_box_append(box, title);
+
+    GtkWidget* status = gtk_label_new(nullptr);
+    gtk_widget_add_css_class(status, "utn-context-hint");
+    gtk_label_set_xalign(GTK_LABEL(status), 0.0F);
+    gtk_label_set_line_wrap(GTK_LABEL(status), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(status), 28);
+    g_object_set_data_full(G_OBJECT(status), "utn-answers-status", new AnswersStatus(control, status),
+                           +[](gpointer p) { delete static_cast<AnswersStatus*>(p); });
+    gtk_box_append(box, status);
+
+    GtkWidget* hide = appendButton(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"));
+    g_signal_connect(hide, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         auto* ctrl = static_cast<Control*>(data);
+                         const size_t changed = ctrl->setAnswersRevealed(false, true);
+                         if (auto* win = ctrl->getWindow()) {
+                             win->showToast(changed ? _("Answers are hidden from students") :
+                                                      _("No answers are showing"));
+                         }
+                     }),
+                     control);
+    GtkWidget* reveal = appendButton(_("Reveal on this page"), _("Show this page's hidden answers to the class"));
+    g_signal_connect(reveal, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         auto* ctrl = static_cast<Control*>(data);
+                         const size_t changed = ctrl->setAnswersRevealed(true, false);
+                         if (auto* win = ctrl->getWindow()) {
+                             win->showToast(changed ? _("Answers on this page are now showing") :
+                                                      _("No hidden answers on this page"));
+                         }
+                     }),
+                     control);
 }
 
 void ToolUtnContextBar::appendAnswerBoxStyleMenu() {
