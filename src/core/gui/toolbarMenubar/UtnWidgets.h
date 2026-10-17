@@ -31,12 +31,30 @@ GtkWidget* appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* labe
 void setAccessibleName(GtkWidget* widget, const char* name);
 
 /**
+ * Append the keyboard shortcut of the button's action to its tooltip, e.g. "Pen (Ctrl+Alt+P)".
+ * The shortcut is looked up when the tooltip opens, so it follows the user's key bindings and any later
+ * set_tooltip_text(). The button needs an action name; without a shortcut the tooltip is unchanged.
+ */
+void showAcceleratorInTooltip(GtkWidget* button);
+
+/**
  * Change a toggle's state without it counting as a user click.
  * GTK3 emits "clicked" for programmatic gtk_toggle_button_set_active(); handlers must check isSyncing() so that
  * keeping a button in step with the active tool never re-selects that tool.
  */
 void syncToggle(GtkToggleButton* toggle, bool active);
 bool isSyncing(GtkWidget* widget);
+
+/// Small line drawings for the properties panel. They use the button's own text colour, so they follow the light,
+/// dark and High Contrast themes and a selected button's colour.
+enum class Glyph { Freehand, Rectangle, Ellipse, Line, Arrow, SmartShape, Weight };
+
+/**
+ * A decorative drawing of @p glyph. For Glyph::Weight, @p weight is the stroke thickness in pixels, so a size button
+ * shows how heavy that size writes. Not read by screen readers: the button that holds it carries the name.
+ * Returns: (transfer floating)
+ */
+GtkWidget* createGlyph(Glyph glyph, double weight = 0.0);
 
 /// A round colour swatch button for @p colour, named for screen readers
 GtkWidget* createColourSwatch(Color colour, const char* name);

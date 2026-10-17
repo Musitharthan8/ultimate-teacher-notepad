@@ -11,6 +11,7 @@
 
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include "model/Layer.h"  // for Layer, LayerAudience
 
@@ -34,6 +35,19 @@ bool visibleToStudents(const Layer& layer);
 
 /// Answers that are currently hidden from students
 bool isHiddenAnswers(const Layer& layer);
+
+/**
+ * The layer the pen should use on a page once answers are hidden: the topmost layer that is not an answers layer.
+ * Returns its 1-based ID (as XojPage::setSelectedLayerId expects), or nothing when every layer is an answers layer.
+ */
+std::optional<Layer::Index> writableLayerIdAfterHide(const std::vector<Layer*>& layers);
+
+/**
+ * Where new ink must go when the selected layer (1-based ID, 0 meaning the bottom layer) is hidden, so nothing is
+ * drawn where nobody can see it: the topmost visible layer that is not an answers layer. Nothing when the selected
+ * layer is visible, or when the page has no such layer.
+ */
+std::optional<Layer::Index> visibleLayerIdForInk(const std::vector<Layer*>& layers, Layer::Index selected);
 
 /**
  * Prepare a freshly loaded layer: apply the legacy name rule when the file had no audience attribute, and start

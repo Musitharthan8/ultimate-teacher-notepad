@@ -95,6 +95,8 @@ auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 } else {
                     gtk_style_context_remove_class(context, "utnTouch");
                 }
+                // The properties panel lays out its swatches and sizes for the chosen density
+                ctrl->getToolHandler()->fireToolChanged();
             }),
             control);
 

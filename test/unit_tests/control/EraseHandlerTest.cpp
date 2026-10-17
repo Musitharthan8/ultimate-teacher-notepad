@@ -24,21 +24,30 @@
 #include "model/eraser/CircularEraser.h"
 #include "gui/LegacyRedrawable.h"
 #include "model/Document.h"
+#include "model/Image.h"
+#include "model/Text.h"
 #include "model/Layer.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "undo/UndoRedoHandler.h"
 #include "util/Color.h"
+#include "util/Matrix.h"
+#include "view/TextView.h"
+#include "view/View.h"
 #include "filesystem.h"
 
 namespace {
 class EraseTestView: public LegacyRedrawable {
 public:
     unsigned redraws = 0;
+    xoj::util::Rectangle<double> dirty{};
     void repaintArea(double, double, double, double) const override {}
     void repaintPage() const override {}
     void rerenderPage(bool) override {}
-    void rerenderRect(double, double, double, double) override { ++redraws; }
+    void rerenderRect(double x, double y, double w, double h) override {
+        ++redraws;
+        dirty = {x, y, w, h};
+    }
     GdkRGBA getSelectionColor() override { return {}; }
     void deleteViewBuffer() override {}
 };
@@ -659,4 +668,543 @@ TEST(EraseHandler, erasedPageExportsToPdf) {
     in.read(header, 4);
     EXPECT_EQ(std::string(header), "%PDF");
     EXPECT_GT(fs::file_size(pdf.path), 100U);
+}
+
+namespace {
+// Builds a PNG-backed Image of the given size at (x, y), so the object eraser sees a real bounding box.
+std::unique_ptr<Image> makePngImage(double x, double y, int w, int h) {
+    GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, w, h);
+    gchar* buffer = nullptr;
+    gsize length = 0;
+    gdk_pixbuf_save_to_buffer(pixbuf, &buffer, &length, "png", nullptr, nullptr);
+    g_object_unref(pixbuf);
+    auto image = std::make_unique<Image>();
+    image->setImage(std::string(buffer, length));
+    g_free(buffer);
+    image->setTransformation(xoj::util::Matrix::TRANSLATION(x, y));
+    return image;
+}
+
+size_t countType(const PageRef& page, ElementType type) {
+    size_t n = 0;
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        n += (e->getType() == type) ? 1U : 0U;
+    }
+    return n;
+}
+}  // namespace
+
+// Object eraser: an element is removed only when the eraser disc touches its bounding box, and strokes are untouched.
+TEST(EraseHandler, objectEraserRemovesImageButNotStrokes) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    // Sweep through the image, and also across the stroke at y = 50 (which must survive)
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.erase(160, 50);
+    eraser.erase(200, 50);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+    const auto* stroke = static_cast<Stroke*>(page->getSelectedLayer()->getElements().front().get());
+    EXPECT_EQ(stroke->getPointCount(), 2U);
+    ASSERT_TRUE(undo.canUndo());
+}
+
+TEST(EraseHandler, objectEraserSupportsUndoRedo) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        undo.undo();
+        EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+        EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+        ASSERT_TRUE(undo.canRedo());
+
+        undo.redo();
+        EXPECT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+        EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+        ASSERT_TRUE(undo.canUndo());
+    }
+}
+
+// A gesture that touches nothing must not create an undo step.
+TEST(EraseHandler, objectEraserFarAwayIsNoOp) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(250, 250);
+    eraser.erase(270, 260);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+    EXPECT_FALSE(undo.canUndo());
+}
+
+namespace {
+std::unique_ptr<Text> makeTextObject(const std::string& content, double x, double y, bool answerBox) {
+    auto text = std::make_unique<Text>();
+    text->setText(content);
+    text->setBoxEnabled(answerBox);
+    text->setTransformation(xoj::util::Matrix::TRANSLATION(x, y));
+    return text;
+}
+
+// Sweeps horizontally across the middle of an object's bounding box, from just outside one edge to just outside the other.
+void sweepAcrossObject(EraseHandler& eraser, const Element* object) {
+    const auto box = object->getBoundingBox();
+    const double cy = box.y + box.height / 2;
+    eraser.erase(box.x - 20, cy);
+    eraser.erase(box.x + box.width + 20, cy);
+}
+
+std::vector<const Element*> elementOrder(const PageRef& page) {
+    std::vector<const Element*> out;
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        out.push_back(e.get());
+    }
+    return out;
+}
+}  // namespace
+
+TEST(EraseHandler, objectEraserDeletesWholeTextObjectNotGlyphs) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    auto text = makeTextObject("Hello", 100, 100, false);
+    const Element* textPtr = text.get();
+    page->getSelectedLayer()->addElement(std::move(text));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    sweepAcrossObject(eraser, textPtr);
+    eraser.finalize();
+    EXPECT_EQ(countType(page, ELEMENT_TEXT), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+
+    undo.undo();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 1U);
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_EQ(t->getText(), "Hello");
+            EXPECT_FALSE(t->isBoxEnabled());
+        }
+    }
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_TEXT), 0U);
+}
+
+TEST(EraseHandler, objectEraserRemovesAnswerBoxAsOneObject) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    addLine(page, 20, 50, 280, 50);
+    auto answer = makeTextObject("42", 100, 100, true);
+    const Element* answerPtr = answer.get();
+    const auto boxBefore = answerPtr->getBoundingBox();
+    page->getSelectedLayer()->addElement(std::move(answer));
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    sweepAcrossObject(eraser, answerPtr);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 0U);
+    EXPECT_EQ(countType(page, ELEMENT_STROKE), 1U);
+
+    undo.undo();
+    ASSERT_EQ(countType(page, ELEMENT_TEXT), 1U);
+    for (const auto& e: page->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_TRUE(t->isBoxEnabled());
+            EXPECT_EQ(t->getText(), "42");
+            EXPECT_EQ(t->getBoundingBox(), boxBefore);
+        }
+    }
+}
+
+// One gesture removes two objects in the same layer. Undo must put every object back at its original position.
+TEST(EraseHandler, objectEraserMultiObjectGestureUndoRestoresOrder) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 50, 380, 50);
+    auto imageA = makePngImage(100, 100, 40, 20);
+    auto imageB = makePngImage(160, 200, 40, 20);
+    auto imageC = makePngImage(300, 100, 40, 20);
+    page->getSelectedLayer()->addElement(std::move(imageA));
+    page->getSelectedLayer()->addElement(std::move(imageB));
+    page->getSelectedLayer()->addElement(std::move(imageC));
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 4U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    // Crosses the first and third images on y = 110; the second image sits at y = 200 and is untouched.
+    eraser.erase(60, 110);
+    eraser.erase(340, 110);
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    ASSERT_EQ(elementOrder(page).size(), 2U);
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}
+
+// The object eraser must never delete from a hidden layer: the teacher cannot see that content.
+TEST(EraseHandler, objectEraserLeavesHiddenLayerAlone) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+    page->getSelectedLayer()->setVisible(false);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 110);
+    eraser.erase(160, 110);
+    eraser.finalize();
+
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    EXPECT_FALSE(undo.canUndo());
+}
+
+// An Answer Box that survives an object-erase of a neighbouring image keeps its box after save and reload.
+TEST(EraseHandler, answerBoxSurvivesObjectEraseAndXoppReload) {
+    auto page = std::make_shared<XojPage>(300, 300);
+    page->getSelectedLayer()->addElement(makeTextObject("Q1", 20, 20, true));
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));
+
+    Document document(nullptr);
+    document.addPage(page);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    {
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        const Element* image = nullptr;
+        for (const auto& e: page->getSelectedLayer()->getElements()) {
+            if (e->getType() == ELEMENT_IMAGE) {
+                image = e.get();
+            }
+        }
+        ASSERT_NE(image, nullptr);
+        sweepAcrossObject(eraser, image);
+        eraser.finalize();
+    }
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 0U);
+
+    TemporaryFile temporary{fs::temp_directory_path() /
+                            ("utn-answer-box-" + std::to_string(g_get_monotonic_time()) + ".xopp")};
+    SaveHandler saver;
+    saver.prepareSave(&document, temporary.path);
+    saver.saveTo(temporary.path);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+
+    auto restored = LoadHandler{}.loadDocument(temporary.path);
+    ASSERT_NE(restored, nullptr);
+    ASSERT_EQ(restored->getPageCount(), 1U);
+    const auto reloaded = restored->getPage(0);
+    EXPECT_EQ(countType(reloaded, ELEMENT_IMAGE), 0U);
+    ASSERT_EQ(countType(reloaded, ELEMENT_TEXT), 1U);
+    for (const auto& e: reloaded->getSelectedLayer()->getElements()) {
+        if (e->getType() == ELEMENT_TEXT) {
+            const auto* t = static_cast<const Text*>(e.get());
+            EXPECT_TRUE(t->isBoxEnabled());
+            EXPECT_EQ(t->getText(), "Q1");
+        }
+    }
+}
+
+// Whole-stroke deletion in one gesture removes two strokes around a third. Undo must restore all three in order.
+TEST(EraseHandler, wholeStrokeMultiDeleteUndoRestoresOrder) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 100, 120, 100);  // S0: crossed by the gesture
+    addLine(page, 20, 200, 280, 200);  // S1: well clear of the gesture, must survive
+    addLine(page, 200, 100, 280, 100);  // S2: crossed by the gesture
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 3U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(60, 100);
+    eraser.erase(240, 100);
+    eraser.finalize();
+    ASSERT_EQ(elementOrder(page).size(), 1U);
+    EXPECT_EQ(elementOrder(page).front(), before[1]);
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(elementOrder(page).size(), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}
+
+ 
+// Separate pointer samples can each delete a different object in one drag.
+// Removal indices shift between erase() calls; Undo must still restore the original z-order.
+TEST(EraseHandler, objectEraserUndoPreservesOrderAcrossPointerEvents) {
+    auto page = std::make_shared<XojPage>(400, 300);
+    addLine(page, 20, 50, 380, 50);
+    page->getSelectedLayer()->addElement(makePngImage(100, 100, 40, 20));  // A
+    page->getSelectedLayer()->addElement(makePngImage(160, 200, 40, 20));  // B (untouched)
+    page->getSelectedLayer()->addElement(makePngImage(300, 100, 40, 20));  // C
+    const auto before = elementOrder(page);
+    ASSERT_EQ(before.size(), 4U);
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(110, 110);  // Remove A in the first pointer event.
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 2U);
+    eraser.erase(310, 110);  // Remove C in the next event; its live index is now shifted.
+    eraser.finalize();
+    ASSERT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    ASSERT_TRUE(undo.canUndo());
+
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+
+    undo.redo();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U);
+    undo.undo();
+    EXPECT_EQ(elementOrder(page), before);
+}
+
+
+// Hiding answers across the whole lesson can leave a hidden Answers layer
+// selected on another page (especially when it has no ordinary layer).
+// The pen should never erase strokes that students/teachers cannot see.
+// Object Eraser has a separate guard regression; this covers BOTH ink modes.
+TEST(EraseHandler, hiddenAnswersOnAnotherPageResistAllInkEraserModes) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto visiblePage = std::make_shared<XojPage>(300, 300);
+        auto answersPage = std::make_shared<XojPage>(300, 300);
+        addLine(visiblePage, 50, 100, 250, 100);
+        addLine(answersPage, 50, 100, 250, 100);
+        Layer* answers = answersPage->getSelectedLayer();
+        answers->setAudience(LayerAudience::Answers);
+        answers->setVisible(false);
+
+        Document document(nullptr);
+        document.addPage(visiblePage);
+        document.addPage(answersPage);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+
+        // Simulate erasing on a non-current page that kept its hidden Answers layer selected.
+        EraseHandler eraser(&undo, &document, answersPage, &tools, &view);
+        eraser.erase(90, 100);
+        eraser.erase(140, 100);
+        eraser.finalize();
+
+        ASSERT_EQ(answers->getElements().size(), 1U) << eraserTypeToString(mode);
+        ASSERT_EQ(answers->getElements().front()->getType(), ELEMENT_STROKE);
+        const auto* stroke = static_cast<const Stroke*>(answers->getElements().front().get());
+        EXPECT_EQ(stroke->getPointCount(), 2U) << eraserTypeToString(mode);
+        EXPECT_EQ(stroke->getErasable(), nullptr) << eraserTypeToString(mode);
+        EXPECT_FALSE(undo.canUndo()) << eraserTypeToString(mode);
+        EXPECT_EQ(view.redraws, 0U) << eraserTypeToString(mode);
+        EXPECT_EQ(visiblePage->getSelectedLayer()->getElements().size(), 1U);
+    }
+}
+
+// The layer is hidden in the middle of one eraser drag and revealed before the drag ends. Samples received
+// while hidden are ignored, so the first visible sample after the reveal must start a new gesture. It must not
+// sweep back to the pre-hide point and erase ink the teacher never saw while it was hidden.
+TEST(EraseHandler, revealMidGestureDoesNotSweepAcrossHiddenSamples) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        addLine(page, 150, 50, 150, 250);  // vertical stroke at x = 150, crossed only by the sweep
+        Layer* layer = page->getSelectedLayer();
+        Document document(nullptr);
+        document.addPage(page);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        const auto before = remainingPoints(page).size();
+
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(50, 150);      // visible: far from the stroke
+        layer->setVisible(false);   // hidden mid-gesture
+        eraser.erase(100, 150);     // ignored while hidden
+        layer->setVisible(true);    // revealed before the drag ends
+        eraser.erase(250, 150);     // first visible sample after the reveal: must not sweep from x = 50
+        eraser.finalize();
+
+        EXPECT_EQ(layer->getElements().size(), 1U) << eraserTypeToString(mode);
+        EXPECT_EQ(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+        EXPECT_EQ(view.redraws, 0U) << eraserTypeToString(mode);
+    }
+}
+
+// Control for the test above: the same drag without a hide still erases the stroke it crosses.
+TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
+    for (EraserType mode: {ERASER_TYPE_DEFAULT, ERASER_TYPE_DELETE_STROKE}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        addLine(page, 150, 50, 150, 250);
+        Document document(nullptr);
+        document.addPage(page);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(10);
+        tools.setEraserType(mode);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        const auto before = remainingPoints(page).size();
+
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(50, 150);
+        eraser.erase(100, 150);
+        eraser.erase(250, 150);
+        eraser.finalize();
+
+        // Whole-stroke removes the stroke; the partial eraser splits it, which adds points. Either way it changes.
+        EXPECT_NE(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+    }
+}
+
+// Element-count tests miss stale pixels in the page cache. Draw the real text/box,
+// erase it, and clear only the invalidated device-pixel region as a partial redraw does.
+TEST(EraseHandler, objectEraseInvalidatesEveryRenderedAnswerBoxPixel) {
+    for (double zoom: {0.56, 1.0, 1.33, 2.0}) {
+        auto page = std::make_shared<XojPage>(300, 300);
+        auto answer = makeTextObject("Answer 42", 100.3, 100.7, true);
+        answer->setBoxBorderWidth(10);
+        answer->setBoxPadding(8);
+        const auto bounds = answer->getBoundingBox();
+        auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 600, 600);
+        auto* cr = cairo_create(surface);
+        cairo_scale(cr, zoom, zoom);
+        xoj::view::TextView(answer.get()).draw(xoj::view::Context::createDefault(cr));
+        cairo_surface_flush(surface);
+        size_t originalPixels = 0;
+        for (int y = 0; y < 600; ++y) {
+            const auto* row = reinterpret_cast<const uint32_t*>(cairo_image_surface_get_data(surface) +
+                                       y * cairo_image_surface_get_stride(surface));
+            for (int x = 0; x < 600; ++x) originalPixels += (row[x] >> 24) != 0;
+        }
+        ASSERT_GT(originalPixels, 0U);
+        page->getSelectedLayer()->addElement(std::move(answer));
+        Document document(nullptr);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserThickness(5);
+        tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        eraser.finalize();
+        ASSERT_EQ(countType(page, ELEMENT_TEXT), 0U);
+        ASSERT_GT(view.redraws, 0U);
+        cairo_identity_matrix(cr);
+        const auto& dirty = view.dirty;
+        const double left = std::floor(dirty.x * zoom), top = std::floor(dirty.y * zoom);
+        cairo_rectangle(cr, left, top, std::ceil((dirty.x + dirty.width) * zoom) - left,
+                        std::ceil((dirty.y + dirty.height) * zoom) - top);
+        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        cairo_fill(cr);
+        cairo_surface_flush(surface);
+        size_t remaining = 0;
+        for (int y = 0; y < 600; ++y) {
+            const auto* row = reinterpret_cast<const uint32_t*>(cairo_image_surface_get_data(surface) +
+                                       y * cairo_image_surface_get_stride(surface));
+            for (int x = 0; x < 600; ++x) remaining += (row[x] >> 24) != 0;
+        }
+        EXPECT_EQ(remaining, 0U) << "Stale answer-box pixels at zoom " << zoom;
+        cairo_destroy(cr);
+        cairo_surface_destroy(surface);
+    }
 }

@@ -17,6 +17,8 @@
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
+#include "control/layer/LayerCtrlListener.h"
+#include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
 #include "gui/MainWindow.h"
@@ -33,6 +35,9 @@
 
 #include "AnswerBoxStyles.h"  // for ANSWER_BOX_STYLES
 #include "HighlightModes.h"   // for HIGHLIGHT_MODES
+#include "EraserModes.h"     // for ERASER_MODES
+#include "ShapePicker.h"     // for createShapePicker
+#include "util/GVariantTemplate.h"  // for getGVariantValue
 #include "UtnWidgets.h"
 
 namespace {
@@ -63,14 +68,15 @@ struct SizeEntry {
     const char* label;  ///< shown on the button
     const char* name;   ///< untranslated, for tooltips and screen readers
     ToolSize size;
+    double preview;  ///< stroke thickness in pixels of the line drawn on the button; steps, not true pen widths
 };
 
 constexpr std::array<SizeEntry, 5> SIZES{{
-        {"XS", N_("Extra fine"), TOOL_SIZE_VERY_FINE},
-        {"S", N_("Fine"), TOOL_SIZE_FINE},
-        {"M", N_("Medium"), TOOL_SIZE_MEDIUM},
-        {"L", N_("Thick"), TOOL_SIZE_THICK},
-        {"XL", N_("Extra thick"), TOOL_SIZE_VERY_THICK},
+        {"XS", N_("Extra fine"), TOOL_SIZE_VERY_FINE, 1.0},
+        {"S", N_("Fine"), TOOL_SIZE_FINE, 2.0},
+        {"M", N_("Medium"), TOOL_SIZE_MEDIUM, 3.5},
+        {"L", N_("Thick"), TOOL_SIZE_THICK, 5.5},
+        {"XL", N_("Extra thick"), TOOL_SIZE_VERY_THICK, 8.0},
 }};
 
 bool sameHue(Color a, Color b) { return a.red == b.red && a.green == b.green && a.blue == b.blue; }
@@ -149,6 +155,52 @@ void applyAnswerBoxStyleToEditor(Control* control) {
         editor->setBoxCornerRadius(tools->getAnswerBoxCornerRadius());
     }
 }
+
+/**
+ * Keeps a label in step with how many hidden answers layers the current page holds. It listens to layer changes, but
+ * those fire while the document lock may be held, so the label is refreshed from the main loop instead of in place.
+ * The label owns this object; destroying the label stops the listening.
+ */
+class AnswersStatus final: public LayerCtrlListener {
+public:
+    AnswersStatus(Control* control, GtkWidget* label): control(control), label(label) {
+        registerListener(control->getLayerController());
+        refresh();
+    }
+    ~AnswersStatus() override {
+        if (idle) {
+            g_source_remove(idle);
+        }
+        unregisterListener();
+    }
+
+    void rebuildLayerMenu() override { scheduleRefresh(); }
+    void layerVisibilityChanged() override { scheduleRefresh(); }
+    void updateSelectedLayer() override { scheduleRefresh(); }
+
+private:
+    void scheduleRefresh() {
+        if (idle) {
+            return;
+        }
+        idle = g_idle_add(+[](gpointer self) -> gboolean {
+            auto* status = static_cast<AnswersStatus*>(self);
+            status->idle = 0;
+            status->refresh();
+            return G_SOURCE_REMOVE;
+        }, this);
+    }
+
+    void refresh() {
+        const size_t hidden = control->countHiddenAnswersOnCurrentPage();
+        gtk_label_set_text(GTK_LABEL(label), hidden ? _("Hidden from students on this page") :
+                                                      _("No hidden answers on this page"));
+    }
+
+    Control* control;
+    GtkWidget* label;
+    guint idle = 0;
+};
 
 const char* drawingTypeName(DrawingType type) {
     switch (type) {
@@ -256,7 +308,12 @@ GtkWidget* newMenuButton(const char* label, const char* hint, GtkPopover* popove
 
 ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control):
         AbstractToolItem(std::move(id), Category::TOOLS), control(control) {
-    control->getToolHandler()->addToolChangedListener([this](ToolType tool) {
+    // The handler outlives this bar when the window closes, so check the token before touching this object
+    std::weak_ptr<bool> alive = this->alive;
+    control->getToolHandler()->addToolChangedListener([this, alive](ToolType tool) {
+        if (alive.expired()) {
+            return;
+        }
         if (this->box != nullptr) {
             rebuild(tool);
         }
@@ -268,7 +325,7 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_name(GTK_WIDGET(box), "utnContextBar");
     gtk_widget_set_margin_start(GTK_WIDGET(box), 4);
     gtk_widget_set_margin_end(GTK_WIDGET(box), 4);
-    gtk_widget_set_valign(GTK_WIDGET(box), GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(GTK_WIDGET(box), horizontal ? GTK_ALIGN_CENTER : GTK_ALIGN_START);
 
     g_signal_connect(
             box,
@@ -284,7 +341,25 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     rebuild(control->getToolHandler()->getToolType());
     gtk_widget_show_all(GTK_WIDGET(box));
     if (!horizontal) {
-        return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+        // Side panel beside the tool rail. A tall palette (colour swatches plus controls) scrolls vertically instead
+        // of falling into the toolbar's overflow menu, where teachers would not find it.
+        GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
+        gtk_widget_set_name(scroller, "utnContextSide");
+        auto* side = GTK_SCROLLED_WINDOW(scroller);
+        // Controls wrap to the panel width instead; a sideways scrollbar hid the XL size in the touch layout
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
+        gtk_scrolled_window_set_propagate_natural_width(side, false);
+        gtk_scrolled_window_set_min_content_width(side, 208);
+        gtk_scrolled_window_set_max_content_width(side, 208);
+        gtk_scrolled_window_set_min_content_height(side, 160);
+        gtk_scrolled_window_set_overlay_scrolling(side, false);
+        gtk_widget_set_vexpand(scroller, true);
+        gtk_widget_set_valign(scroller, GTK_ALIGN_FILL);
+        gtk_scrolled_window_set_shadow_type(side, GTK_SHADOW_NONE);
+        gtk_container_add(GTK_CONTAINER(scroller), GTK_WIDGET(box));
+        gtk_widget_show_all(scroller);
+        return xoj::util::WidgetSPtr(scroller, xoj::util::adopt);
     }
 
     // Sizing chain: the toolbar wraps this viewport in an expanding GtkToolItem (expandsInToolbar), so the bar
@@ -315,12 +390,31 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     if (box == nullptr) {
         return;
     }
+    if (rebuilding) {
+        // A control changed the tool while the bar was being built. Finish this build, then show the newest state
+        // once, instead of appending a second set of controls into the half-built bar.
+        rebuildPending = true;
+        return;
+    }
+    rebuilding = true;
+    populate(tool);
+    while (rebuildPending && box != nullptr) {
+        rebuildPending = false;
+        populate(control->getToolHandler()->getToolType());
+    }
+    rebuildPending = false;
+    rebuilding = false;
+}
+
+void ToolUtnContextBar::populate(ToolType tool) {
     clearBox(box);
     auto* tools = control->getToolHandler();
     appendBadge(badgeName(tools, tool));
 
     switch (tool) {
         case TOOL_PEN:
+            // The shape picker is always first, so switching between freehand and shapes never needs the top strip
+            appendShapePicker(tools->getDrawingType());
             if (tools->getDrawingType() != DRAWING_TYPE_DEFAULT) {
                 appendShapeControls(tools->getDrawingType());
             } else {
@@ -366,6 +460,8 @@ void ToolUtnContextBar::rebuild(ToolType tool) {
     if (auto* viewport = gtk_widget_get_ancestor(GTK_WIDGET(box), GTK_TYPE_SCROLLED_WINDOW)) {
         auto* adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(viewport));
         gtk_adjustment_set_value(adjustment, gtk_adjustment_get_lower(adjustment));
+        adjustment = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(viewport));
+        gtk_adjustment_set_value(adjustment, gtk_adjustment_get_lower(adjustment));
     }
 }
 
@@ -378,13 +474,51 @@ void ToolUtnContextBar::appendBadge(const char* name) {
     gtk_box_append(box, badge);
 }
 
-void ToolUtnContextBar::appendSeparator() { gtk_box_append(box, gtk_separator_new(GTK_ORIENTATION_VERTICAL)); }
+void ToolUtnContextBar::appendSeparator() {
+    // A separator runs across the box: vertical in the horizontal strip, horizontal in the side panel.
+    const bool sideOrientation =
+            gtk_orientable_get_orientation(GTK_ORIENTABLE(box)) == GTK_ORIENTATION_VERTICAL;
+    gtk_box_append(box,
+                   gtk_separator_new(sideOrientation ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL));
+}
 
 void ToolUtnContextBar::appendHint(const char* text) {
     GtkWidget* label = gtk_label_new(text);
     gtk_widget_add_css_class(label, "utn-context-hint");
-    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_line_wrap(GTK_LABEL(label), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 28);
     gtk_box_append(box, label);
+}
+
+auto ToolUtnContextBar::isSidePanel() const -> bool {
+    return gtk_orientable_get_orientation(GTK_ORIENTABLE(box)) == GTK_ORIENTATION_VERTICAL;
+}
+
+auto ToolUtnContextBar::isTouchUi() const -> bool {
+    bool touchUi = false;
+    control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
+    return touchUi;
+}
+
+auto ToolUtnContextBar::newControlGroup(int columns, int spacing) -> GtkWidget* {
+    if (columns <= 0) {
+        return gtk_box_new(GTK_ORIENTATION_HORIZONTAL, spacing);
+    }
+    GtkWidget* grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), spacing);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), spacing);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), true);
+    g_object_set_data(G_OBJECT(grid), "utn-columns", GINT_TO_POINTER(columns));
+    return grid;
+}
+
+void ToolUtnContextBar::addToGroup(GtkWidget* group, GtkWidget* child, int index) {
+    if (GTK_IS_GRID(group)) {
+        const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        gtk_grid_attach(GTK_GRID(group), child, index % columns, index / columns, 1, 1);
+    } else {
+        gtk_box_append(GTK_BOX(group), child);
+    }
 }
 
 auto ToolUtnContextBar::appendButton(const char* label, const char* hint) -> GtkWidget* {
@@ -405,8 +539,10 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
         return window && window->getXournal() && window->getXournal()->getSelection();
     }();
 
-    GtkBox* group = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2));
-    gtk_widget_add_css_class(GTK_WIDGET(group), "utn-swatches");
+    // Five swatches plus "More colours"; in the touch-size side panel they wrap onto two rows of three
+    GtkWidget* group = newControlGroup(isSidePanel() && isTouchUi() ? 3 : 0, 2);
+    gtk_widget_add_css_class(group, "utn-swatches");
+    int index = 0;
     for (const auto& swatch: swatches) {
         GtkWidget* button = utn::createColourSwatch(swatch.colour, _(swatch.name));
         gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
@@ -431,7 +567,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                              g_list_free(siblings);
                          }),
                          control);
-        gtk_box_append(group, button);
+        addToGroup(group, button, index++);
     }
 
     // A selection reports white as its tool colour; start the chooser from black instead
@@ -459,8 +595,15 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                          g_list_free(siblings);
                      }),
                      control);
-    gtk_box_append(group, more);
-    gtk_box_append(box, GTK_WIDGET(group));
+    if (GTK_IS_GRID(group)) {
+        // The chooser button gets its own full-width row rather than a stray cell beside the last swatch
+        const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        gtk_widget_set_hexpand(more, true);
+        gtk_grid_attach(GTK_GRID(group), more, 0, (index + columns - 1) / columns, columns, 1);
+    } else {
+        addToGroup(group, more, index);
+    }
+    gtk_box_append(box, group);
 }
 
 void ToolUtnContextBar::appendSizeControls(ToolType tool) {
@@ -470,18 +613,28 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                              tool == TOOL_PEN         ? tools->getPenSize() :
                                                         TOOL_SIZE_NONE;
 
-    GtkBox* group = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
-    gtk_widget_add_css_class(GTK_WIDGET(group), "linked");
-    gtk_widget_add_css_class(GTK_WIDGET(group), "utn-sizes");
-    utn::setAccessibleName(GTK_WIDGET(group), _("Size"));
+    // All five presets must stay reachable: the touch-size side panel shows them as XS S M / L XL
+    const int columns = isSidePanel() && isTouchUi() ? 3 : 0;
+    GtkWidget* group = newControlGroup(columns, columns ? 2 : 0);
+    if (!columns) {
+        gtk_widget_add_css_class(group, "linked");
+    }
+    gtk_widget_add_css_class(group, "utn-sizes");
+    utn::setAccessibleName(group, _("Size"));
 
     GtkWidget* first = nullptr;
+    int index = 0;
     for (const auto& entry: SIZES) {
         // Radio buttons show the current size; a selection may mix sizes, so it gets plain buttons
-        GtkWidget* button = forSelection ? gtk_button_new_with_label(entry.label) :
-                            first        ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first),
-                                                                                       entry.label) :
-                                           gtk_radio_button_new_with_label(nullptr, entry.label);
+        GtkWidget* button = forSelection ? gtk_button_new() :
+                            first        ? gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(first)) :
+                                           gtk_radio_button_new(nullptr);
+        // The line shows how heavy this size writes; the letter keeps it readable at a glance
+        GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+        gtk_box_append(GTK_BOX(content), utn::createGlyph(utn::Glyph::Weight, entry.preview));
+        gtk_box_append(GTK_BOX(content), gtk_label_new(entry.label));
+        gtk_widget_show_all(content);
+        gtk_button_set_child(GTK_BUTTON(button), content);
         if (!forSelection) {
             first = first ? first : button;
             gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
@@ -512,12 +665,40 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                              }
                          }),
                          control);
-        gtk_box_append(group, button);
+        addToGroup(group, button, index++);
     }
-    gtk_box_append(box, GTK_WIDGET(group));
+    gtk_box_append(box, group);
 }
 
 // --- tools ------------------------------------------------------------------------------------------------------
+
+void ToolUtnContextBar::appendShapePicker(DrawingType current) {
+    GtkWidget* title = gtk_label_new(_("Shape"));
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_widget_add_css_class(title, "utn-context-title");
+    gtk_box_append(box, title);
+
+    // A radio group, like the eraser modes: exactly one choice is checked and the change is visible at a glance.
+    // Applying a shape rebuilds this bar, so the change waits until the radio's own signal has finished.
+    gtk_box_append(box, utn::createShapePicker(
+                                current,
+                                [](DrawingType type, gpointer data) {
+                                    struct Request {
+                                        Control* control;
+                                        DrawingType type;
+                                    };
+                                    g_idle_add(+[](gpointer p) -> gboolean {
+                                                   auto* request = static_cast<Request*>(p);
+                                                   request->control->selectTool(TOOL_PEN);
+                                                   request->control->setToolDrawingType(request->type);
+                                                   delete request;
+                                                   return G_SOURCE_REMOVE;
+                                               },
+                                               new Request{static_cast<Control*>(data), type});
+                                },
+                                control));
+    appendSeparator();
+}
 
 void ToolUtnContextBar::appendPenControls() {
     appendColourControls(Palette::Ink);
@@ -592,13 +773,6 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
                          control);
         gtk_box_append(box, threshold);
     }
-
-    appendSeparator();
-    GtkWidget* freehand = appendButton(_("Back to Pen"), _("Stop drawing shapes and write freehand"));
-    g_signal_connect(freehand, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                         static_cast<Control*>(data)->setToolDrawingType(DRAWING_TYPE_DEFAULT);
-                     }),
-                     control);
 }
 
 void ToolUtnContextBar::appendHighlightControls() {
@@ -651,8 +825,65 @@ void ToolUtnContextBar::appendHighlightControls() {
 }
 
 void ToolUtnContextBar::appendEraserControls() {
-    GtkWidget* scale = newScale(0.5, 30.0, 0.5, control->getToolHandler()->getEraserThickness(), 1);
-    gtk_widget_set_size_request(scale, 180, -1);
+    auto* tools = control->getToolHandler();
+
+    // Keep all eraser modes directly visible beside the main rail, not hidden in the
+    // toolbar-arrow menu. Radio-style buttons also show the selected mode at a glance.
+    GtkWidget* modeLabel = gtk_label_new(_("Eraser mode"));
+    gtk_widget_add_css_class(modeLabel, "utn-context-title");
+    gtk_box_append(box, modeLabel);
+
+    const auto orientation = gtk_orientable_get_orientation(GTK_ORIENTABLE(box));
+    GtkBox* modes = GTK_BOX(gtk_box_new(orientation, 2));
+    gtk_widget_add_css_class(GTK_WIDGET(modes), "utn-eraser-modes");
+
+    GtkWidget* first = nullptr;
+    for (const auto& entry: utn::ERASER_MODES) {
+        GtkWidget* button = first ?
+                gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first), _(entry.label)) :
+                gtk_radio_button_new_with_label(nullptr, _(entry.label));
+        first = first ? first : button;
+        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
+        gtk_widget_add_css_class(button, "utn-eraser-mode");
+        gtk_widget_set_focus_on_click(button, false);
+        gtk_widget_set_tooltip_text(button, _(entry.hint));
+        utn::setAccessibleName(button, _(entry.label));
+        g_object_set_data(G_OBJECT(button), "utn-eraser-type",
+                          GINT_TO_POINTER(static_cast<int>(entry.type)));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), tools->getEraserType() == entry.type);
+
+        // The old Eraser arrow still exists and can change the mode. Mirror its GAction
+        // state in the sidebar without generating another user action or feedback loop.
+        auto action = control->getActionDatabase()->getAction(Action::TOOL_ERASER_TYPE);
+        g_signal_connect_object(G_OBJECT(action.get()), "notify::state",
+                                G_CALLBACK(+[](GObject* actionObject, GParamSpec*, gpointer widget) {
+                                    xoj::util::GVariantSPtr state(g_action_get_state(G_ACTION(actionObject)),
+                                                                   xoj::util::adopt);
+                                    if (!state) {
+                                        return;
+                                    }
+                                    const auto current = getGVariantValue<EraserType>(state.get());
+                                    const auto type = static_cast<EraserType>(GPOINTER_TO_INT(
+                                            g_object_get_data(G_OBJECT(widget), "utn-eraser-type")));
+                                    utn::syncToggle(GTK_TOGGLE_BUTTON(widget), current == type);
+                                }), button, GConnectFlags(0));
+
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             if (utn::isSyncing(GTK_WIDGET(button)) ||
+                                 !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button))) {
+                                 return;  // state refresh / deselected radio
+                             }
+                             const auto type = static_cast<EraserType>(GPOINTER_TO_INT(
+                                     g_object_get_data(G_OBJECT(button), "utn-eraser-type")));
+                             static_cast<Control*>(data)->setEraserType(type);
+                         }), control);
+        gtk_box_append(modes, button);
+    }
+    gtk_box_append(box, GTK_WIDGET(modes));
+
+    appendSeparator();
+    GtkWidget* scale = newScale(0.5, 30.0, 0.5, tools->getEraserThickness(), 1);
+    gtk_widget_set_size_request(scale, orientation == GTK_ORIENTATION_VERTICAL ? 140 : 180, -1);
     gtk_widget_set_tooltip_text(scale, _("Eraser size. The [ and ] keys also change it."));
     utn::setAccessibleName(scale, _("Eraser size"));
     g_signal_connect(scale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
@@ -665,7 +896,7 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_box_append(box, scale);
 
     appendSeparator();
-    appendHint(_("Erases ink only. Use Select to delete text and boxes."));
+    appendHint(_("Ink and Stroke erase handwriting. Choose Object to erase text, answer boxes or pictures. Undo restores them."));
 }
 
 void ToolUtnContextBar::appendTextControls() {
@@ -681,10 +912,21 @@ void ToolUtnContextBar::appendTextControls() {
     }
 
     if (mode == TextMode::AnswerBox) {
+        appendAnswersVisibility();
+        appendSeparator();
         GtkWidget* remove = appendButton(_("Delete Box"), _("Delete the Answer Box being edited. Undo restores it."));
         gtk_widget_add_css_class(remove, "destructive-action");
         g_signal_connect(remove, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                             static_cast<Control*>(data)->deleteEditedAnswerBox();
+                             auto* ctrl = static_cast<Control*>(data);
+                             auto* editor = ctrl->getTextEditor();
+                             if (!editor || !editor->getTextElement()->isBoxEnabled()) {
+                                 // The button stays enabled (the panel cannot track editing), so say why nothing happened
+                                 if (auto* win = ctrl->getWindow()) {
+                                     win->showToast(_("Click an Answer Box on the page first, then choose Delete Box"));
+                                 }
+                                 return;
+                             }
+                             ctrl->deleteEditedAnswerBox();
                          }),
                          control);
         appendSeparator();
@@ -841,6 +1083,43 @@ void ToolUtnContextBar::appendTextControls() {
         appendSeparator();
         appendAnswerBoxStyleMenu();
     }
+}
+
+void ToolUtnContextBar::appendAnswersVisibility() {
+    GtkWidget* title = gtk_label_new(_("Answers"));
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_widget_add_css_class(title, "utn-context-title");
+    gtk_box_append(box, title);
+
+    GtkWidget* status = gtk_label_new(nullptr);
+    gtk_widget_add_css_class(status, "utn-context-hint");
+    gtk_label_set_xalign(GTK_LABEL(status), 0.0F);
+    gtk_label_set_line_wrap(GTK_LABEL(status), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(status), 28);
+    g_object_set_data_full(G_OBJECT(status), "utn-answers-status", new AnswersStatus(control, status),
+                           +[](gpointer p) { delete static_cast<AnswersStatus*>(p); });
+    gtk_box_append(box, status);
+
+    GtkWidget* hide = appendButton(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"));
+    g_signal_connect(hide, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         auto* ctrl = static_cast<Control*>(data);
+                         const size_t changed = ctrl->setAnswersRevealed(false, true);
+                         if (auto* win = ctrl->getWindow()) {
+                             win->showToast(changed ? _("Answers are hidden from students") :
+                                                      _("No answers are showing"));
+                         }
+                     }),
+                     control);
+    GtkWidget* reveal = appendButton(_("Reveal on this page"), _("Show this page's hidden answers to the class"));
+    g_signal_connect(reveal, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         auto* ctrl = static_cast<Control*>(data);
+                         const size_t changed = ctrl->setAnswersRevealed(true, false);
+                         if (auto* win = ctrl->getWindow()) {
+                             win->showToast(changed ? _("Answers on this page are now showing") :
+                                                      _("No hidden answers on this page"));
+                         }
+                     }),
+                     control);
 }
 
 void ToolUtnContextBar::appendAnswerBoxStyleMenu() {

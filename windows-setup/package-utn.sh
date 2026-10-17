@@ -2,14 +2,23 @@
 # UTN Windows beta: collect runtime files, then build installer and portable ZIP.
 set -euo pipefail
 build_dir=$(cd "${1:?Usage: package-utn.sh BUILD_DIR}" && pwd)
+mode=${2:-all}
+[[ "$mode" == all || "$mode" == --portable-only ]] || { echo 'Usage: package-utn.sh BUILD_DIR [--portable-only]' >&2; exit 1; }
 script_dir=$(cd "$(dirname "$0")" && pwd)
 prefix=${MSYSTEM_PREFIX:-/mingw64}
 version=0.2.1-beta
-setup_dir="$build_dir/utn-dist"
+# Never delete a previous bundle: a tester may still be running it.
+setup_dir=$(mktemp -d "$build_dir/utn-dist.XXXXXX")
 output_dir="$build_dir/utn-release"
 [[ -f "$build_dir/xournalpp.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
 # These are dedicated packaging directories, never the installed application.
-rm -rf "$setup_dir" "$output_dir"
+# Resolve existing symlinks before recursive removal and refuse escaped paths.
+for target in "$setup_dir" "$output_dir"; do
+    [[ "$build_dir" != / && ! -L "$target" && "$(realpath -m "$target")" == "$target" ]] || {
+        echo "Unsafe packaging directory: $target" >&2; exit 1;
+    }
+done
+rm -rf "$output_dir"
 mkdir -p "$setup_dir/lib" "$output_dir"
 cmake --install "$build_dir" --prefix "$setup_dir"
 cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
@@ -17,9 +26,12 @@ cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
 # GTK modules and Lua plugins load libraries that do not appear in the main EXE imports.
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$setup_dir/lib/"
 cp -r "$prefix/lib/girepository-1.0" "$setup_dir/lib/"
-for folder in icons glib-2.0 poppler gtksourceview-4 lua licenses; do
+for folder in icons glib-2.0 poppler lua licenses; do
     cp -r "$prefix/share/$folder" "$setup_dir/share/"
 done
+if [[ -d "$prefix/share/gtksourceview-4" ]]; then
+    cp -r "$prefix/share/gtksourceview-4" "$setup_dir/share/"
+fi
 cp -r "$prefix/lib/lua" "$setup_dir/lib/"
 cp "$prefix/bin/gspawn-win64-helper.exe" "$setup_dir/bin/"
 cp "$prefix/bin/gspawn-win64-helper-console.exe" "$setup_dir/bin/"
@@ -81,6 +93,7 @@ pacman -Q > "$setup_dir/DEPENDENCIES.txt"
 printf '%s\n' "$version" > "$setup_dir/UTN-VERSION.txt"
 source_commit=${GITHUB_SHA:-$(git -C "$script_dir/.." rev-parse HEAD)}
 printf '%s\n' "$source_commit" > "$setup_dir/SOURCE-COMMIT.txt"
+if [[ "$mode" != --portable-only ]]; then
 makensis=${MAKENSIS:-}
 if [[ -z "$makensis" ]]; then
     makensis=$(command -v makensis || command -v makensis.exe || true)
@@ -96,10 +109,14 @@ MSYS2_ARG_CONV_EXCL='*' "$makensis" -NOCD \
     "-DLICENSE_FILE=$(cygpath -w "$setup_dir/LICENSE.txt")" \
     "-DICON_FILE=$(cygpath -w "$build_dir/src/win32/xournalpp.ico")" \
     "$(cygpath -w "$script_dir/utn.nsi")"
+fi
 sevenzip=$(command -v 7z || command -v 7z.exe || true)
 if [[ -z "$sevenzip" && -f '/c/Program Files/7-Zip/7z.exe' ]]; then
     sevenzip='/c/Program Files/7-Zip/7z.exe'
 fi
-[[ -n "$sevenzip" ]] || { echo 'Install 7-Zip.' >&2; exit 1; }
-(cd "$setup_dir" && "$sevenzip" a -tzip "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" .)
-(cd "$output_dir" && sha256sum ./*.exe ./*.zip > SHA256SUMS.txt)
+if [[ -n "$sevenzip" ]]; then
+    (cd "$setup_dir" && "$sevenzip" a -tzip "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" .)
+else
+    (cd "$setup_dir" && cmake -E tar cf "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" --format=zip .)
+fi
+(cd "$output_dir" && find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)

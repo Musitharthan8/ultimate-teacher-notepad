@@ -18,6 +18,8 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "UtnWidgets.h"
+
 namespace {
 struct DrawingEntry {
     const char* label;
@@ -151,6 +153,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_box_append(panel, image);
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    // Make the picker discoverable even when the user's icon pack lacks the UTN glyph.
+    // GTK toolbar overflow and scaling can hide a menu whose entire identity is an icon.
+    utn::setAccessibleName(GTK_WIDGET(menuButton), _("Shapes & Lines"));
     gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());

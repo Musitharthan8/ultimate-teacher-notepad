@@ -40,12 +40,27 @@ jobs:
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
           $installer = (Get-ChildItem build\utn-release\*-Setup.exe).FullName
           $installDir = Join-Path $env:RUNNER_TEMP 'UTN clean install'
-          $setup = Start-Process $installer -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          $setup = Start-Process $installer -ArgumentList "/S /D=$installDir" -WindowStyle Hidden -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
           if (!(Test-Path "$installDir\bin\UTN.exe")) { throw 'UTN launcher missing' }
           $exe = Join-Path $installDir 'bin\xournalpp.exe'
-          $version = Start-Process $exe -ArgumentList '--version' -Wait -PassThru
+          $version = Start-Process $exe -ArgumentList '--version' -WindowStyle Hidden -Wait -PassThru
           if ($version.ExitCode -ne 0) { throw "Packaged runtime failed: $($version.ExitCode)" }
+          $fixture = (Resolve-Path 'test\files\packaged_xopp\text.xopp').Path
+          $pdf = Join-Path $env:RUNNER_TEMP 'UTN smoke export.pdf'
+          $export = Start-Process $exe -ArgumentList "--create-pdf=`"$pdf`" `"$fixture`"" -WindowStyle Hidden -Wait -PassThru
+          if ($export.ExitCode -ne 0 -or !(Test-Path $pdf)) { throw 'Packaged PDF export failed' }
+          if ((Get-Item $pdf).Length -lt 100 -or [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($pdf), 0, 5) -ne '%PDF-') {
+            throw 'Packaged PDF export produced an invalid file'
+          }
+          $png = Join-Path $env:RUNNER_TEMP 'UTN smoke export.png'
+          $export = Start-Process $exe -ArgumentList "--create-img=`"$png`" --export-png-width=800 `"$fixture`"" -WindowStyle Hidden -Wait -PassThru
+          $images = @(Get-ChildItem $env:RUNNER_TEMP -Filter 'UTN smoke export*.png')
+          if ($export.ExitCode -ne 0 -or $images.Count -eq 0) { throw 'Packaged image export failed' }
+          foreach ($image in $images) {
+            $signature = [BitConverter]::ToString([IO.File]::ReadAllBytes($image.FullName), 0, 8)
+            if ($signature -ne '89-50-4E-47-0D-0A-1A-0A') { throw 'Packaged image export produced an invalid PNG' }
+          }
           $app = Start-Process $exe -PassThru
           try {
             $opened = $false
@@ -59,7 +74,7 @@ jobs:
           } finally {
             if (!$app.HasExited) { Stop-Process -Id $app.Id -Force }
           }
-          $uninstall = Start-Process "$installDir\Uninstall.exe" -ArgumentList '/S' -Wait -PassThru
+          $uninstall = Start-Process "$installDir\Uninstall.exe" -ArgumentList '/S' -WindowStyle Hidden -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstaller failed' }
           if (Test-Path "$installDir\bin\UTN.exe") { throw 'Uninstaller left the launcher behind' }
       - uses: actions/upload-artifact@v4

@@ -137,3 +137,84 @@ TEST(LayerAudience, audienceSurvivesSaveAndReload) {
     EXPECT_FALSE(layers.at(1)->isVisible()) << "Answers must be hidden when a lesson is opened";
     EXPECT_EQ(layers.at(2)->getAudience(), LayerAudience::TeacherOnly);
 }
+
+TEST(LayerAudience, writableLayerAfterHideSkipsHiddenAnswers) {
+    // Answers on top and in the middle: the pen must land on the topmost ordinary layer, layer 1 here
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answersA = makeLayer(LayerAudience::Answers, false);
+    auto answersB = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{ordinary.get(), answersA.get(), answersB.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 1u);
+}
+
+TEST(LayerAudience, writableLayerAfterHidePrefersTopmostOrdinaryLayer) {
+    // Answers at the bottom, ordinary in the middle, answers on top: the pen goes to layer 2
+    auto answersBottom = makeLayer(LayerAudience::Answers, false);
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answersTop = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{answersBottom.get(), ordinary.get(), answersTop.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 2u);
+}
+
+TEST(LayerAudience, writableLayerAfterHideIgnoresTeacherOnlyAsAnswers) {
+    // Teacher-only notes are not answers: the pen may stay on them
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    auto teacher = makeLayer(LayerAudience::TeacherOnly, true);
+    std::vector<Layer*> layers{answers.get(), teacher.get()};
+    auto id = utn::writableLayerIdAfterHide(layers);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 2u);
+}
+
+TEST(LayerAudience, writableLayerAfterHideNoneWhenOnlyAnswersExist) {
+    // Nothing safe to write on: the caller must not pretend a layer is writable
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{answers.get()};
+    EXPECT_FALSE(utn::writableLayerIdAfterHide(layers).has_value());
+    EXPECT_FALSE(utn::writableLayerIdAfterHide({}).has_value());
+}
+
+TEST(LayerAudience, inkStaysOnAVisibleSelectedLayer) {
+    // A visible layer, revealed answers included, keeps the ink: nothing to correct
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto revealed = makeLayer(LayerAudience::Answers, true);
+    std::vector<Layer*> layers{ordinary.get(), revealed.get()};
+    EXPECT_FALSE(utn::visibleLayerIdForInk(layers, 1).has_value());
+    EXPECT_FALSE(utn::visibleLayerIdForInk(layers, 2).has_value());
+    EXPECT_FALSE(utn::visibleLayerIdForInk(layers, 0).has_value()) << "ID 0 draws on the bottom layer";
+}
+
+TEST(LayerAudience, inkLeavesHiddenAnswersAfterReopening) {
+    // The reported case: a reopened lesson selected its top layer, the hidden answers, so new ink was invisible
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{ordinary.get(), answers.get()};
+    auto id = utn::visibleLayerIdForInk(layers, 2);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 1u);
+}
+
+TEST(LayerAudience, inkSkipsHiddenAndRevealedAnswersForTopmostVisibleOrdinary) {
+    // Hidden ordinary layer on top of a visible one; revealed answers are never chosen for ordinary ink
+    auto visible = makeLayer(LayerAudience::Everyone, true);
+    auto revealed = makeLayer(LayerAudience::Answers, true);
+    auto teacher = makeLayer(LayerAudience::TeacherOnly, true);
+    auto hidden = makeLayer(LayerAudience::Everyone, false);
+    std::vector<Layer*> layers{visible.get(), revealed.get(), teacher.get(), hidden.get()};
+    auto id = utn::visibleLayerIdForInk(layers, 4);
+    ASSERT_TRUE(id.has_value());
+    EXPECT_EQ(*id, 3u);
+}
+
+TEST(LayerAudience, inkHasNoVisibleTargetWhenEverythingIsHidden) {
+    // The caller then shows the layer or starts a new one; it must not be told a hidden layer is fine
+    auto hidden = makeLayer(LayerAudience::Everyone, false);
+    auto answers = makeLayer(LayerAudience::Answers, false);
+    std::vector<Layer*> layers{hidden.get(), answers.get()};
+    EXPECT_FALSE(utn::visibleLayerIdForInk(layers, 2).has_value());
+    EXPECT_FALSE(utn::visibleLayerIdForInk({}, 0).has_value());
+}

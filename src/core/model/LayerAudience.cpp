@@ -7,6 +7,7 @@
 #include "LayerAudience.h"
 
 #include <string>
+#include <vector>
 
 namespace utn {
 
@@ -59,6 +60,31 @@ auto visibleToStudents(const Layer& layer) -> bool {
 
 auto isHiddenAnswers(const Layer& layer) -> bool {
     return layer.getAudience() == LayerAudience::Answers && !layer.isVisible();
+}
+
+auto writableLayerIdAfterHide(const std::vector<Layer*>& layers) -> std::optional<Layer::Index> {
+    for (size_t i = layers.size(); i > 0; --i) {
+        if (layers[i - 1]->getAudience() != LayerAudience::Answers) {
+            return i;  // layer IDs count from 1; 0 would select the bottom layer, which may be hidden answers
+        }
+    }
+    return std::nullopt;
+}
+
+auto visibleLayerIdForInk(const std::vector<Layer*>& layers, Layer::Index selected) -> std::optional<Layer::Index> {
+    if (layers.empty()) {
+        return std::nullopt;
+    }
+    const Layer::Index current = selected == 0 ? 1 : selected;  // as XojPage::getSelectedLayer reads it
+    if (current <= layers.size() && layers[current - 1]->isVisible()) {
+        return std::nullopt;
+    }
+    for (size_t i = layers.size(); i > 0; --i) {
+        if (layers[i - 1]->isVisible() && layers[i - 1]->getAudience() != LayerAudience::Answers) {
+            return i;
+        }
+    }
+    return std::nullopt;
 }
 
 void prepareLoadedLayer(Layer& layer, std::optional<LayerAudience> savedAudience) {

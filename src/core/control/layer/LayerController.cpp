@@ -1,8 +1,10 @@
 #include "LayerController.h"
 
-#include <memory>   // for __shared_ptr_access, make...
-#include <mutex>    // for unique_lock
-#include <utility>  // for move
+#include <algorithm>  // for max
+#include <memory>     // for __shared_ptr_access, make...
+#include <mutex>      // for unique_lock
+#include <optional>   // for optional
+#include <utility>    // for move
 #include <vector>   // for vector
 
 #include "control/Control.h"                 // for Control
@@ -11,6 +13,7 @@
 #include "gui/MainWindow.h"                  // for MainWindow
 #include "gui/XournalView.h"                 // for XournalView
 #include "model/Document.h"                  // for Document
+#include "model/LayerAudience.h"             // for visibleLayerIdForInk
 #include "model/XojPage.h"                   // for XojPage
 #include "undo/InsertLayerUndoAction.h"      // for InsertLayerUndoAction
 #include "undo/MergeLayerDownUndoAction.h"   // for MergeLayerDownUndoAction
@@ -388,6 +391,36 @@ void LayerController::switchToLay(Layer::Index layerId, bool hideShow, bool clea
 
         fireLayerVisibilityChanged();
     }
+}
+
+auto LayerController::ensureVisibleInkLayer(bool answersShowFaintly) -> bool {
+    std::optional<Layer::Index> target;
+    bool showSelected = false;
+    {
+        auto lock = std::shared_lock(*control->getDocument());
+        PageRef p = getCurrentPage();
+        if (!p || p->getLayerCount() == 0 || p->getSelectedLayer()->isVisible()) {
+            return false;
+        }
+        if (answersShowFaintly && utn::isHiddenAnswers(*p->getSelectedLayer())) {
+            return false;
+        }
+        target = utn::visibleLayerIdForInk(p->getLayers(), p->getSelectedLayerId());
+        showSelected = !target && p->getSelectedLayer()->getAudience() != LayerAudience::Answers;
+    }
+    if (target) {
+        switchToLay(*target, false, false);
+        return true;
+    }
+    if (showSelected) {
+        // The teacher hid this ordinary layer and has nothing visible to write on: show it again rather than hide ink
+        setLayerVisible(std::max<Layer::Index>(getCurrentLayerId(), 1), true);
+        fireRebuildLayerMenu();
+        return false;
+    }
+    // Hidden answers and no visible ordinary layer: never write into the answers
+    addNewLayer(false);
+    return true;
 }
 
 /**

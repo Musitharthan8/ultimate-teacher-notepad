@@ -6,6 +6,7 @@
 
 #include <gtk/gtk.h>
 
+#include "gui/toolbarMenubar/UtnWidgets.h"  // for showAcceleratorInTooltip
 #include "util/GtkUtil.h"  // for setToggleButtonUnreleasable
 #include "util/glib_casts.h"
 #include "util/gtk4_helper.h"  // for gtk_popover_new
@@ -64,8 +65,13 @@ static void setProminentIconCallback(GObject* a, GParamSpec*, ComboToolInstanceD
                 }
             }
             g_list_free(children);
+        } else if (GTK_IS_IMAGE(child)) {
+            gtk_image_set_from_icon_name(GTK_IMAGE(child), it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
         } else {
-            gtk_button_set_child(data->btn, gtk_image_new_from_icon_name(it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR));
+            // A new GTK3 widget starts hidden: an unshown replacement left the button blank until restart
+            GtkWidget* image = gtk_image_new_from_icon_name(it->icon.c_str(), GTK_ICON_SIZE_LARGE_TOOLBAR);
+            gtk_widget_show(image);
+            gtk_button_set_child(data->btn, image);
         }
         gtk_widget_set_tooltip_text(GTK_WIDGET(data->btn), it->name.c_str());
         gtk_actionable_set_action_target_value(GTK_ACTIONABLE(data->btn), state.get());
@@ -101,6 +107,7 @@ auto ComboToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     // Create item
     GtkMenuButton* menubutton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-arrow");
     gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
     gtk_menu_button_set_popover(menubutton, GTK_WIDGET(data->popover));
     gtk_menu_button_set_direction(menubutton,

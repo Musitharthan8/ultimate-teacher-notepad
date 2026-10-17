@@ -114,6 +114,14 @@ void LoadHandler::finalizePage() {
     if (this->page->getLayerCount() == 0) {
         this->page->addLayer(new Layer{});
     }
+    // A page selects its top layer. Answers layers sit on top but open hidden, so writing there would be invisible:
+    // select the topmost layer students may see instead (as hiding answers does)
+    auto& layers = this->page->getLayers();
+    if (utn::isHiddenAnswers(*layers.back())) {
+        if (auto writable = utn::writableLayerIdAfterHide(layers)) {
+            this->page->setSelectedLayerId(*writable);
+        }
+    }
     // this->pages already holds a reference to the page
     this->page.reset();
 }

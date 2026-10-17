@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "util/Util.h"         // for argb_to_GdkRGBA
 #include "util/gtk4_helper.h"  // for gtk_box_append, gtk_popover_set_child
@@ -57,6 +58,41 @@ void setAccessibleName(GtkWidget* widget, const char* name) {
     }
 }
 
+void showAcceleratorInTooltip(GtkWidget* button) {
+    g_signal_connect(button, "query-tooltip",
+                     G_CALLBACK(+[](GtkWidget* widget, gint, gint, gboolean, GtkTooltip* tooltip, gpointer) -> gboolean {
+                         gchar* text = gtk_widget_get_tooltip_text(widget);
+                         if (!text) {
+                             return FALSE;
+                         }
+                         std::string full = text;
+                         g_free(text);
+
+                         GApplication* app = g_application_get_default();
+                         const gchar* action = gtk_actionable_get_action_name(GTK_ACTIONABLE(widget));
+                         if (action && GTK_IS_APPLICATION(app)) {
+                             gchar* detailed = g_action_print_detailed_name(
+                                     action, gtk_actionable_get_action_target_value(GTK_ACTIONABLE(widget)));
+                             gchar** accels = gtk_application_get_accels_for_action(GTK_APPLICATION(app), detailed);
+                             guint key = 0;
+                             GdkModifierType mods{};
+                             if (accels && accels[0]) {
+                                 gtk_accelerator_parse(accels[0], &key, &mods);
+                             }
+                             if (key) {
+                                 gchar* label = gtk_accelerator_get_label(key, mods);
+                                 full += std::string(" (") + label + ")";
+                                 g_free(label);
+                             }
+                             g_strfreev(accels);
+                             g_free(detailed);
+                         }
+                         gtk_tooltip_set_text(tooltip, full.c_str());
+                         return TRUE;
+                     }),
+                     nullptr);
+}
+
 void syncToggle(GtkToggleButton* toggle, bool active) {
     if (gtk_toggle_button_get_active(toggle) == active) {
         return;
@@ -96,6 +132,98 @@ auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
                      nullptr);
     gtk_button_set_child(GTK_BUTTON(button), dot);
     return button;
+}
+
+auto createGlyph(Glyph glyph, double weight) -> GtkWidget* {
+    GtkWidget* area = gtk_drawing_area_new();
+    const bool isWeight = glyph == Glyph::Weight;
+    gtk_widget_set_size_request(area, isWeight ? 30 : 26, isWeight ? 14 : 18);
+    gtk_widget_set_halign(area, GTK_ALIGN_CENTER);
+    g_object_set_data(G_OBJECT(area), "utn-glyph", GINT_TO_POINTER(static_cast<int>(glyph)));
+    g_object_set_data(G_OBJECT(area), "utn-glyph-weight", GINT_TO_POINTER(static_cast<int>(weight * 100.0)));
+    g_signal_connect(
+            area, "draw", G_CALLBACK(+[](GtkWidget* widget, cairo_t* cr, gpointer) -> gboolean {
+                // Colour comes from the enclosing button, so hover, checked and High Contrast states carry over
+                GtkWidget* owner = widget;
+                for (GtkWidget* it = widget; it; it = gtk_widget_get_parent(it)) {
+                    if (GTK_IS_BUTTON(it)) {
+                        owner = it;
+                        break;
+                    }
+                }
+                GtkStyleContext* style = gtk_widget_get_style_context(owner);
+                GdkRGBA colour;
+                gtk_style_context_get_color(style, gtk_style_context_get_state(style), &colour);
+                gdk_cairo_set_source_rgba(cr, &colour);
+
+                const double w = gtk_widget_get_allocated_width(widget);
+                const double h = gtk_widget_get_allocated_height(widget);
+                const auto kind = static_cast<Glyph>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "utn-glyph")));
+                const double weightPx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "utn-glyph-weight")) / 100.0;
+                cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+                cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                cairo_set_line_width(cr, 1.6);
+                const double pad = 3.0;
+                switch (kind) {
+                    case Glyph::Freehand:
+                        cairo_move_to(cr, pad, h * 0.7);
+                        cairo_curve_to(cr, w * 0.3, h * 0.0, w * 0.45, h * 1.1, w * 0.62, h * 0.45);
+                        cairo_curve_to(cr, w * 0.72, h * 0.15, w * 0.85, h * 0.35, w - pad, h * 0.3);
+                        cairo_stroke(cr);
+                        break;
+                    case Glyph::Rectangle:
+                        cairo_rectangle(cr, pad, pad + 1, w - 2 * pad, h - 2 * pad - 2);
+                        cairo_stroke(cr);
+                        break;
+                    case Glyph::Ellipse:
+                        cairo_save(cr);
+                        cairo_translate(cr, w / 2.0, h / 2.0);
+                        cairo_scale(cr, (w - 2 * pad) / 2.0, (h - 2 * pad + 2) / 2.0);
+                        cairo_arc(cr, 0, 0, 1.0, 0, 2 * M_PI);
+                        cairo_restore(cr);
+                        cairo_stroke(cr);
+                        break;
+                    case Glyph::Line:
+                        cairo_move_to(cr, pad, h - pad);
+                        cairo_line_to(cr, w - pad, pad);
+                        cairo_stroke(cr);
+                        break;
+                    case Glyph::Arrow: {
+                        const double x1 = w - pad;
+                        const double y1 = pad + 1;
+                        cairo_move_to(cr, pad, h - pad - 1);
+                        cairo_line_to(cr, x1, y1);
+                        cairo_stroke(cr);
+                        cairo_move_to(cr, x1 - 7, y1);
+                        cairo_line_to(cr, x1, y1);
+                        cairo_line_to(cr, x1, y1 + 7);
+                        cairo_stroke(cr);
+                        break;
+                    }
+                    case Glyph::SmartShape: {
+                        // A rough hand-drawn loop, the kind of shape Smart Shape tidies
+                        double dashes[2];  // no braced list: its comma would split the G_CALLBACK macro argument
+                        dashes[0] = dashes[1] = 2.5;
+                        cairo_set_dash(cr, dashes, 2, 0);
+                        cairo_save(cr);
+                        cairo_translate(cr, w / 2.0, h / 2.0);
+                        cairo_scale(cr, (w - 2 * pad) / 2.0, (h - 2 * pad + 2) / 2.0);
+                        cairo_arc(cr, 0, 0, 1.0, 0, 2 * M_PI);
+                        cairo_restore(cr);
+                        cairo_stroke(cr);
+                        break;
+                    }
+                    case Glyph::Weight:
+                        cairo_set_line_width(cr, weightPx > 0 ? weightPx : 1.6);
+                        cairo_move_to(cr, pad + weightPx / 2, h / 2.0);
+                        cairo_line_to(cr, w - pad - weightPx / 2, h / 2.0);
+                        cairo_stroke(cr);
+                        break;
+                }
+                return FALSE;
+            }),
+            nullptr);
+    return area;
 }
 
 void setSwatchSelected(GtkWidget* swatch, bool selected) {

@@ -673,11 +673,21 @@ size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
                 continue;
             }
             bool pageChanged = false;
-            for (Layer* layer: this->doc->getPage(i)->getLayers()) {
+            PageRef page = this->doc->getPage(i);
+            for (Layer* layer: page->getLayers()) {
                 if (layer->getAudience() == LayerAudience::Answers && layer->isVisible() != revealed) {
                     layer->setVisible(revealed);
                     pageChanged = true;
                     ++changedLayers;
+                }
+            }
+            // Hiding is lesson-wide, so the pen must leave hidden answers on every page, not only the current one.
+            // The current page is moved below through the layer controller so the layer menu follows.
+            const bool currentPageHandledLater = i == current && this->win;
+            if (!revealed && !currentPageHandledLater && page->getLayerCount() > 0 &&
+                page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
+                if (auto id = utn::writableLayerIdAfterHide(page->getLayers())) {
+                    page->setSelectedLayerId(*id);
                 }
             }
             if (pageChanged) {
@@ -689,13 +699,9 @@ size_t Control::setAnswersRevealed(bool revealed, bool allPages) {
     // Never leave the teacher writing on a layer that has just been hidden
     if (!revealed && this->win) {
         PageRef page = getCurrentPage();
-        if (page && page->getSelectedLayer() && page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
-            const auto& layers = page->getLayers();
-            for (size_t i = layers.size(); i > 0; --i) {
-                if (layers.at(i - 1)->getAudience() != LayerAudience::Answers) {
-                    this->layerController->switchToLay(i);  // layer ids count from 1 (0 = background)
-                    break;
-                }
+        if (page && page->getLayerCount() > 0 && page->getSelectedLayer()->getAudience() == LayerAudience::Answers) {
+            if (auto id = utn::writableLayerIdAfterHide(page->getLayers())) {
+                this->layerController->switchToLay(*id);
             }
         }
     }
@@ -718,11 +724,14 @@ void Control::startAnswersLayer() {
     this->layerController->addNewLayer(false);
 
     // Set the audience and a collision-free name together, before notifying the UI.
-    // Do not call LayerController's naming helpers while holding the document mutex:
-    // those helpers acquire their own shared/unique locks.
+    // Do not call Control::getCurrentPage() or LayerController's naming helpers while
+    // holding the document mutex: those helpers acquire another lock on the same
+    // non-recursive document mutex and caused Start Answers Layer to crash/deadlock.
     {
         std::unique_lock lock(*this->doc);
-        PageRef page = getCurrentPage();
+        // The document is already exclusively locked. Read the current page
+        // directly rather than reacquiring a shared lock through getCurrentPage().
+        PageRef page = this->doc->getPage(getCurrentPageNo());
         if (!page || !page->getSelectedLayer()) {
             return;
         }
@@ -1227,7 +1236,14 @@ void Control::setViewPairedPages(bool enabled) {
 
 void Control::setViewFullscreenMode(bool enabled) {
     if (enabled) {
+        // Full screen is for more room: it must not reopen a sidebar the teacher has closed
+        const bool sidebarClosed = !settings->getViewModes().at(VIEW_MODE_DEFAULT).showSidebar;
         this->loadViewMode(VIEW_MODE_FULLSCREEN);
+        if (sidebarClosed && settings->isSidebarVisible()) {
+            settings->setSidebarVisible(false);
+            win->setSidebarVisible(false);
+            actionDB->setActionState(Action::SHOW_SIDEBAR, false);
+        }
     } else {
         this->loadViewMode(VIEW_MODE_DEFAULT);
     }
