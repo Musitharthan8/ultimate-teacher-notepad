@@ -45,6 +45,17 @@ void showAcceleratorInTooltip(GtkWidget* button);
 void syncToggle(GtkToggleButton* toggle, bool active);
 bool isSyncing(GtkWidget* widget);
 
+/// Small line drawings for the properties panel. They use the button's own text colour, so they follow the light,
+/// dark and High Contrast themes and a selected button's colour.
+enum class Glyph { Freehand, Rectangle, Ellipse, Line, Arrow, SmartShape, Weight };
+
+/**
+ * A decorative drawing of @p glyph. For Glyph::Weight, @p weight is the stroke thickness in pixels, so a size button
+ * shows how heavy that size writes. Not read by screen readers: the button that holds it carries the name.
+ * Returns: (transfer floating)
+ */
+GtkWidget* createGlyph(Glyph glyph, double weight = 0.0);
+
 /// A round colour swatch button for @p colour, named for screen readers
 GtkWidget* createColourSwatch(Color colour, const char* name);
 void setSwatchSelected(GtkWidget* swatch, bool selected);

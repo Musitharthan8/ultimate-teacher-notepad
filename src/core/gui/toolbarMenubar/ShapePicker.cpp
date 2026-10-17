@@ -20,6 +20,23 @@ namespace {
 constexpr const char* TYPE_KEY = "utn-drawing-type";
 constexpr const char* CHOSEN_KEY = "utn-shape-chosen";
 constexpr const char* DATA_KEY = "utn-shape-data";
+
+Glyph glyphFor(DrawingType type) {
+    switch (type) {
+        case DRAWING_TYPE_RECTANGLE:
+            return Glyph::Rectangle;
+        case DRAWING_TYPE_ELLIPSE:
+            return Glyph::Ellipse;
+        case DRAWING_TYPE_LINE:
+            return Glyph::Line;
+        case DRAWING_TYPE_ARROW:
+            return Glyph::Arrow;
+        case DRAWING_TYPE_SHAPE_RECOGNIZER:
+            return Glyph::SmartShape;
+        default:
+            return Glyph::Freehand;
+    }
+}
 }  // namespace
 
 DrawingType shapePickerButtonType(GtkWidget* button) {
@@ -37,9 +54,15 @@ GtkWidget* createShapePicker(DrawingType current, ShapeChosen chosen, gpointer d
     GtkWidget* first = nullptr;
     GtkWidget* active = nullptr;
     for (const auto& choice: SHAPE_CHOICES) {
-        GtkWidget* button = first ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first), _(choice.label))
-                                  : gtk_radio_button_new_with_label(nullptr, _(choice.label));
+        GtkWidget* button = first ? gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(first)) :
+                                    gtk_radio_button_new(nullptr);
         first = first ? first : button;
+        // Drawing above the name: a shape is recognised faster than read, and the name stays for clarity
+        GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        gtk_box_append(GTK_BOX(content), utn::createGlyph(glyphFor(choice.type)));
+        gtk_box_append(GTK_BOX(content), gtk_label_new(_(choice.label)));
+        gtk_widget_show_all(content);
+        gtk_button_set_child(GTK_BUTTON(button), content);
         gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
         gtk_widget_add_css_class(button, "utn-shape-mode");
         gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it

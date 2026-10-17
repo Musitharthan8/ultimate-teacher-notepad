@@ -66,14 +66,15 @@ struct SizeEntry {
     const char* label;  ///< shown on the button
     const char* name;   ///< untranslated, for tooltips and screen readers
     ToolSize size;
+    double preview;  ///< stroke thickness in pixels of the line drawn on the button; steps, not true pen widths
 };
 
 constexpr std::array<SizeEntry, 5> SIZES{{
-        {"XS", N_("Extra fine"), TOOL_SIZE_VERY_FINE},
-        {"S", N_("Fine"), TOOL_SIZE_FINE},
-        {"M", N_("Medium"), TOOL_SIZE_MEDIUM},
-        {"L", N_("Thick"), TOOL_SIZE_THICK},
-        {"XL", N_("Extra thick"), TOOL_SIZE_VERY_THICK},
+        {"XS", N_("Extra fine"), TOOL_SIZE_VERY_FINE, 1.0},
+        {"S", N_("Fine"), TOOL_SIZE_FINE, 2.0},
+        {"M", N_("Medium"), TOOL_SIZE_MEDIUM, 3.5},
+        {"L", N_("Thick"), TOOL_SIZE_THICK, 5.5},
+        {"XL", N_("Extra thick"), TOOL_SIZE_VERY_THICK, 8.0},
 }};
 
 bool sameHue(Color a, Color b) { return a.red == b.red && a.green == b.green && a.blue == b.blue; }
@@ -577,10 +578,15 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
     int index = 0;
     for (const auto& entry: SIZES) {
         // Radio buttons show the current size; a selection may mix sizes, so it gets plain buttons
-        GtkWidget* button = forSelection ? gtk_button_new_with_label(entry.label) :
-                            first        ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(first),
-                                                                                       entry.label) :
-                                           gtk_radio_button_new_with_label(nullptr, entry.label);
+        GtkWidget* button = forSelection ? gtk_button_new() :
+                            first        ? gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(first)) :
+                                           gtk_radio_button_new(nullptr);
+        // The line shows how heavy this size writes; the letter keeps it readable at a glance
+        GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+        gtk_box_append(GTK_BOX(content), utn::createGlyph(utn::Glyph::Weight, entry.preview));
+        gtk_box_append(GTK_BOX(content), gtk_label_new(entry.label));
+        gtk_widget_show_all(content);
+        gtk_button_set_child(GTK_BUTTON(button), content);
         if (!forSelection) {
             first = first ? first : button;
             gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
