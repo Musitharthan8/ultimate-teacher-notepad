@@ -170,12 +170,28 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <child>
-                  <object class="GtkToolbar" id="tbLeft1">
-                    <property name="name">tbLeft1</property>
+                  <!-- UTN: the tool rail scrolls when the window is too short for every tool (a 1366x768 laptop). Without
+                       this the toolbar's overflow arrow hid Eraser, Text and Answer Box behind a menu. -->
+                  <object class="GtkScrolledWindow" id="tbLeft1Scroller">
+                    <property name="name">tbLeft1Scroller</property>
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="orientation">vertical</property>
-                    <property name="toolbar-style">icons</property>
+                    <property name="hscrollbar-policy">never</property>
+                    <property name="vscrollbar-policy">automatic</property>
+                    <property name="shadow-type">none</property>
+                    <property name="overlay-scrolling">False</property>
+                    <property name="propagate-natural-width">True</property>
+                    <property name="min-content-height">120</property>
+                    <child>
+                      <object class="GtkToolbar" id="tbLeft1">
+                        <property name="name">tbLeft1</property>
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="orientation">vertical</property>
+                        <property name="toolbar-style">icons</property>
+                        <property name="show-arrow">False</property>
+                      </object>
+                    </child>
                   </object>
                   <packing>
                     <property name="expand">False</property>

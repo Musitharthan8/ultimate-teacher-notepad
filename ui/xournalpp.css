@@ -824,3 +824,12 @@ window.utnShell.utnHighContrast #utnContextBar button.destructive-action:disable
     color: #8a8a8a;
     border: 1px dashed #8a8a8a;
 }
+
+/* The tool rail scrolls on short windows; keep the scrollbar slim and the rail colour continuous behind it. */
+window.utnShell #tbLeft1Scroller viewport {
+    background-color: transparent;
+}
+window.utnShell #tbLeft1Scroller scrollbar,
+window.utnShell #tbLeft1Scroller scrollbar slider {
+    min-width: 6px;
+}
