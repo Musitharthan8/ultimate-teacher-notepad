@@ -12,6 +12,53 @@
 #include "Inertia.h"                // for Inertia
 #include "ShapeRecognizerConfig.h"  // for RDEBUG, CIRCLE_MAX_SCORE, CIRCLE_...
 
+namespace {
+// Isotropic inertia and a small radial error also describe a square. Compare
+// against a square outline before accepting the circle fallback: polygon
+// segmentation may have declined a perfectly recognizable rough box.
+bool fitsSquareBetter(const Stroke& stroke, const Inertia& inertia) {
+    struct Sample {
+        double x, y, weight;
+    };
+    std::vector<Sample> samples;
+    const auto& points = stroke.getPointVector();
+    double circleError = 0;
+    for (size_t i = 1; i < points.size(); ++i) {
+        const auto& p = points[i - 1];
+        const double weight = hypot(points[i].x - p.x, points[i].y - p.y);
+        const double x = p.x - inertia.centerX(), y = p.y - inertia.centerY();
+        samples.push_back({x, y, weight});
+        // Compare raw geometric residuals, without the small-circle jitter allowance.
+        circleError += weight * std::abs(hypot(x, y) - inertia.rad());
+    }
+
+    // A square repeats every quarter turn. A 2.5 degree search also covers
+    // slanted boxes without depending on where sampling started on the outline.
+    for (int angle = 0; angle < 36; ++angle) {
+        const double theta = angle * M_PI / 72;
+        const double c = cos(theta), s = sin(theta);
+        auto distance = [c, s](const Sample& p) {
+            return std::max(std::abs(c * p.x + s * p.y), std::abs(-s * p.x + c * p.y));
+        };
+        double halfSide = 0;
+        for (const auto& p: samples) {
+            halfSide += p.weight * distance(p);
+        }
+        halfSide /= inertia.getMass();
+        double squareError = 0;
+        for (const auto& p: samples) {
+            squareError += p.weight * std::abs(distance(p) - halfSide);
+        }
+        // Require strong evidence for straight sides, so jittery circular loops
+        // keep the existing circle tolerance. Both errors are length weighted.
+        if (squareError < 0.5 * circleError) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
 /**
  * Create circle stroke for inertia
  */
@@ -74,7 +121,7 @@ auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
     if (s.det() > CIRCLE_MIN_DET) {
         double score = CircleRecognizer::scoreCircle(stroke, s);
         RDEBUG("Circle score: %.2f", score);
-        if (score < CIRCLE_MAX_SCORE) {
+        if (score < CIRCLE_MAX_SCORE && !fitsSquareBetter(*stroke, s)) {
             return CircleRecognizer::makeCircleShape(stroke, s);
         }
     }

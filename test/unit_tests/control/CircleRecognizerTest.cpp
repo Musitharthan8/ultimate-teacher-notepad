@@ -17,6 +17,10 @@
 #include "control/shaperecognizer/ShapeRecognizer.h"
 #include "model/Point.h"
 #include "model/Stroke.h"
+#include "model/Document.h"
+#include "model/Layer.h"
+#include "model/XojPage.h"
+#include "undo/DeleteUndoAction.h"
 
 namespace {
 // Deterministic jitter, so the outcome does not depend on a random seed. Points are spaced about 3 units apart,
@@ -158,10 +162,8 @@ TEST(CircleRecognizer, smallEllipseIsNotReportedAsCircle) {
     EXPECT_FALSE(pipelineGivesCircle(*stroke));
 }
 
-// KNOWN DEFECT, disabled: see roughSmallSquareIsNotCircleInPipeline below. Squares score 0.093 to 0.105 at every
-// size, so the 0.10 circle threshold decides by sampling density. A 60-unit square with 8 samples per side is taken
-// for a circle. Enable this test with the fix.
-TEST(CircleRecognizer, DISABLED_largeImperfectSquareIsNotCircleInPipeline) {
+// Square radial scores overlap the circle threshold, regardless of size.
+TEST(CircleRecognizer, largeImperfectSquareIsNotCircleInPipeline) {
     auto stroke = jitteredSquare(60.0, 2.0);
     EXPECT_FALSE(pipelineGivesCircle(*stroke));
 }
@@ -178,11 +180,64 @@ TEST(CircleRecognizer, nearlyStraightLineStaysLineInPipeline) {
     EXPECT_EQ(result->getPointCount(), 2U);
 }
 
-// KNOWN DEFECT, disabled so CI stays green until the owner decides on the fix. A rough 18-unit square
-// (jitter amplitude 0.5) scores about 0.09 against the circle threshold of 0.10 and is handed to the circle
-// recognizer. Small circles and small squares overlap in score, so this needs a corner-based discriminator,
-// not a threshold change. Enable this test with the fix.
-TEST(CircleRecognizer, DISABLED_roughSmallSquareIsNotCircleInPipeline) {
+TEST(CircleRecognizer, roughSmallSquareIsNotCircleInPipeline) {
     auto stroke = jitteredSquare(18.0, 0.5);
     EXPECT_FALSE(pipelineGivesCircle(*stroke));
+}
+
+TEST(CircleRecognizer, rotatedRoughSquaresAreRejectedDirectly) {
+    for (double side: {18.0, 60.0, 120.0}) {
+        for (double angle: {0.0, 0.23, M_PI / 4}) {
+            auto source = jitteredSquare(side, side / 36.0);
+            Stroke rotated;
+            for (const auto& p: source->getPointVector()) {
+                const double x = p.x - 100, y = p.y - 100;
+                rotated.addPoint(Point(100 + x * std::cos(angle) - y * std::sin(angle),
+                                       100 + x * std::sin(angle) + y * std::cos(angle)));
+            }
+            EXPECT_EQ(CircleRecognizer::recognize(&rotated), nullptr) << "side=" << side << ", angle=" << angle;
+        }
+    }
+}
+
+// Exercise the geometry used by selection operations and the real delete undo action.
+// GUI handle hit testing and Move/ScaleUndoAction dispatch require a separate UI smoke test.
+TEST(CircleRecognizer, recognizedShapeSurvivesMoveResizeAndDeleteUndo) {
+    auto input = jitteredCircle(9.0, 1.5);
+    ShapeRecognizer recognizer;
+    auto shape = recognizer.recognizePatterns(input.get(), 0.0);
+    ASSERT_NE(shape, nullptr);
+    const auto original = shape->getPointVector();
+    shape->move(27, -13);
+    for (size_t i = 0; i < original.size(); ++i) {
+        EXPECT_NEAR(shape->getPoint(i).x, original[i].x + 27, 1e-9);
+        EXPECT_NEAR(shape->getPoint(i).y, original[i].y - 13, 1e-9);
+    }
+    shape->scale(100, 100, 2, 0.5, 0, true);
+    for (size_t i = 0; i < original.size(); ++i) {
+        EXPECT_NEAR(shape->getPoint(i).x, 100 + 2 * (original[i].x + 27 - 100), 1e-9);
+        EXPECT_NEAR(shape->getPoint(i).y, 100 + 0.5 * (original[i].y - 13 - 100), 1e-9);
+    }
+    shape->scale(100, 100, 0.5, 2, 0, true);
+    shape->move(-27, 13);
+    for (size_t i = 0; i < original.size(); ++i) {
+        EXPECT_NEAR(shape->getPoint(i).x, original[i].x, 1e-9);
+        EXPECT_NEAR(shape->getPoint(i).y, original[i].y, 1e-9);
+    }
+    auto page = std::make_shared<XojPage>(200, 200);
+    auto* layer = page->getSelectedLayer();
+    auto* identity = shape.get();
+    layer->addElement(std::move(shape));
+    Document document(nullptr);
+    DeleteUndoAction deletion(page, false, &document);
+    auto removed = layer->removeElement(identity);
+    deletion.addElement(layer, std::move(removed.e), removed.pos);
+    EXPECT_TRUE(layer->getElements().empty());
+    ASSERT_TRUE(deletion.undo(nullptr));
+    ASSERT_EQ(layer->getElements().size(), 1U);
+    EXPECT_EQ(layer->getElements()[0].get(), identity);
+    ASSERT_TRUE(deletion.redo(nullptr));
+    EXPECT_TRUE(layer->getElements().empty());
+    ASSERT_TRUE(deletion.undo(nullptr));
+    EXPECT_EQ(layer->getElements()[0].get(), identity);
 }
