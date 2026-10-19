@@ -55,15 +55,17 @@ bool inkMayIntersect(const Stroke& s, const xoj::util::Rectangle<double>& rect) 
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
 
-// Same conservative per-segment reach as circleHitsStroke, without rebuilding a
-// potentially thousands-of-points knot vector at every pointer sample.
+// Match StrokeViewHelper/StrokeContour: pressure is the width of the outgoing
+// segment, and the final point's pressure is unused. Highlighters render at the
+// fallback width. Avoid rebuilding a knot vector at every pointer sample.
 bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
     const auto& points = stroke.getPointVector();
     if (points.empty()) {
         return false;
     }
-    auto halfWidth = [&stroke](const Point& p) {
-        return 0.5 * (p.z == Point::NO_PRESSURE ? stroke.getWidth() : p.z);
+    const bool usePressure = stroke.hasPressure() && stroke.getToolType() != StrokeTool::HIGHLIGHTER;
+    auto halfWidth = [&stroke, usePressure](const Point& p) {
+        return 0.5 * (!usePressure || p.z == Point::NO_PRESSURE ? stroke.getWidth() : p.z);
     };
     if (points.size() == 1) {
         const Point& p = points.front();
@@ -72,7 +74,7 @@ bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, doubl
     for (size_t i = 1; i < points.size(); ++i) {
         const Point& a = points[i - 1];
         const Point& b = points[i];
-        const double reach = radius + std::max(halfWidth(a), halfWidth(b));
+        const double reach = radius + halfWidth(a);
         if (utn::eraser::distancePointSegment(centre, {a.x, a.y}, {b.x, b.y}) <= reach) {
             return true;
         }

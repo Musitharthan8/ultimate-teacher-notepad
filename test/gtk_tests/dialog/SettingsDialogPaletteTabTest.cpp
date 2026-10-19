@@ -60,7 +60,9 @@ class RenderedPaletteTabTest: public GtkTest {
         const std::vector<fs::path> paletteDirectories{palettePath.parent_path()};
         SettingsDialogPaletteTab paletteTab{&gladeSearchPath, paletteDirectories};
         paletteTab.renderPaletteTab(palettePath);
-        EXPECT_EQ(palettePath.u8string(), paletteTab.getSelectedPalette().value().u8string());
+        // Directory iteration may return native separators on Windows even when
+        // the configured fixture path uses '/'. Compare normalized paths, not spelling.
+        EXPECT_EQ(palettePath.lexically_normal(), paletteTab.getSelectedPalette().value().lexically_normal());
     }
 };
 TEST_F(RenderedPaletteTabTest, renderedPaletteTabShouldNotChangeSelectedColorPalette) {}

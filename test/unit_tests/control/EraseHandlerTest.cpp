@@ -33,6 +33,7 @@
 #include "util/Color.h"
 #include "util/Matrix.h"
 #include "view/TextView.h"
+#include "view/StrokeView.h"
 #include "view/View.h"
 #include "filesystem.h"
 
@@ -355,6 +356,102 @@ TEST(EraseHandler, wholeStrokeModeAccountsForStylusPressure) {
     eraser.finalize();
     EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
     EXPECT_TRUE(undo.canUndo());
+}
+
+TEST(EraseHandler, wholeStrokeUsesRenderedSegmentWidths) {
+    // Pressure belongs to the outgoing segment, as in StrokeViewHelper and StrokeContour.
+    // A neighbour's pressure and the unused final pressure must not enlarge the thin ink.
+    for (bool reverseWidth: {false, true}) {
+        for (StrokeTool tool: {StrokeTool::PEN, StrokeTool::HIGHLIGHTER}) {
+            SCOPED_TRACE(static_cast<int>(tool));
+            SCOPED_TRACE(reverseWidth);
+            auto page = std::make_shared<XojPage>(250, 250);
+            auto stroke = std::make_unique<Stroke>();
+            stroke->setToolType(tool);
+            stroke->setWidth(2);
+            stroke->addPoint(Point(20, 100, reverseWidth ? 20 : 2));
+            stroke->addPoint(Point(120, 100, reverseWidth ? 2 : 20));
+            stroke->addPoint(Point(220, 100, 80)); // Final pressure never draws a segment.
+            Stroke* original = stroke.get();
+            page->getSelectedLayer()->addElement(std::move(stroke));
+
+            Document document(nullptr);
+            UndoRedoHandler undo(nullptr);
+            ToolHandler tools(nullptr, nullptr, nullptr);
+            tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+            tools.setEraserThickness(1);
+            tools.selectTool(TOOL_ERASER);
+            EraseTestView view;
+            EraseHandler eraser(&undo, &document, page, &tools, &view);
+            // Far from the join and beyond the thin segment's radius 1 plus eraser radius 1.
+            const double thinX = reverseWidth ? 180 : 60;
+            // Verify the real screen renderer also leaves this near-miss pixel empty.
+            auto* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, 250, 250);
+            auto* cr = cairo_create(surface);
+            xoj::view::StrokeView strokeView(original);
+            strokeView.draw(xoj::view::Context::createDefault(cr));
+            cairo_surface_flush(surface);
+            const auto* pixel = cairo_image_surface_get_data(surface) +
+                                108 * cairo_image_surface_get_stride(surface) + static_cast<int>(thinX);
+            EXPECT_EQ(pixel[0], 0);
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+
+            eraser.erase(thinX, 108);
+            eraser.finalize();
+            ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+            EXPECT_EQ(page->getSelectedLayer()->getElements().front().get(), original);
+            EXPECT_FALSE(undo.canUndo());
+
+            // The terminal width must not enlarge the final segment either.
+            eraser.erase(210, 130);
+            eraser.finalize();
+            ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+            EXPECT_FALSE(undo.canUndo());
+
+            // A real hit remains undoable and redoable (highlighter ink uses width 2).
+            const double thickX = reverseWidth ? 60 : 180;
+            eraser.erase(thickX, tool == StrokeTool::PEN ? 108 : 100);
+            eraser.finalize();
+            EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+            ASSERT_TRUE(undo.canUndo());
+            undo.undo();
+            ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+            EXPECT_EQ(page->getSelectedLayer()->getElements().front().get(), original);
+            undo.redo();
+            EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+        }
+    }
+}
+
+TEST(EraseHandler, wholeStrokePreservesDotWidthAndUnpressuredFallback) {
+    for (bool dot: {false, true}) {
+        SCOPED_TRACE(dot);
+        auto page = std::make_shared<XojPage>(200, 200);
+        auto stroke = std::make_unique<Stroke>();
+        stroke->setToolType(StrokeTool::PEN);
+        stroke->setWidth(2);
+        stroke->addPoint(Point(50, 100, dot ? 2 : Point::NO_PRESSURE));
+        stroke->addPoint(Point(dot ? 50 : 150, 100, 80));
+        page->getSelectedLayer()->addElement(std::move(stroke));
+        Document document(nullptr);
+        UndoRedoHandler undo(nullptr);
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.setEraserType(ERASER_TYPE_DELETE_STROKE);
+        tools.setEraserThickness(1);
+        tools.selectTool(TOOL_ERASER);
+        EraseTestView view;
+        EraseHandler eraser(&undo, &document, page, &tools, &view);
+        eraser.erase(50, 108);
+        eraser.finalize();
+        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+        EXPECT_FALSE(undo.canUndo());
+        // Tangency still counts, including the coincident-point round dot.
+        eraser.erase(50, 102);
+        eraser.finalize();
+        EXPECT_TRUE(page->getSelectedLayer()->getElements().empty());
+        EXPECT_TRUE(undo.canUndo());
+    }
 }
 
 TEST(EraseHandler, partialErasePrefilterIncludesExpandedSweepSamples) {
