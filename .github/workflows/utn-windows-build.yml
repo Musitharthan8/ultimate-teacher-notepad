@@ -20,6 +20,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2022
+    timeout-minutes: 60
     name: Build UTN on Windows x86_64
 
     steps:
@@ -58,6 +59,34 @@ jobs:
         shell: pwsh
         run: ./scripts/check-m1-test-results.ps1 -Reports build/unit-tests.xml,build/gtk-tests.xml
 
+      - name: Package standalone Windows test build
+        shell: msys2 {0}
+        run: bash windows-setup/package-utn.sh build --portable-only
+
+      - name: Validate extracted portable build without MSYS2
+        shell: pwsh
+        run: ./scripts/test-utn-portable.ps1 -PackageDirectory build/utn-release -ExpectedCommit '${{ github.sha }}'
+
+      - name: Upload validated Windows test build
+        id: portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: UTN-Windows-x64-test-${{ github.sha }}
+          path: build/utn-release/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Link downloadable test build
+        shell: pwsh
+        run: |
+          @'
+          ## Windows test build
+          [Download portable ZIP and checksums](${{ steps.portable.outputs.artifact-url }})
+          Extract the artifact, then extract the Portable.zip inside it. Run bin/UTN.exe.
+          No MSYS2 installation is required. This is an unsigned Debug test build, not a published release.
+          '@ | Add-Content $env:GITHUB_STEP_SUMMARY
+
       - name: Preserve reliability evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -66,6 +95,7 @@ jobs:
           path: |
             build/*-tests.xml
             build/*-tests.log
+            build/utn-release/portable-smoke.log
           if-no-files-found: warn
 
       - name: Report failing unit tests

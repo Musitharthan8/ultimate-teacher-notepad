@@ -1,5 +1,24 @@
 # Kami versus UTN feature matrix
 
+## M1 delivery status — 20 October 2026
+
+This table supersedes the historical implementation gaps below. Friday 23 October is the release target, not a claim of readiness. The previous workstation passed 312 unit and 29 GTK tests; the home PC has no native toolchain. CI runs `39282449185` and `39282448998` were still queued when inspected; no new C++ results are available from them.
+
+| Area | Implemented / confirmed | Remaining gate or missing feature |
+|---|---|---|
+| Windows test build | Feature CI now packages a portable ZIP, samples and SHA256 manifest after units/GTK; extracted ZIP smoke checks launcher, exports and GUI message loop with system-only PATH | Artifact generation and download pending runner execution; unsigned Debug build, not final Release installer |
+| Eraser precision | Swept circular subtraction, thick-ink preservation, mask persistence and history regressions committed | Physical stylus latency, zoom/transforms and smallest-size precision unverified; dashed/fill/non-round hit approximations remain |
+| Shapes | Both formerly disabled square regressions enabled; rotation/size and lifecycle cases committed | Native move/resize/delete/history workflow unverified |
+| Answer Layers | Hidden-on-load audience metadata, writable-layer routing and repeated render/save/reload checks | Repeated live Control activation/edit/save/page navigation unverified |
+| Student View | Audience filtering, freeze/blank and windowless input overlay implemented | Actual second monitor, DPI, hotplug and timer lifecycle unverified; Freeze retains the earlier frame intentionally |
+| Document editing | Text stacking fix and save/reload regression coverage committed | IME/RTL/popover focus and mixed-object GUI workflow unverified; paragraph-aware list conversion remains missing |
+| PDF export | Production pixel regression retained; SOURCE/OVER comparison configured | Comparison pending; do not claim ruling loss. Ordinary exports are not universally student-filtered |
+| Packaging blocker | Removed unconditional QPDF DLL copy; dependency walker includes it when linked | End-to-end portable run pending; signing, installer upgrade/uninstall and memory checks remain release gates |
+
+Download instructions once CI succeeds: open the matching **UTN Windows Build** run, download `UTN-Windows-x64-test-<commit>`, extract the artifact and its inner Portable ZIP, then run `bin/UTN.exe`. Confirm `SOURCE-COMMIT.txt` matches the intended commit. No local MSYS2 installation is required. Test copies of the included samples before classroom documents.
+
+## Historical comparison
+
 2026-10-19. Kami evidence IDs and limitations are expanded in [kami-findings.md](kami-findings.md); source pointers and validation limits in [utn-current-state.md](utn-current-state.md). “Offered” means a control was inventoried, not that its functionality worked. Unknown Kami behavior is never counted as a UTN gap. Priorities are UTN classroom priorities, not feature parity scores. No demonstrated P0 issue was established by this audit.
 
 | Feature | Kami evidence | UTN implementation | Gap / action | Priority |

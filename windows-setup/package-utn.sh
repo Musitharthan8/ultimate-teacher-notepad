@@ -37,7 +37,7 @@ cp "$prefix/bin/gspawn-win64-helper.exe" "$setup_dir/bin/"
 cp "$prefix/bin/gspawn-win64-helper-console.exe" "$setup_dir/bin/"
 cp "$prefix/bin/gdbus.exe" "$setup_dir/bin/"
 cp "$prefix/bin/libgirepository-"*.dll "$setup_dir/bin/"
-cp "$prefix/bin/libqpdf"*.dll "$setup_dir/bin/"
+# QPDF is optional; linked DLLs are collected by the import walk below.
 
 # Walk imports for executables and dynamically loaded modules. Fail on unresolved imports.
 declare -A visited
@@ -82,13 +82,18 @@ FONTS
 cp "$script_dir/../LICENSE" "$setup_dir/LICENSE.txt"
 cp "$script_dir/../AUTHORS" "$setup_dir/Xournalpp-AUTHORS.txt"
 cat > "$setup_dir/README.txt" <<'README'
-Ultimate Teacher Notepad 0.2.1 beta for Windows x64 (interface recovery build)
+Ultimate Teacher Notepad 0.2.1 beta for Windows x64 (M1 reliability test build)
 Run bin/UTN.exe. No MSYS2 installation is required.
 This is a teacher test build, not a certified Microsoft Store release.
 Based on Xournal++; GNU GPLv2 or later. See LICENSE.txt and Xournalpp-AUTHORS.txt.
 Source and build instructions: https://github.com/Musitharthan8/ultimate-teacher-notepad
 Keep scan background attachments beside their .xopp journals.
+Open samples/lesson-roundtrip.xopp and samples/m1-erased-stroke.xopp for testing.
+Check SOURCE-COMMIT.txt to identify the exact source revision.
 README
+mkdir -p "$setup_dir/samples"
+cp "$script_dir/../test/files/utn/lesson-roundtrip.xopp" "$setup_dir/samples/"
+cp "$script_dir/../test/files/utn/m1-erased-stroke.xopp" "$setup_dir/samples/"
 pacman -Q > "$setup_dir/DEPENDENCIES.txt"
 printf '%s\n' "$version" > "$setup_dir/UTN-VERSION.txt"
 source_commit=${GITHUB_SHA:-$(git -C "$script_dir/.." rev-parse HEAD)}
