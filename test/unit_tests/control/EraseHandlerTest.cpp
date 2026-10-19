@@ -203,11 +203,6 @@ TEST(EraseHandler, wholeStrokeModeDeletesStrokeInsideDisc) {
 }
 
 namespace {
-/// Distance from q to the segment (x0,y0)-(x1,y1), using the same primitive as the eraser
-double distanceToPath(const Point& q, double x0, double y0, double x1, double y1) {
-    return utn::eraser::distancePointSegment({q.x, q.y}, {x0, y0}, {x1, y1});
-}
-
 /// All centreline points of the strokes left on the selected layer
 std::vector<Point> remainingPoints(const PageRef& page) {
     std::vector<Point> pts;
@@ -219,6 +214,23 @@ std::vector<Point> remainingPoints(const PageRef& page) {
         }
     }
     return pts;
+}
+
+std::vector<unsigned char> renderedInk(const PageRef& page) {
+    constexpr int size = 800;
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, size, size);
+    auto* cr = cairo_create(surface);
+    cairo_scale(cr, 2, 2);
+    for (const auto& e: page->getSelectedLayer()->getElements())
+        if (e->getType() == ELEMENT_STROKE)
+            xoj::view::StrokeView(static_cast<const Stroke*>(e.get())).draw(xoj::view::Context::createDefault(cr));
+    cairo_surface_flush(surface);
+    std::vector<unsigned char> result(size * size);
+    const auto* data = cairo_image_surface_get_data(surface);
+    for (int y = 0; y < size; ++y) std::copy_n(data + y * cairo_image_surface_get_stride(surface), size, result.data() + y * size);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return result;
 }
 
 /// Erase along the horizontal path y = 100, x from 0 to 200, with a single fast pointer jump (the sweep fills in)
@@ -255,8 +267,7 @@ TEST(EraseHandler, partialEraseIsCircularNotSquare) {
     EXPECT_FALSE(undo.canUndo());
 }
 
-// A vertical stroke crossing the sweep is cut exactly where its ink reaches the disc: |y - 100| = R + h.
-// Checked for several pen widths, so the cut respects the thickness of the ink.
+// A sweep removes painted ink only inside radius R, for several pen widths.
 TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
     for (double width: {1.0, 4.0, 10.0}) {
         // ToolHandler clamps the eraser thickness to [0.5, 30]; the radii must stay inside that range
@@ -269,26 +280,18 @@ TEST(EraseHandler, partialEraseCutsAtDiscBoundaryForAnyPenWidth) {
             stroke->addPoint(Point(100, 200));
             page->getSelectedLayer()->addElement(std::move(stroke));
 
+            const auto before = renderedInk(page);
             sweepHorizontalPath(page, radius);
-
-            const double h = 0.5 * width;
-            const double reach = radius + h;
-            ASSERT_GE(page->getSelectedLayer()->getElements().size(), 1U) << "w " << width << " R " << radius;
-            // No ink survives within reach of the path: every remaining point is at least R + h away
-            // Sampling over-erases by less than R / 100 (see EraseHandler::erase), never under-erases
-            const double tol = 0.01 * radius + 0.05;
-            for (const Point& p: remainingPoints(page)) {
-                EXPECT_GE(distanceToPath(p, 0, 100, 200, 100), reach - 1e-6)
-                        << "w " << width << " R " << radius << " point (" << p.x << ", " << p.y << ")";
+            const auto after = renderedInk(page);
+            unsigned lostOutside = 0, remainingInside = 0;
+            for (int y = 0; y < 400; ++y) for (int x = 0; x < 400; ++x) {
+                const double distance = std::abs((y + .5) / 2 - 100);
+                const size_t i = y * 800 + x;
+                if (distance > radius + 1 && std::abs(int(before[i]) - int(after[i])) > 2) ++lostOutside;
+                if (distance < radius - 1 && after[i] != 0) ++remainingInside;
             }
-            // The cut lands at exactly R + h above and below the path (the far ends are left in place)
-            double highestAbove = -1e9, lowestBelow = 1e9;
-            for (const Point& p: remainingPoints(page)) {
-                if (p.y < 100) highestAbove = std::max(highestAbove, p.y);
-                if (p.y > 100) lowestBelow = std::min(lowestBelow, p.y);
-            }
-            EXPECT_NEAR(highestAbove, 100 - reach, tol) << "w " << width << " R " << radius;
-            EXPECT_NEAR(lowestBelow, 100 + reach, tol) << "w " << width << " R " << radius;
+            EXPECT_EQ(lostOutside, 0U) << "w " << width << " R " << radius;
+            EXPECT_EQ(remainingInside, 0U) << "w " << width << " R " << radius;
         }
     }
 }
@@ -326,12 +329,23 @@ TEST(EraseHandler, partialEraseCurvedStrokeRespectsDisc) {
         stroke->addPoint(Point(100 + 60 * std::cos(a), 100 + 60 * std::sin(a)));
     }
     page->getSelectedLayer()->addElement(std::move(stroke));
+    const auto before = renderedInk(page);
     sweepHorizontalPath(page, 10);
-    const double reach = 10 + 1;
-    for (const Point& p: remainingPoints(page)) {
-        EXPECT_GE(distanceToPath(p, 0, 100, 200, 100), reach - 1e-6) << p.x << ", " << p.y;
+    const auto after = renderedInk(page);
+    unsigned lostOutside = 0, remainingInside = 0;
+    for (int y = 0; y < 400; ++y) for (int x = 0; x < 400; ++x) {
+        const double distance = std::abs((y + .5) / 2 - 100);
+        const size_t i = y * 800 + x;
+        if (distance > 11) {
+            // Cairo clips change curved-edge antialias coverage (measured up
+            // to 15/255 here). Visible geometry outside the sweep must remain.
+            if (before[i] >= 32 && after[i] == 0) ++lostOutside;
+        }
+        if (distance < 9 && after[i] != 0) ++remainingInside;
     }
-    EXPECT_FALSE(remainingPoints(page).empty());
+    EXPECT_EQ(lostOutside, 0U);
+    EXPECT_EQ(remainingInside, 0U);
+    EXPECT_NE(before, after);
 }
 
 TEST(EraseHandler, wholeStrokeModeAccountsForStylusPressure) {
@@ -454,7 +468,7 @@ TEST(EraseHandler, wholeStrokePreservesDotWidthAndUnpressuredFallback) {
     }
 }
 
-TEST(EraseHandler, partialErasePrefilterIncludesExpandedSweepSamples) {
+TEST(EraseHandler, partialEraseExactSweepDoesNotReachBeyondTheDisc) {
     auto page = std::make_shared<XojPage>(200, 200);
     auto stroke = std::make_unique<Stroke>();
     stroke->setToolType(StrokeTool::PEN);
@@ -477,7 +491,7 @@ TEST(EraseHandler, partialErasePrefilterIncludesExpandedSweepSamples) {
     EXPECT_FALSE(undo.canUndo());
     eraser.erase(10, 100);
     eraser.finalize();
-    EXPECT_TRUE(undo.canUndo()) << "Expanded sampling radius must also expand candidate prefilter";
+    EXPECT_FALSE(undo.canUndo()) << "The exact capsule must not retain the old sampling overreach";
     EXPECT_GT(page->getSelectedLayer()->getElements().size(), 0U);
 }
 
@@ -496,7 +510,9 @@ TEST(EraseHandler, circularPartialEraseSupportsUndoRedo) {
 
     eraser.erase(120, 100);
     eraser.finalize();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+    const auto erased = renderedInk(page);
+    EXPECT_EQ(erased[200 * 800 + 240], 0);
     ASSERT_TRUE(undo.canUndo());
     EXPECT_FALSE(undo.canRedo());
 
@@ -508,9 +524,11 @@ TEST(EraseHandler, circularPartialEraseSupportsUndoRedo) {
         ASSERT_EQ(original->getPointCount(), 2U);
         EXPECT_DOUBLE_EQ(original->getPointVector().front().x, 20.0);
         EXPECT_DOUBLE_EQ(original->getPointVector().back().x, 220.0);
+        EXPECT_TRUE(original->getErasures().empty());
 
         undo.redo();
-        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+        ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
+        EXPECT_EQ(renderedInk(page), erased);
         ASSERT_TRUE(undo.canUndo());
     }
 }
@@ -557,22 +575,25 @@ TEST(EraseHandler, separateCircularGesturesCreateSeparateUndoSteps) {
 
     eraser.erase(80, 100);
     eraser.finalize();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    const auto first = renderedInk(page);
+    EXPECT_EQ(first[200 * 800 + 160], 0);
+    EXPECT_GT(first[200 * 800 + 320], 0);
 
     eraser.erase(160, 100);
     eraser.finalize();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 3U);
+    const auto second = renderedInk(page);
+    EXPECT_EQ(second[200 * 800 + 320], 0);
 
     undo.undo();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    EXPECT_EQ(renderedInk(page), first);
     undo.undo();
     ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
     ASSERT_FALSE(undo.canUndo());
 
     undo.redo();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    EXPECT_EQ(renderedInk(page), first);
     undo.redo();
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 3U);
+    EXPECT_EQ(renderedInk(page), second);
 }
 
 
@@ -598,7 +619,7 @@ TEST(EraseHandler, partiallyErasedPressureStrokesRoundTripThroughXopp) {
         eraser.erase(120, 100);
         eraser.finalize();
     }
-    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 2U);
+    ASSERT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
 
     // A unique temporary .xopp avoids collisions with the repository's other document tests.
     struct TemporaryXopp {
@@ -621,6 +642,7 @@ TEST(EraseHandler, partiallyErasedPressureStrokesRoundTripThroughXopp) {
     ASSERT_EQ(restored->getPageCount(), 1U);
     auto roundTrippedPage = restored->getPage(0);
     ASSERT_NE(roundTrippedPage, nullptr);
+    EXPECT_EQ(renderedInk(roundTrippedPage), renderedInk(page));
 
     const auto& before = page->getSelectedLayer()->getElements();
     const auto& after = roundTrippedPage->getSelectedLayer()->getElements();
@@ -705,11 +727,12 @@ TEST(EraseHandler, repeatedEraseGesturesSurviveUndoRedoAndSaveReopen) {
         eraser.finalize();
     }
     const auto afterBoth = strokePoints(page);
-    ASSERT_EQ(afterBoth.size(), 2U);
+    ASSERT_EQ(afterBoth.size(), 1U);
+    const auto afterBothInk = renderedInk(page);
 
     // Undo the whole-stroke gesture, then redo it: the state must be the same as before
     undo.undo();
-    EXPECT_EQ(strokePoints(page).size(), 3U);
+    EXPECT_EQ(strokePoints(page).size(), 2U);
     undo.redo();
     EXPECT_EQ(strokePoints(page), afterBoth);
 
@@ -724,6 +747,7 @@ TEST(EraseHandler, repeatedEraseGesturesSurviveUndoRedoAndSaveReopen) {
     auto restored = LoadHandler{}.loadDocument(temporary.path);
     ASSERT_NE(restored, nullptr);
     ASSERT_EQ(restored->getPageCount(), 1U);
+    EXPECT_EQ(renderedInk(restored->getPage(0)), afterBothInk);
     const auto reloaded = strokePoints(restored->getPage(0));
     ASSERT_EQ(reloaded.size(), afterBoth.size());
     for (size_t i = 0; i < reloaded.size(); ++i) {
@@ -1210,7 +1234,7 @@ TEST(EraseHandler, revealMidGestureDoesNotSweepAcrossHiddenSamples) {
         tools.setEraserType(mode);
         tools.selectTool(TOOL_ERASER);
         EraseTestView view;
-        const auto before = remainingPoints(page).size();
+        const auto before = renderedInk(page);
 
         EraseHandler eraser(&undo, &document, page, &tools, &view);
         eraser.erase(50, 150);      // visible: far from the stroke
@@ -1221,7 +1245,7 @@ TEST(EraseHandler, revealMidGestureDoesNotSweepAcrossHiddenSamples) {
         eraser.finalize();
 
         EXPECT_EQ(layer->getElements().size(), 1U) << eraserTypeToString(mode);
-        EXPECT_EQ(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+        EXPECT_EQ(renderedInk(page), before) << eraserTypeToString(mode);
         EXPECT_EQ(view.redraws, 0U) << eraserTypeToString(mode);
     }
 }
@@ -1239,7 +1263,7 @@ TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
         tools.setEraserType(mode);
         tools.selectTool(TOOL_ERASER);
         EraseTestView view;
-        const auto before = remainingPoints(page).size();
+        const auto before = renderedInk(page);
 
         EraseHandler eraser(&undo, &document, page, &tools, &view);
         eraser.erase(50, 150);
@@ -1248,7 +1272,7 @@ TEST(EraseHandler, continuousDragStillErasesCrossedStroke) {
         eraser.finalize();
 
         // Whole-stroke removes the stroke; the partial eraser splits it, which adds points. Either way it changes.
-        EXPECT_NE(remainingPoints(page).size(), before) << eraserTypeToString(mode);
+        EXPECT_NE(renderedInk(page), before) << eraserTypeToString(mode);
     }
 }
 

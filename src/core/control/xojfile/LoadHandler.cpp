@@ -35,6 +35,7 @@
 #include "model/PageType.h"             // for PageType, PageTypeFormat
 #include "model/Point.h"                // for Point
 #include "model/Stroke.h"               // for Stroke, StrokeCapStyle
+#include "model/eraser/MaskedStrokeCodec.h"
 #include "model/TexImage.h"             // for TexImage
 #include "model/Text.h"                 // for Text
 #include "model/XojPage.h"              // for XojPage
@@ -434,6 +435,8 @@ void LoadHandler::setImageData(std::string data) {
     this->image->setImage(std::move(data));
 }
 
+void LoadHandler::setImageStrokeData(std::string data) { imageStrokeData = std::move(data); }
+
 void LoadHandler::setImageAttachment(const fs::path& filename) {
     xoj_assert(this->image);
 
@@ -453,6 +456,7 @@ void LoadHandler::finalizeImage() {
     if (!this->image->hasData()) {
         g_warning("LoadHandler: Ignoring image with no data");
         this->image.reset();
+        imageStrokeData.clear();
         return;
     }
 
@@ -472,7 +476,13 @@ void LoadHandler::finalizeImage() {
         currentElementNaturalSizeLegacy = std::nullopt;
     }
 
-    this->layer->addElement(std::move(this->image));
+    auto decoded = utn::eraser::decodeMaskedStroke(std::exchange(imageStrokeData, {}));
+    if (decoded && utn::eraser::matchesFallbackMatrix(image->getTransformation(), decoded->fallbackMatrix)) {
+        this->layer->addElement(std::move(decoded->stroke));
+        image.reset();
+    } else {
+        this->layer->addElement(std::move(this->image));
+    }
 }
 
 void LoadHandler::addTexImageLegacy(double left, double top, double right, double bottom, std::string text,

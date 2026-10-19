@@ -3,6 +3,10 @@
 #include <cinttypes>   // for PRIx32
 #include <cstdint>     // for uint32_t
 #include <cstdio>      // for sprintf, size_t
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 
 #include <cairo.h>                  // for cairo_surface_t
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_save
@@ -30,6 +34,7 @@
 #include "model/PageType.h"                    // for PageType
 #include "model/Point.h"                       // for Point
 #include "model/Stroke.h"                      // for Stroke, StrokeCapStyle
+#include "model/eraser/MaskedStrokeCodec.h"
 #include "model/StrokeStyle.h"                 // for StrokeStyle
 #include "model/TexImage.h"                    // for TexImage
 #include "model/Text.h"                        // for Text
@@ -53,6 +58,7 @@ SaveHandler::SaveHandler() {
 }
 
 void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
+    errorMessage.clear();
     if (this->root) {
         // cleanup old data
         backgroundImages.clear();
@@ -195,6 +201,36 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
     for (const auto& e: l->getElementsView()) {
         if (e->getType() == ELEMENT_STROKE) {
             auto* s = dynamic_cast<const Stroke*>(e);
+            if (!s->getErasures().empty()) {
+                auto fallback = utn::eraser::rasterizeMaskedStroke(*s);
+                const auto metadata = fallback ? utn::eraser::encodeMaskedStroke(*s, fallback->matrix) : std::string{};
+                if (!fallback) {
+                    errorMessage = "Could not safely save a partially erased stroke.";
+                    continue;
+                }
+                auto* image = new XmlImageNode(TAG_NAMES[TagType::IMAGE]);
+                image->setImage(fallback->surface.get());
+                const auto& m = fallback->matrix;
+                const int width = cairo_image_surface_get_width(fallback->surface.get());
+                const int height = cairo_image_surface_get_height(fallback->surface.get());
+                const auto precise = [](double value) {
+                    std::ostringstream out;
+                    out.imbue(std::locale::classic());
+                    out << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+                    return out.str();
+                };
+                image->setAttrib(xoj::xml_attrs::LEFT_POS_STR, precise(m.shift.x));
+                image->setAttrib(xoj::xml_attrs::TOP_POS_STR, precise(m.shift.y));
+                image->setAttrib(xoj::xml_attrs::RIGHT_POS_STR, precise(m.shift.x + width * m.xx));
+                image->setAttrib(xoj::xml_attrs::BOTTOM_POS_STR, precise(m.shift.y + height * m.yy));
+                image->setAttrib(xoj::xml_attrs::NATURAL_SIZE_STR, std::to_string(width) + " " + std::to_string(height));
+                // Oversized editable metadata must never prevent saving the
+                // lesson. Keep the clipped image when codec limits are exceeded.
+                if (!metadata.empty()) image->setAttrib(u8"utn-stroke-v1", metadata);
+                else g_warning("Saving complex erased stroke as a clipped image (editable metadata limit exceeded)");
+                layer->addChild(image);
+                continue;
+            }
             auto* stroke = new XmlPointNode(TAG_NAMES[TagType::STROKE]);
             layer->addChild(stroke);
             visitStroke(stroke, s);
@@ -432,6 +468,7 @@ void SaveHandler::writeBackgroundName(XmlNode* background, ConstPageRef p) {
 }
 
 void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
+    if (!errorMessage.empty()) return;
     GzOutputStream out(filepath);
 
     if (!out.getLastError().empty()) {
@@ -449,6 +486,7 @@ void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
 }
 
 void SaveHandler::saveTo(OutputStream* out, const fs::path& filepath, ProgressListener* listener) {
+    if (!errorMessage.empty()) return;
     out->write("<?xml version=\"1.0\" standalone=\"no\"?>\n");
     root->writeOut(out, listener);
 

@@ -44,6 +44,7 @@ private:
     void eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range);
     void eraseObject(Layer* l, Element* e, Range& range);
     void removeWholeStroke(Layer* l, Stroke* s, Range& range);
+    void eraseWithMask(Layer* layer, double startX, double startY, double endX, double endY, double radius);
 
 private:
     PageRef page;

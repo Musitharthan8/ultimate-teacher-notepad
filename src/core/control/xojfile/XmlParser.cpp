@@ -527,6 +527,8 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
 void XmlParser::parseTextText(std::string_view text) { this->builder.setTextContents(std::string{text}); }
 
 void XmlParser::parseImageTag(const XmlParserHelper::AttributeMap& attributeMap) {
+    const auto metadata = attributeMap[u8"utn-stroke-v1"];
+    this->builder.setImageStrokeData(metadata ? std::string(*metadata) : std::string{});
     if (const auto matrix = getMatrix(attributeMap); matrix) {
         // File format version >= 5. Single attribute with the transformation matrix
         this->builder.addImage(matrix.value());

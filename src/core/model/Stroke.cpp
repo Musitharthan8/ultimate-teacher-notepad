@@ -104,6 +104,7 @@ auto Stroke::cloneStroke() const -> std::unique_ptr<Stroke> {
     auto s = std::make_unique<Stroke>();
     s->applyStyleFrom(this);
     s->points = this->points;
+    s->erasures = this->erasures;
     s->boundingBox = this->boundingBox;
     s->snappedBounds = this->snappedBounds;
     s->sizeCalculated = this->sizeCalculated;
@@ -183,6 +184,12 @@ void Stroke::serialize(ObjectOutputStream& out) const {
 
     this->lineStyle.serialize(out);
 
+    if (!erasures.empty()) {
+        out.writeObject("UtnStrokeErasuresV1");
+        out.writeData(erasures);
+        out.endObject();
+    }
+
     out.endObject();
 }
 
@@ -202,6 +209,13 @@ void Stroke::readSerialized(ObjectInputStream& in) {
 
     in.readData(this->points);
     this->lineStyle.readSerialized(in);
+
+    erasures.clear();
+    if (in.hasNextObject("UtnStrokeErasuresV1")) {
+        in.readObject("UtnStrokeErasuresV1");
+        in.readData(erasures);
+        in.endObject();
+    }
 
     in.endObject();
 }
@@ -250,7 +264,7 @@ void Stroke::addPoint(const Point& p) {
     if (hasPressure()) {
         updateBoundsLastTwoPressures();
     } else {
-        updateBoundingBox(Element::boundingBox, p, 0.5 * this->width);
+        updateBoundingBox(Element::boundingBox, p, 0.5 * this->width * (capStyle == StrokeCapStyle::SQUARE ? std::sqrt(2.) : 1.));
         updateSnappedBounds(Element::snappedBounds, p);
     }
 }
@@ -312,7 +326,10 @@ void Stroke::setPointVector(std::vector<Point>&& other, const Range* const snapp
 
 void Stroke::freeUnusedPointItems() { this->points = {begin(this->points), end(this->points)}; }
 
-void Stroke::setToolType(StrokeTool type) { this->toolType = type; }
+void Stroke::setToolType(StrokeTool type) {
+    this->toolType = type;
+    this->sizeCalculated = false;
+}
 
 auto Stroke::getToolType() const -> StrokeTool { return this->toolType; }
 
@@ -321,6 +338,7 @@ void Stroke::setLineStyle(const LineStyle& style) { this->lineStyle = style; }
 auto Stroke::getLineStyle() const -> const LineStyle& { return this->lineStyle; }
 
 void Stroke::move(double dx, double dy) {
+    for (auto& erasure: erasures) erasure.transform = xoj::util::Matrix::TRANSLATION(dx, dy) * erasure.transform;
     for (auto&& point: points) {
         point.x += dx;
         point.y += dy;
@@ -338,6 +356,8 @@ void Stroke::rotate(double x0, double y0, double th) {
     auto matrix = xoj::util::Matrix::TRANSLATION(x0, y0);
     matrix = matrix.rotate(th);
     matrix = matrix.translate(-x0, -y0);
+
+    for (auto& erasure: erasures) erasure.transform = matrix * erasure.transform;
 
     for (auto&& p: points) {
         auto coords = matrix * p.getPosition();
@@ -357,6 +377,8 @@ void Stroke::scale(double x0, double y0, double fx, double fy, double rotation, 
     matrix = matrix.rotate(-rotation);
     matrix = matrix.translate(-x0, -y0);
 
+    for (auto& erasure: erasures) erasure.transform = matrix * erasure.transform;
+
     for (auto&& p: points) {
         auto coords = matrix * p.getPosition();
         p.x = coords.x;
@@ -368,6 +390,26 @@ void Stroke::scale(double x0, double y0, double fx, double fy, double rotation, 
     this->width *= fz;
 
     this->sizeCalculated = false;
+}
+
+void Stroke::addErasure(const utn::eraser::StrokeErasure& value) {
+    // Merge contiguous collinear pointer samples, keeping long straight sweeps
+    // compact without changing the swept region or storing zoom-dependent pixels.
+    if (!erasures.empty()) {
+        auto& last = erasures.back();
+        const auto& m = last.transform;
+        const auto& n = value.transform;
+        const bool identity = m.xx == 1 && m.yy == 1 && m.xy == 0 && m.yx == 0 && m.shift.x == 0 && m.shift.y == 0 &&
+                              n.xx == 1 && n.yy == 1 && n.xy == 0 && n.yx == 0 && n.shift.x == 0 && n.shift.y == 0;
+        const double ax = last.end.x - last.start.x, ay = last.end.y - last.start.y;
+        const double bx = value.end.x - value.start.x, by = value.end.y - value.start.y;
+        if (identity && last.radius == value.radius && last.end == value.start &&
+            std::abs(ax * by - ay * bx) <= 1e-12 && ax * bx + ay * by >= 0) {
+            last.end = value.end;
+            return;
+        }
+    }
+    erasures.push_back(value);
 }
 
 auto Stroke::hasPressure() const -> bool {
@@ -393,7 +435,7 @@ void Stroke::updateBoundsLastTwoPressures() {
 
     Point& p = this->points.back();
     Point& p2 = this->points[pointCount - 2];
-    double pressure = p2.z;
+    double pressure = (toolType == StrokeTool::HIGHLIGHTER ? width : p2.z) * (capStyle == StrokeCapStyle::SQUARE ? std::sqrt(2.) : 1.);
 
     updateSnappedBounds(snappedBounds, p);
     updateBoundingBox(boundingBox, p, 0.5 * pressure);
@@ -871,12 +913,13 @@ void Stroke::calcSize() const {
     if (this->points.empty()) {
         Element::boundingBox = Rectangle<double>{};
         Element::snappedBounds = Rectangle<double>{};
+        return;
     }
 
     double minSnapX = std::numeric_limits<double>::max();
-    double maxSnapX = std::numeric_limits<double>::min();
+    double maxSnapX = std::numeric_limits<double>::lowest();
     double minSnapY = std::numeric_limits<double>::max();
-    double maxSnapY = std::numeric_limits<double>::min();
+    double maxSnapY = std::numeric_limits<double>::lowest();
 
     auto halfThick = 0.0;
 
@@ -889,7 +932,9 @@ void Stroke::calcSize() const {
         maxSnapY = std::max(maxSnapY, p.y);
     }
 
-    halfThick = points[0].z != Point::NO_PRESSURE ? halfThick / 2.0 : this->width / 2.0;
+    // Match StrokeView: pressure expands ordinary pen strokes, while highlighters render at fallback width.
+    halfThick = hasPressure() && toolType != StrokeTool::HIGHLIGHTER ? halfThick / 2.0 : this->width / 2.0;
+    if (capStyle == StrokeCapStyle::SQUARE) halfThick *= std::sqrt(2.);
 
     auto minX = minSnapX - halfThick;
     auto minY = minSnapY - halfThick;
@@ -906,7 +951,10 @@ void Stroke::setErasable(ErasableStroke* erasable) { this->erasable = erasable; 
 
 auto Stroke::getStrokeCapStyle() const -> StrokeCapStyle { return this->capStyle; }
 
-void Stroke::setStrokeCapStyle(const StrokeCapStyle capStyle) { this->capStyle = capStyle; }
+void Stroke::setStrokeCapStyle(const StrokeCapStyle capStyle) {
+    this->capStyle = capStyle;
+    sizeCalculated = false;
+}
 
 void Stroke::debugPrint() const {
     g_message("%s", FC(FORMAT_STR("Stroke {1} / hasPressure() = {2}") % (int64_t)this % this->hasPressure()));

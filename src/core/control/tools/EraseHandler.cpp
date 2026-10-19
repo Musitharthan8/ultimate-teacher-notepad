@@ -25,6 +25,7 @@
 #include "undo/UndoRedoHandler.h"         // for UndoRedoHandler
 #include "util/Range.h"                   // for Range
 #include "util/SmallVector.h"             // for SmallVector
+#include "view/StrokeView.h"
 
 namespace {
 /**
@@ -54,11 +55,38 @@ bool inkMayIntersect(const Stroke& s, const xoj::util::Rectangle<double>& rect) 
 
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
+bool alreadyErased(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b, double radius);
+
+bool maskedInkTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
+    if (stroke.getErasures().empty()) return true;
+    // Only masked candidates need this local visibility check. It also handles
+    // holes formed by the union of overlapping, transformed erasures.
+    constexpr int size = 128;
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, size, size);
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(surface); return false; }
+    auto* cr = cairo_create(surface);
+    cairo_scale(cr, size / (2 * radius), size / (2 * radius));
+    cairo_translate(cr, radius - centre.x, radius - centre.y);
+    cairo_arc(cr, centre.x, centre.y, radius, 0, 2 * std::acos(-1.0));
+    cairo_clip(cr);
+    xoj::view::StrokeView(&stroke).draw(xoj::view::Context::createColorBlind(cr));
+    cairo_surface_flush(surface);
+    bool visible = false;
+    const auto* data = cairo_image_surface_get_data(surface);
+    const int stride = cairo_image_surface_get_stride(surface);
+    for (int y = 0; y < size && !visible; ++y)
+        for (int x = 0; x < size; ++x) if (data[y * stride + x]) { visible = true; break; }
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return visible;
+}
 
 // Match StrokeViewHelper/StrokeContour: pressure is the width of the outgoing
 // segment, and the final point's pressure is unused. Highlighters render at the
 // fallback width. Avoid rebuilding a knot vector at every pointer sample.
 bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
+    // A whole-stroke click inside an existing erased region cannot delete
+    // surviving ink: the clicked disc is already transparent.
     const auto& points = stroke.getPointVector();
     if (points.empty()) {
         return false;
@@ -69,15 +97,61 @@ bool wholeStrokeTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, doubl
     };
     if (points.size() == 1) {
         const Point& p = points.front();
-        return std::hypot(p.x - centre.x, p.y - centre.y) <= radius + halfWidth(p);
+        return std::hypot(p.x - centre.x, p.y - centre.y) <= radius + halfWidth(p) &&
+               !alreadyErased(stroke, centre, centre, radius) && maskedInkTouchesDisc(stroke, centre, radius);
     }
     for (size_t i = 1; i < points.size(); ++i) {
         const Point& a = points[i - 1];
         const Point& b = points[i];
         const double reach = radius + halfWidth(a);
         if (utn::eraser::distancePointSegment(centre, {a.x, a.y}, {b.x, b.y}) <= reach) {
-            return true;
+            return !alreadyErased(stroke, centre, centre, radius) && maskedInkTouchesDisc(stroke, centre, radius);
         }
+    }
+    return false;
+}
+
+double segmentDistance(utn::eraser::Vec a, utn::eraser::Vec b, utn::eraser::Vec p, utn::eraser::Vec q) {
+    auto cross = [](utn::eraser::Vec x, utn::eraser::Vec y, utn::eraser::Vec z) {
+        return (y.x - x.x) * (z.y - x.y) - (y.y - x.y) * (z.x - x.x);
+    };
+    const double abp = cross(a, b, p), abq = cross(a, b, q);
+    const double pqa = cross(p, q, a), pqb = cross(p, q, b);
+    if (((abp < 0 && abq > 0) || (abp > 0 && abq < 0)) &&
+        ((pqa < 0 && pqb > 0) || (pqa > 0 && pqb < 0))) return 0;
+    return std::min({utn::eraser::distancePointSegment(a, p, q), utn::eraser::distancePointSegment(b, p, q),
+                     utn::eraser::distancePointSegment(p, a, b), utn::eraser::distancePointSegment(q, a, b)});
+}
+
+bool sweptDiscTouchesStroke(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b, double radius) {
+    if (stroke.getFill() != -1) return true; // Broad phase bounds clip harmless masks outside a filled shape.
+    const auto& points = stroke.getPointVector();
+    const bool pressure = stroke.hasPressure() && stroke.getToolType() != StrokeTool::HIGHLIGHTER;
+    for (size_t i = 1; i < points.size(); ++i) {
+        const auto& p = points[i - 1];
+        const auto& q = points[i];
+        const double halfWidth = 0.5 * (pressure && p.z != Point::NO_PRESSURE ? p.z : stroke.getWidth());
+        if (segmentDistance(a, b, {p.x, p.y}, {q.x, q.y}) <= radius + halfWidth) return true;
+    }
+    return false;
+}
+
+bool alreadyErased(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b, double radius) {
+    for (const auto& e: stroke.getErasures()) {
+        const auto& m = e.transform;
+        const double det = m.xx * m.yy - m.xy * m.yx;
+        if (!std::isfinite(det) || std::abs(det) < 1e-14) continue;
+        const auto inverse = m.inverse();
+        const auto localA = inverse * xoj::util::Point<double>{a.x, a.y};
+        const auto localB = inverse * xoj::util::Point<double>{b.x, b.y};
+        // Largest singular value bounds the inverse-transformed disc, including
+        // nonuniform resizing. Containment is conservative and zoom independent.
+        const double sum = inverse.xx * inverse.xx + inverse.xy * inverse.xy + inverse.yx * inverse.yx + inverse.yy * inverse.yy;
+        const double inverseDet = 1 / det;
+        const double localRadius = radius * std::sqrt((sum + std::sqrt(std::max(0.0, sum * sum - 4 * inverseDet * inverseDet))) / 2);
+        if (e.radius >= localRadius &&
+            utn::eraser::distancePointSegment({localA.x, localA.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius &&
+            utn::eraser::distancePointSegment({localB.x, localB.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius) return true;
     }
     return false;
 }
@@ -104,6 +178,10 @@ EraseHandler::~EraseHandler() {
  * Handle eraser event: "Delete Stroke" and "Standard", Whiteout is not handled here
  */
 void EraseHandler::erase(double x, double y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        previousPoint.reset();
+        return;
+    }
     // A hidden answers layer can remain selected (for example if the page has
     // no ordinary layer). Never erase invisible content, regardless of mode.
     // Create no undo action here, so a hidden gesture cannot sweep into visible ink.
@@ -116,8 +194,13 @@ void EraseHandler::erase(double x, double y) {
     }
 
     this->halfEraserSize = this->handler->getThickness();
+    if (!std::isfinite(halfEraserSize) || halfEraserSize <= 0) { previousPoint.reset(); return; }
     const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
     previousPoint = xoj::util::Point<double>{x, y};
+    if (handler->getEraserType() == ERASER_TYPE_DEFAULT) {
+        eraseWithMask(l, start.x, start.y, x, y, halfEraserSize);
+        return;
+    }
     const double distance = std::hypot(x - start.x, y - start.y);
     // Sample the pointer path densely. Between two samples a disc of radius R leaves a gap of width up to the spacing,
     // so the samples are at most R / SAMPLES_PER_RADIUS apart and each sample disc is enlarged to cover the gap
@@ -229,6 +312,55 @@ void EraseHandler::erase(double x, double y) {
     }
 }
 
+void EraseHandler::eraseWithMask(Layer* layer, double startX, double startY, double endX, double endY, double radius) {
+    if (!std::isfinite(radius) || radius <= 0) return;
+    const utn::eraser::Vec a{startX, startY}, b{endX, endY};
+    const xoj::util::Rectangle<double> bounds{std::min(startX, endX) - radius - 1e-8,
+                                             std::min(startY, endY) - radius - 1e-8,
+                                             std::abs(endX - startX) + 2 * radius + 2e-8,
+                                             std::abs(endY - startY) + 2 * radius + 2e-8};
+    if (originalDeletePositions.empty() && !eraseUndoAction) {
+        Element::Index i = 0;
+        for (const auto& e: layer->getElements()) originalDeletePositions.emplace(e.get(), i++);
+    }
+    std::vector<Stroke*> candidates;
+    for (Element* e: xoj::refElementContainer(layer->getElements())) {
+        if (e->getType() != ELEMENT_STROKE) continue;
+        auto* stroke = static_cast<Stroke*>(e);
+        if (inkMayIntersect(*stroke, bounds) && sweptDiscTouchesStroke(*stroke, a, b, radius) &&
+            !alreadyErased(*stroke, a, b, radius)) candidates.push_back(stroke);
+    }
+    Range dirty;
+    for (Stroke* stroke: candidates) {
+        if (!eraseUndoAction) {
+            auto action = std::make_unique<EraseUndoAction>(page, doc);
+            eraseUndoAction = action.get();
+            undo->addUndoAction(std::move(action));
+        }
+        const auto original = originalDeletePositions.find(stroke);
+        const auto originalPos = original == originalDeletePositions.end() ? layer->indexOf(stroke) : original->second;
+        const auto box = stroke->getBoundingBox();
+        dirty = dirty.unite(Range(box));
+        {
+            std::unique_lock<Document> lock(*doc);
+            stroke = eraseUndoAction->beginMaskedEdit(layer, stroke, originalPos);
+            originalDeletePositions.emplace(stroke, originalPos);
+            stroke->addErasure({{startX, startY}, {endX, endY}, radius, {}});
+            // Only remove an element when this capsule provably covers its
+            // entire bounds. Small holes keep the editable vector stroke.
+            bool covers = true;
+            for (double cx: {box.x, box.x + box.width}) for (double cy: {box.y, box.y + box.height}) {
+                covers = covers && utn::eraser::distancePointSegment({cx, cy}, a, b) <= radius;
+            }
+            if (covers) {
+                eraseUndoAction->removeEdited(stroke);
+                auto removed = layer->removeElement(stroke);
+            }
+        }
+    }
+    if (!dirty.empty()) view->rerenderRange(dirty);
+}
+
 void EraseHandler::eraseStroke(Layer* l, Stroke* s, double x, double y, double radius, Range& range) {
     ErasableStroke* erasable = s->getErasable();
     if (!erasable) {
@@ -324,9 +456,12 @@ void EraseHandler::finalize() {
     previousPoint.reset();
     originalDeletePositions.clear();
     if (this->eraseUndoAction) {
-        std::unique_lock<Document> lock(*doc);
-        this->eraseUndoAction->finalize();
+        {
+            std::unique_lock<Document> lock(*doc);
+            this->eraseUndoAction->finalize();
+        }
         this->eraseUndoAction = nullptr;
+        this->page->firePageChanged();
     } else if (this->eraseDeleteUndoAction) {
         this->eraseDeleteUndoAction = nullptr;
     }

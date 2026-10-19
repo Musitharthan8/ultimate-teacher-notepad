@@ -5,6 +5,7 @@
  * Based on Xournal++ GPLv2+.
  */
 #include <memory>
+#include <cstdint>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -14,8 +15,10 @@
 #include "model/Document.h"
 #include "model/Layer.h"
 #include "model/LayerAudience.h"
+#include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "util/PathUtil.h"
+#include "view/DocumentView.h"
 
 #include "filesystem.h"
 
@@ -217,4 +220,86 @@ TEST(LayerAudience, inkHasNoVisibleTargetWhenEverythingIsHidden) {
     std::vector<Layer*> layers{hidden.get(), answers.get()};
     EXPECT_FALSE(utn::visibleLayerIdForInk(layers, 2).has_value());
     EXPECT_FALSE(utn::visibleLayerIdForInk({}, 0).has_value());
+}
+
+namespace {
+void addPrivacyMarker(Layer& layer, double y) {
+    auto stroke = std::make_unique<Stroke>();
+    stroke->setWidth(8);
+    stroke->setColor(Color{0, 0, 0});
+    stroke->addPoint(Point(20, y));
+    stroke->addPoint(Point(180, y));
+    layer.addElement(std::move(stroke));
+}
+
+// Exercise the actual DocumentView path used by Student View, including the
+// teacher ghost setting. Merely checking visibleToStudents cannot catch a
+// renderer accidentally drawing a rejected layer through its ghost fallback.
+uint32_t studentPixel(const PageRef& page, int y, double ghostOpacity = 0.4) {
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 200, 200);
+    auto* cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_paint(cr);
+    DocumentView view;
+    view.setHiddenAnswersOpacity(ghostOpacity);
+    view.setLayerFilter(utn::visibleToStudents);
+    view.drawPage(page, cr, true,
+                  {xoj::view::HIDE_PDF_BACKGROUND, xoj::view::HIDE_IMAGE_BACKGROUND,
+                   xoj::view::HIDE_RULING_BACKGROUND, xoj::view::DONT_FORCE_BACKGROUND_COLOR,
+                   xoj::view::FORCE_VISIBLE});
+    cairo_surface_flush(surface);
+    const auto* row = reinterpret_cast<const uint32_t*>(
+            cairo_image_surface_get_data(surface) + y * cairo_image_surface_get_stride(surface));
+    const auto pixel = row[100];
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return pixel;
+}
+}  // namespace
+
+TEST(LayerAudience, studentRendererNeverGhostsHiddenAnswersOrTeacherNotes) {
+    auto page = std::make_shared<TestPage>();
+    auto ordinary = makeLayer(LayerAudience::Everyone, true);
+    auto answers = makeLayer(LayerAudience::Answers, false, "Renamed answer key");
+    auto teacher = makeLayer(LayerAudience::TeacherOnly, true);
+    addPrivacyMarker(*ordinary, 30);
+    addPrivacyMarker(*answers, 80);
+    addPrivacyMarker(*teacher, 130);
+    auto* answerLayer = answers.get();
+    page->addLayer(ordinary.release());
+    page->addLayer(answers.release());
+    page->addLayer(teacher.release());
+
+    for (int cycle = 0; cycle < 20; ++cycle) {
+        SCOPED_TRACE(cycle);
+        answerLayer->setVisible(false);
+        EXPECT_EQ(studentPixel(page, 30), 0xff000000U);
+        EXPECT_EQ(studentPixel(page, 80), 0xffffffffU);
+        EXPECT_EQ(studentPixel(page, 130), 0xffffffffU);
+        answerLayer->setVisible(true);
+        EXPECT_EQ(studentPixel(page, 80), 0xff000000U);
+        EXPECT_EQ(studentPixel(page, 130), 0xffffffffU);
+    }
+}
+
+TEST(LayerAudience, studentRendererKeepsSavedRevealedAnswersHiddenAfterReload) {
+    Document doc(nullptr);
+    auto page = std::make_shared<TestPage>();
+    auto answers = makeLayer(LayerAudience::Answers, true, "Not a legacy name");
+    auto teacher = makeLayer(LayerAudience::TeacherOnly, true);
+    addPrivacyMarker(*answers, 80);
+    addPrivacyMarker(*teacher, 130);
+    page->addLayer(answers.release());
+    page->addLayer(teacher.release());
+    doc.addPage(page);
+    const auto file = Util::getTmpDirSubfolder() / "utn-audience-render.xopp";
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto reopened = LoadHandler{}.loadDocument(file);
+    fs::remove(file);
+    ASSERT_TRUE(reopened);
+    EXPECT_EQ(studentPixel(reopened->getPage(0), 80), 0xffffffffU);
+    EXPECT_EQ(studentPixel(reopened->getPage(0), 130), 0xffffffffU);
 }

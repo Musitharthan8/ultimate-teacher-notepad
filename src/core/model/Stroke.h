@@ -20,6 +20,7 @@
 #include "Element.h"       // for Element
 #include "LineStyle.h"     // for LineStyle
 #include "Point.h"         // for Point
+#include "eraser/StrokeErasure.h"
 
 class ObjectInputStream;
 class ObjectOutputStream;
@@ -212,6 +213,10 @@ public:
     ErasableStroke* getErasable() const;
     void setErasable(ErasableStroke* erasable);
 
+    const std::vector<utn::eraser::StrokeErasure>& getErasures() const { return erasures; }
+    void setErasures(std::vector<utn::eraser::StrokeErasure> value) { erasures = std::move(value); }
+    void addErasure(const utn::eraser::StrokeErasure& value);
+
     StrokeCapStyle getStrokeCapStyle() const;
     void setStrokeCapStyle(const StrokeCapStyle capStyle);
 
@@ -239,6 +244,7 @@ private:
     LineStyle lineStyle;
 
     ErasableStroke* erasable = nullptr;
+    std::vector<utn::eraser::StrokeErasure> erasures;
 
     /**
      * Option to fill the shape:

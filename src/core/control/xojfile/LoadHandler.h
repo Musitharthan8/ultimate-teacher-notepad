@@ -115,6 +115,7 @@ private:
                         std::optional<xoj::util::Size<double>> size) override;
     void addImage(xoj::util::Matrix matrix) override;
     void setImageData(std::string data) override;
+    void setImageStrokeData(std::string data) override;
     void setImageAttachment(const fs::path& filename) override;
     void finalizeImage() override;
     void addTexImageLegacy(double left, double top, double right, double bottom, std::string text,
@@ -185,6 +186,7 @@ private:
 
 private:
     fs::path xournalFilepath;
+    std::string imageStrokeData;
 
     bool parsingComplete;
     std::vector<std::string>* errorMessages;

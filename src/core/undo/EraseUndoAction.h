@@ -33,6 +33,8 @@ public:
     bool redo(Control* control) override;
 
     void addOriginal(Layer* layer, Stroke* element, Element::Index pos);
+    // Snapshot a stroke before non-destructive clipping and replace it in place.
+    Stroke* beginMaskedEdit(Layer* layer, Stroke* element, Element::Index originalPos);
     void addEdited(Layer* layer, Stroke* element, Element::Index pos);
     [[maybe_unused]] void removeEdited(Stroke* element);
 

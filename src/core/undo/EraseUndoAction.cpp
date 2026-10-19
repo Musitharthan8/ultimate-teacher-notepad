@@ -20,6 +20,20 @@ void EraseUndoAction::addOriginal(Layer* layer, Stroke* element, Element::Index 
     original.emplace(layer, element, pos);
 }
 
+Stroke* EraseUndoAction::beginMaskedEdit(Layer* layer, Stroke* element, Element::Index originalPos) {
+    for (const auto& entry: edited) {
+        if (entry.element == element) return element;
+    }
+    auto copy = element->cloneStroke();
+    Stroke* result = copy.get();
+    auto [originalElement, currentPos] = layer->removeElement(element);
+    auto entry = original.emplace(layer, element, originalPos);
+    entry->elementOwn = std::move(originalElement);
+    edited.emplace(layer, result, currentPos);
+    layer->insertElement(std::move(copy), currentPos);
+    return result;
+}
+
 void EraseUndoAction::addEdited(Layer* layer, Stroke* element, Element::Index pos) {
     edited.emplace(layer, element, pos);
 }
@@ -35,6 +49,11 @@ void EraseUndoAction::removeEdited(Stroke* element) {
 
 void EraseUndoAction::finalize() {
     for (auto const& entry: original) {
+        if (!entry.element->getErasable()) {
+            // Masked edits already own the original and retain one editable
+            // vector stroke in the layer, rather than centreline fragments.
+            continue;
+        }
         if (entry.element->getPointCount() == 0) {
             // TODO (Marmare314): is this really expected behaviour?
             continue;
@@ -59,7 +78,14 @@ void EraseUndoAction::finalize() {
         }
     }
 
-    this->page->firePageChanged();
+    // Record final edited positions after removals in the same gesture, so redo
+    // restores the exact z-order as well as undo.
+    std::multiset<PageLayerPosEntry<Stroke>> finalEdited;
+    for (const auto& entry: edited) {
+        const auto pos = entry.layer->indexOf(entry.element);
+        if (pos != Element::InvalidIndex) finalEdited.emplace(entry.layer, entry.element, pos);
+    }
+    edited = std::move(finalEdited);
 }
 
 auto EraseUndoAction::getText() -> std::string { return _("Erase stroke"); }

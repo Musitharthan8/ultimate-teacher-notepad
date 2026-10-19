@@ -70,6 +70,7 @@ public:
                                 std::optional<xoj::util::Size<double>> size) = 0;
     virtual void addImage(xoj::util::Matrix matrix) = 0;
     virtual void setImageData(std::string data) = 0;
+    virtual void setImageStrokeData(std::string /*data*/) {}
     virtual void setImageAttachment(const fs::path& filename) = 0;
     virtual void finalizeImage() = 0;
     virtual void addTexImageLegacy(double left, double top, double right, double bottom, std::string text,

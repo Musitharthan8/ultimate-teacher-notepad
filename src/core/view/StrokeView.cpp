@@ -34,7 +34,17 @@ void StrokeView::draw(const Context& ctx) const {
     const bool highlighter = s->getToolType() == StrokeTool::HIGHLIGHTER;
     const bool filledHighlighter = highlighter && s->getFill() != -1;
     const bool drawTranslucent = ctx.fadeOutNonAudio && s->getAudioFilename().empty();
-    const bool useMask = (!ctx.noColor && filledHighlighter) || drawTranslucent;
+    // Image targets can subtract capsules directly from a bounded alpha mask.
+    // Repeated vector clip intersections otherwise grow expensive on long,
+    // curved eraser gestures. Keep vector clipping for PDF/vector targets.
+    cairo_matrix_t targetMatrix;
+    cairo_get_matrix(ctx.cr, &targetMatrix);
+    // Selection previews may reflect or rotate the context. The existing Mask
+    // helper requires positive diagonal scaling; use vector clips otherwise.
+    const bool rasterErasure = targetMatrix.xx > 0 && targetMatrix.yy > 0 &&
+            targetMatrix.xy == 0 && targetMatrix.yx == 0 && !s->getErasures().empty() &&
+            cairo_surface_get_type(cairo_get_target(ctx.cr)) == CAIRO_SURFACE_TYPE_IMAGE;
+    const bool useMask = (!ctx.noColor && filledHighlighter) || drawTranslucent || rasterErasure;
 
     if (ctx.showCurrentEdition && filledHighlighter && s->getErasable() != nullptr) {
         // Currently being erased filled highlighter strokes need a special treatment
@@ -47,6 +57,8 @@ void StrokeView::draw(const Context& ctx) const {
     const bool noColor = ctx.noColor || useMask;
 
     xoj::util::CairoSaveGuard saveGuard(ctx.cr);
+
+    if (!rasterErasure) utn::eraser::clipErasures(ctx.cr, s->getErasures(), s->getBoundingBox());
 
     Mask mask;
 
@@ -72,7 +84,14 @@ void StrokeView::draw(const Context& ctx) const {
         /**
          * Create a mask tailored to the stroke's bounding box
          */
-        mask = Mask(cairo_get_target(ctx.cr), Range(s->getBoundingBox()), zoom);
+        Range extent(s->getBoundingBox());
+        if (rasterErasure) {
+            double x1, y1, x2, y2;
+            cairo_clip_extents(ctx.cr, &x1, &y1, &x2, &y2);
+            extent = extent.intersect(Range(x1, y1, x2, y2));
+            if (!extent.isValid()) return;
+        }
+        mask = Mask(cairo_get_target(ctx.cr), extent, zoom);
         cr = mask.get();
     }
 
@@ -139,6 +158,15 @@ void StrokeView::draw(const Context& ctx) const {
     }
 
     if (useMask) {
+        if (rasterErasure) {
+            cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
+            cairo_set_source_rgba(cr, 1, 1, 1, 1);
+            for (const auto& erasure: s->getErasures()) {
+                cairo_new_path(cr);
+                utn::eraser::appendErasurePath(cr, erasure);
+                cairo_fill(cr);
+            }
+        }
         /**
          * Blit the mask onto the target cairo context.
          */
@@ -150,7 +178,7 @@ void StrokeView::draw(const Context& ctx) const {
          * Highlighter (filled)    : s->getFill() / 255
          */
         double groupAlpha =
-                highlighter ? (filledHighlighter ? static_cast<double>(s->getFill()) / 255.0 : OPACITY_HIGHLIGHTER) :
+                highlighter && !ctx.noColor ? (filledHighlighter ? static_cast<double>(s->getFill()) / 255.0 : OPACITY_HIGHLIGHTER) :
                               1.0;
 
         // If the stroke has no audio attached, we draw it (even more) translucent
