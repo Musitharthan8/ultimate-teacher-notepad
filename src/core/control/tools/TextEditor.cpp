@@ -1416,9 +1416,14 @@ void TextEditor::finalizeEdition() {
 
         doc->lock();
         Layer* layer = this->page->getSelectedLayer();
-        auto [orig, _] = layer->removeElement(this->originalTextElement);
+        auto [orig, elementIndex] = layer->removeElement(this->originalTextElement);
         auto ptr = this->textElement.get();
-        layer->addElement(std::move(this->textElement));
+        if (orig) [[likely]] {
+            // Editing must not raise this text above annotations added after it.
+            layer->insertElement(std::move(this->textElement), elementIndex);
+        } else {
+            layer->addElement(std::move(this->textElement));
+        }
         doc->unlock();
 
         this->page->fireElementChanged(ptr);

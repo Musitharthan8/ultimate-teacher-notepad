@@ -20,12 +20,14 @@
 class Element;
 class Layer;
 class Control;
+class Document;
 
 using ElementPtr = std::unique_ptr<Element>;
 
 class TextBoxUndoAction: public UndoAction {
 public:
-    TextBoxUndoAction(const PageRef& page, Layer* layer, Element* element, ElementPtr oldelement);
+    TextBoxUndoAction(const PageRef& page, Layer* layer, Element* element, ElementPtr oldelement,
+                      Document* document = nullptr);
     ~TextBoxUndoAction() override;
 
 public:
@@ -38,4 +40,6 @@ private:
     Layer* layer;
     Element* element;
     ElementPtr oldelement;
+    // Non-owning fallback for actions exercised without a GUI Control.
+    Document* document;
 };

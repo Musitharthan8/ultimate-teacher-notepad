@@ -16,8 +16,10 @@
 
 using xoj::util::Rectangle;
 
-TextBoxUndoAction::TextBoxUndoAction(const PageRef& page, Layer* layer, Element* element, ElementPtr oldelement):
-        UndoAction("TextBoxUndoAction"), layer(layer), element(element), oldelement(std::move(oldelement)) {
+TextBoxUndoAction::TextBoxUndoAction(const PageRef& page, Layer* layer, Element* element, ElementPtr oldelement,
+                                   Document* document):
+        UndoAction("TextBoxUndoAction"), layer(layer), element(element), oldelement(std::move(oldelement)),
+        document(document) {
     this->page = page;
 }
 
@@ -26,14 +28,15 @@ TextBoxUndoAction::~TextBoxUndoAction() = default;
 auto TextBoxUndoAction::getText() -> std::string { return _("Edit text"); }
 
 auto TextBoxUndoAction::undo(Control* control) -> bool {
-    Document* doc = control->getDocument();
+    Document* doc = control ? control->getDocument() : document;
     doc->lock();
     auto rect = element->getBoundingBox();
     rect.unite(oldelement->getBoundingBox());
 
     // swap them to be memory safe
-    auto elementPtr = this->layer->removeElement(std::exchange(this->element, this->oldelement.get())).e;
-    this->layer->addElement(std::exchange(this->oldelement, std::move(elementPtr)));
+    auto [elementPtr, elementIndex] =
+            this->layer->removeElement(std::exchange(this->element, this->oldelement.get()));
+    this->layer->insertElement(std::exchange(this->oldelement, std::move(elementPtr)), elementIndex);
     doc->unlock();
     this->page->fireRectChanged(rect);
 
