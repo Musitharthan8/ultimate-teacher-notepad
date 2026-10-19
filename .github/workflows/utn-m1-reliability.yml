@@ -1,0 +1,66 @@
+name: UTN M1 reliability comparison
+
+on:
+  push:
+    branches: [feature/utn-research-reliability]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        operator: [checkpoint-over, original-source]
+    name: PDF and reliability / ${{ matrix.operator }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        uses: ./.github/actions/install_deps_ubuntu
+        with:
+          extra_packages: xvfb xauth
+      - name: Compare original SOURCE operator in disposable CI checkout
+        if: matrix.operator == 'original-source'
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/core/view/StrokeView.cpp')
+          source = path.read_text()
+          expression = '!useMask && !s->getErasures().empty() ? CAIRO_OPERATOR_OVER : CAIRO_OPERATOR_SOURCE'
+          assert source.count(expression) == 2, 'Operator comparison needs review after source changes'
+          path.write_text(source.replace(expression, 'CAIRO_OPERATOR_SOURCE'))
+      - name: Configure and build test targets
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_GTEST=ON -DDOWNLOAD_GTEST=ON -DENABLE_CPPTRACE=OFF
+          cmake --build build --target test-units test-gtk-integration --parallel 2
+      - name: Run full unit suite including PDF pixels, eraser, shapes and answers
+        working-directory: build
+        run: |
+          set -o pipefail
+          CI=true ./test/test-units --gtest_output=xml:unit-tests.xml 2>&1 | tee unit-tests.log
+      - name: Run GTK integration suite
+        if: ${{ !cancelled() && success() }}
+        working-directory: build
+        run: |
+          set -o pipefail
+          CI=true xvfb-run -a ./test/test-gtk-integration --gtest_output=xml:gtk-tests.xml 2>&1 | tee gtk-tests.log
+      - name: Require complete test execution
+        shell: pwsh
+        run: ./scripts/check-m1-test-results.ps1 -Reports build/unit-tests.xml,build/gtk-tests.xml
+      - name: Preserve comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-${{ matrix.operator }}-${{ github.sha }}
+          path: |
+            build/*-tests.xml
+            build/*-tests.log
+          if-no-files-found: warn

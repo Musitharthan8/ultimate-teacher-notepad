@@ -37,18 +37,39 @@ jobs:
           build_type: ${{ env.BUILD_TYPE }}
           shell: msys2 {0}
 
-      - name: Build unit tests
+      - name: Build reliability tests
         shell: msys2 {0}
-        run: cmake --build . --target test-units
+        run: cmake --build . --target test-units test-gtk-integration
         working-directory: ${{ github.workspace }}/build
 
       - name: Run unit tests
+        id: units
         shell: msys2 {0}
-        run: set -o pipefail; CI=true ./test/test-units 2>&1 | tee unit-tests.log
+        run: set -o pipefail; CI=true ./test/test-units --gtest_output=xml:unit-tests.xml 2>&1 | tee unit-tests.log
         working-directory: ${{ github.workspace }}/build
 
+      - name: Run GTK integration tests
+        if: ${{ !cancelled() && success() }}
+        shell: msys2 {0}
+        run: set -o pipefail; CI=true ./test/test-gtk-integration --gtest_output=xml:gtk-tests.xml 2>&1 | tee gtk-tests.log
+        working-directory: ${{ github.workspace }}/build
+
+      - name: Require complete test execution
+        shell: pwsh
+        run: ./scripts/check-m1-test-results.ps1 -Reports build/unit-tests.xml,build/gtk-tests.xml
+
+      - name: Preserve reliability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-reliability-${{ github.sha }}
+          path: |
+            build/*-tests.xml
+            build/*-tests.log
+          if-no-files-found: warn
+
       - name: Report failing unit tests
-        if: failure()
+        if: ${{ failure() && steps.units.outcome == 'failure' }}
         shell: msys2 {0}
         run: |
           grep -E '\[  FAILED  \]' unit-tests.log | head -10 | while IFS= read -r l; do echo "::error title=failed test::$l"; done

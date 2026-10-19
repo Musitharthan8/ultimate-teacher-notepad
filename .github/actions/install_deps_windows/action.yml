@@ -32,7 +32,6 @@ runs:
           make
           mingw-w64-${{inputs.msys_package_env}}-gobject-introspection-runtime
           mingw-w64-${{inputs.msys_package_env}}-lua-luarocks
-          mingw-w64-${{inputs.msys_package_env}}-qpdf
           mingw-w64-${{inputs.msys_package_env}}-zstd
     - shell: msys2 {0}
       run: |
@@ -44,6 +43,12 @@ runs:
           pacman --noconfirm -S --needed "$sourceview_package"
         else
           echo '::notice::GtkSourceView 4 unavailable; build will use the plain TeX editor.'
+        fi
+        qpdf_package=mingw-w64-${{inputs.msys_package_env}}-qpdf
+        if pacman -Si "$qpdf_package" >/dev/null 2>&1; then
+          pacman --noconfirm -S --needed "$qpdf_package"
+        else
+          echo '::notice::QPDF unavailable; build will use Cairo PDF export.'
         fi
         # install LuaGObject via luarocks as long as there is no MinGW package
         # If this command fails because of a new Lua version, update package.sh as well

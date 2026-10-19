@@ -37,6 +37,9 @@ runs:
       if [[ "${RUNNER_OS:-}" == Windows ]] && ! pkg-config --exists gtksourceview-4; then
         optional_cmake_flags+=(-DENABLE_GTK_SOURCEVIEW=OFF)
       fi
+      if [[ "${RUNNER_OS:-}" == Windows ]] && ! pkg-config --exists libqpdf; then
+        optional_cmake_flags+=(-DENABLE_QPDF=OFF)
+      fi
       cmake -GNinja .. -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} ${{ inputs.cmake_flags }} ${{ inputs.extra_cmake_flags }} "${optional_cmake_flags[@]}"
       # Make sure pot is up to date with sources (maybe translation pipeline is currently running)
       cmake --build . --target pot

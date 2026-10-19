@@ -4,6 +4,22 @@
 
 ## Resume here
 
+### Home-PC continuation, 20 October
+
+Started clean at `93803707fd3b9509c96216b606e3633b85991c00`, matching the live GitHub feature branch exactly. All five implementation/handoff commits were present. The branch now tracks `origin/feature/utn-research-reliability`; the older tracking statement below describes the earlier workstation session only.
+
+This PC has no checkpoint build/log directories and no accessible CMake/MinGW toolchain. Do not describe the previous 312 unit / 29 GTK results as rerun here. Source inspection confirms the two shape regressions remain enabled.
+
+The checkpoint [Windows CI run](https://github.com/Musitharthan8/ultimate-teacher-notepad/actions/runs/39243584163) failed during dependency installation: `mingw-w64-x86_64-qpdf` was unavailable. Compilation and tests did not run. The continuation makes optional QPDF installation availability-aware and disables the optional QPDF backend when absent, retaining Cairo PDF export. This fallback still needs CI and export validation.
+
+Feature Windows CI now builds/runs GTK tests as well as units, retains XML/log artifacts, and rejects disabled/skipped/empty reports. A separate M1 matrix runs full units (including the existing production PDF pixel regression) and GTK tests under Xvfb with current OVER and original SOURCE. Only the disposable SOURCE job changes the two operator expressions; production rendering is unchanged until evidence is available. The report checker was locally exercised against passing, disabled, skipped, failed and empty XML reports; all five behaved as expected. Native C++ and comparison results are pending.
+
+For Friday **23 October 2026**, the go/no-go gates remain: green Windows units/GTK with no skips; resolved PDF operator comparison; tablet eraser precision and latency across zoom/transform/history; repeated live Answers activation and Student View navigation/freeze/blank on a second display; Release package and clean-machine install/upgrade/uninstall plus memory-tool checks. Aim to finish automated comparison on 20 October, classroom checks on 21 October, and package/sign-off on 22 October. These are planned gates, not completed results. Do not publish without user approval.
+
+After every successful commit, immediately push to `origin/feature/utn-research-reliability` and verify the remote SHA before further work.
+
+### Original workstation handoff
+
 Implementation is committed through `77084aa47`; full suites passed 312 units and 29 GTK tests. A visual preview was misread as missing PDF ruling. Direct System.Drawing bitmap sampling at (20,320) found the same blue ruling pixel (64,160,255) in `masked.png`, `masked-pdf-render.png`, `final-masked.png` and `final-masked-pdf-render.png`. Therefore **do not treat PDF ruling loss as a proven defect**. Next compare the new PDF regression and rendered pixels with the original SOURCE operator; retain or revert only the operator change based on evidence. Preserve the added export regression. No code reversal was performed before this checkpoint.
 
 Then finish independent review/report wording, rerun affected checks if code changes, and complete native classroom testing. The build and logs below are local and ignored by Git; source, regression tests and the manual XOPP fixture are committed. Fetch this branch on the home PC to resume.
