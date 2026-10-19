@@ -3,9 +3,12 @@
 #include <string>
 #include <gtest/gtest.h>
 #include "control/xojfile/LoadHandler.h"
+#include "control/ExportHelper.h"
+#include "control/jobs/BaseExportJob.h"
 #include "control/xojfile/SaveHandler.h"
 #include "model/Document.h"
 #include "model/Layer.h"
+#include "model/PageType.h"
 #include "model/Image.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
@@ -19,6 +22,8 @@
 #include "util/serializing/ObjectOutputStream.h"
 #include "view/StrokeView.h"
 #include "view/View.h"
+#include "pdf/base/XojPdfDocument.h"
+#include "pdf/base/XojPdfPage.h"
 
 namespace {
 std::unique_ptr<Stroke> maskedStroke() {
@@ -292,4 +297,37 @@ TEST(MaskedStrokePersistence, clipboardKeepsMasksAndLegacyPayloadClearsThem) {
         EXPECT_EQ(result.getErasures().size(), legacy ? 0U : 1U);
         EXPECT_EQ(strokePixel(result, 100, 50), strokePixel(*source, 100, 50));
     }
+}
+
+TEST(MaskedStrokePersistence, pdfRetainsBackgroundAndEarlierInkAroundTheHole) {
+    Document doc(nullptr);
+    auto page = std::make_shared<PersistencePage>();
+    page->setBackgroundType(PageType(PageTypeFormat::Plain));
+    page->setBackgroundColor(Color{230, 240, 250});
+    auto red = std::make_unique<Stroke>();
+    red->setWidth(10); red->setColor(Color{255, 0, 0});
+    red->addPoint(Point(20, 150)); red->addPoint(Point(180, 150));
+    page->getSelectedLayer()->addElement(std::move(red));
+    page->getSelectedLayer()->addElement(maskedStroke());
+    doc.addPage(page);
+    const auto file = Util::getTmpDirSubfolder() / "utn-masked-pdf-background.pdf";
+    ExportHelper::exportPdf(&doc, file, nullptr, nullptr, EXPORT_BACKGROUND_ALL, false);
+    XojPdfDocument pdf;
+    GError* error = nullptr;
+    ASSERT_TRUE(pdf.load(file, {}, &error));
+    ASSERT_EQ(error, nullptr);
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 800, 800);
+    auto* cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, 1, 1, 1); cairo_paint(cr); cairo_scale(cr, 4, 4);
+    pdf.getPage(0)->render(cr);
+    cairo_surface_flush(surface);
+    const auto* data = cairo_image_surface_get_data(surface);
+    const int stride = cairo_image_surface_get_stride(surface);
+    const auto pixel = [&](int x, int y) { return *reinterpret_cast<const uint32_t*>(data + y * stride + x * 4); };
+    EXPECT_EQ(pixel(160, 680) & 0xffffffU, 0xe6f0faU); // untouched page background
+    EXPECT_EQ(pixel(160, 600) & 0xffffffU, 0xff0000U); // earlier red stroke
+    EXPECT_EQ(pixel(400, 201) & 0xffffffU, 0xe6f0faU); // erased gap exposes background
+    EXPECT_NE(pixel(160, 201) & 0xffffffU, 0xe6f0faU); // surviving pressure ink
+    cairo_destroy(cr); cairo_surface_destroy(surface);
+    pdf.reset(); fs::remove(file);
 }

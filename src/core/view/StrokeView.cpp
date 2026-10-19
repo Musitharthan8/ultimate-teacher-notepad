@@ -132,7 +132,7 @@ void StrokeView::draw(const Context& ctx) const {
          * No color: painting onto an alpha mask. Colors will be applied upon blitting.
          */
         cairo_set_source_rgba(cr, 1, 1, 1, 1);
-        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_operator(cr, !useMask && !s->getErasures().empty() ? CAIRO_OPERATOR_OVER : CAIRO_OPERATOR_SOURCE);
     } else if (highlighter) {
         /**
          * Highlighter without filling.
@@ -144,7 +144,9 @@ void StrokeView::draw(const Context& ctx) const {
          * Normal pen
          */
         Util::cairo_set_source_rgbi(cr, s->getColor());
-        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        // SOURCE with a nonrectangular subtractive clip can clear earlier PDF
+        // page content. Masked opaque ink can safely composite with OVER.
+        cairo_set_operator(cr, !useMask && !s->getErasures().empty() ? CAIRO_OPERATOR_OVER : CAIRO_OPERATOR_SOURCE);
     }
 
     if (ErasableStroke* erasable = s->getErasable(); erasable != nullptr && ctx.showCurrentEdition) {
