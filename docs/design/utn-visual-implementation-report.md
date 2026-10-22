@@ -53,6 +53,6 @@ The GTK/Windows test environment logs known locale, unavailable tablet device, a
 ## Commits
 
 - Stage A workspace architecture: `a79492964` (`Add resizable UTN classroom workspace inspector`)
-- Stage B visual refinement: to be filled after commit.
+- Stage B visual refinement: `480667bc1591cf2f9a0bb0ece700d63f56b20c78` (`Polish UTN toolbar and contextual inspector`).
 - Branch: `feature/utn-visual-polish`
 - Branch URL: https://github.com/Musitharthan8/ultimate-teacher-notepad/tree/feature/utn-visual-polish
