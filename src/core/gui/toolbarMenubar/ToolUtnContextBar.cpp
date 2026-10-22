@@ -346,8 +346,8 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
         gtk_widget_set_name(scroller, "utnContextSide");
         auto* side = GTK_SCROLLED_WINDOW(scroller);
-        // Controls wrap to the panel width instead; a sideways scrollbar hid the XL size in the touch layout
-        gtk_scrolled_window_set_policy(side, GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+        // Controls wrap to the panel width; a sideways scrollbar hid the XL size in the touch layout (16 Oct audit)
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
         // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
         gtk_scrolled_window_set_propagate_natural_width(side, false);
         gtk_scrolled_window_set_min_content_width(side, 160);
@@ -599,6 +599,8 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     if (GTK_IS_GRID(group)) {
         // The chooser uses one compact grid cell; a full-width colour sample looks like an unrelated toolbar.
         const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        // A compact cell that keeps the round swatch rhythm; a homogeneous grid would otherwise stretch it
+        gtk_widget_set_halign(more, GTK_ALIGN_CENTER);
         gtk_grid_attach(GTK_GRID(group), more, index % columns, index / columns, 1, 1);
     } else {
         addToGroup(group, more, index);

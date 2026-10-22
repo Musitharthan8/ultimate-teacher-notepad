@@ -87,7 +87,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     workspace.getInt("inspectorWidth", inspectorWidth);
     workspace.getInt("workspaceTools", teacherWorkspace);
     workspace.getInt("toolLabels", toolLabels);
-    inspectorWidth = std::clamp(inspectorWidth, 190, 420);
+    inspectorWidth = std::clamp(inspectorWidth, 150, 420);
     teacherWorkspace = std::clamp(teacherWorkspace, 0, 2);
     toolLabels = std::clamp(toolLabels, 0, 2);
     gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
@@ -839,7 +839,7 @@ void MainWindow::updateInspectorBounds() {
     }
     inspectorAvailableWidth = width;
     const int maximum = std::clamp(width - 520, 150, 420);
-    const int minimum = std::min(190, maximum);
+    const int minimum = std::min(150, maximum);  // same floor as the saved drag width (position >= 150)
     const int position = std::clamp(inspectorWidth, minimum, maximum);
     if (gtk_paned_get_position(GTK_PANED(inspectorPaned)) == position) {
         return;

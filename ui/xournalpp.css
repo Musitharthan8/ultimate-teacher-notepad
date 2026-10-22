@@ -823,7 +823,7 @@ window.utnShell.darkMode .utn-swatch.utn-swatch-selected {
     border-color: @utn_accent_dark;
 }
 window.utnShell.utnHighContrast .utn-swatch {
-    border-color: #000000;
+    border-color: #ffffff;  /* black ink swatch must stay visible on the black High Contrast background */
 }
 window.utnShell.utnHighContrast .utn-swatch.utn-swatch-selected {
     border-color: #ffffff;
