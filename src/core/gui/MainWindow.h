@@ -100,6 +100,11 @@ public:
     /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
     void updateCompactLayout(int width);
 
+    /// Teacher workspace: 0 = inspector, 1 = rail only, 2 = canvas only.
+    void setTeacherWorkspace(int mode);
+    int getTeacherWorkspace() const { return teacherWorkspace; }
+    int getInspectorWidth() const { return inspectorWidth; }
+
     void updateScrollbarSidebarPosition();
 
     void setUndoDescription(const std::string& description);
@@ -134,6 +139,9 @@ private:
     void initXournalWidget();
 
     void createToolbar();
+    void updateTeacherWorkspace();
+    void updateInspectorBounds();
+    void appendWorkspaceMenu();
 
     /**
      * Update the position of the separator in the paned container, adjusting it to the saved sidebar width.
@@ -177,6 +185,18 @@ private:
     std::unique_ptr<UtnToast> toast;
     bool compactLayout = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
+    int teacherWorkspace = 0;
+    int inspectorWidth = 250;
+    int inspectorAvailableWidth = 0;
+    int toolLabels = 0;  ///< automatic, show, hide
+    bool inspectorApplying = false;
+    bool inspectorAttached = true;
+    GtkWidget* inspectorPaned = nullptr;
+    GtkWidget* inspectorHost = nullptr;
+    GtkWidget* railScroller = nullptr;
+    GtkWidget* workspaceMenu = nullptr;
+    xoj::util::WidgetSPtr inspectorPanedOwner;
+    xoj::util::WidgetSPtr inspectorContentOwner;
 
     // Toolbars
     std::unique_ptr<ToolMenuHandler> toolbar;

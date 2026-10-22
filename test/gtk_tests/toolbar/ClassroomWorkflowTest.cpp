@@ -17,6 +17,8 @@
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
+#include "gui/FloatingToolbox.h"
+#include "gui/PdfFloatingToolbox.h"
 #include "gui/PageView.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
@@ -67,6 +69,22 @@ void settle() {
         }
         g_usleep(2000);
     }
+}
+
+void captureWindow(GtkWidget* window, const char* path) {
+    GdkWindow* gdkWindow = gtk_widget_get_window(window);
+    if (!gdkWindow) {
+        return;
+    }
+    GdkPixbuf* image = gdk_pixbuf_get_from_window(gdkWindow, 0, 0, gtk_widget_get_allocated_width(window),
+                                                 gtk_widget_get_allocated_height(window));
+    if (!image) {
+        return;
+    }
+    GError* error = nullptr;
+    gdk_pixbuf_save(image, path, "png", &error, nullptr);
+    g_clear_error(&error);
+    g_object_unref(image);
 }
 
 unsigned studentPixel(GtkWidget* student, double pageX, double pageY) {
@@ -122,6 +140,7 @@ protected:
             control->getDocument()->clearDocument(true);
         }
         control->setGhostHiddenAnswers(false);
+        window->setTeacherWorkspace(0);
         control->selectTool(TOOL_PEN);
         for (int i = 0; i < 2; ++i) {
             auto page = std::make_shared<XojPage>(600, 800);
@@ -191,6 +210,110 @@ TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers)
     EXPECT_EQ(control->countHiddenAnswersOnCurrentPage(), 10);
     EXPECT_EQ(control->setAnswersRevealed(true, false), 10);
     EXPECT_EQ(control->setAnswersRevealed(false, false), 10);
+}
+
+TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
+    auto* settings = control->getSettings();
+    auto* tools = control->getToolHandler();
+    tools->setPenSize(TOOL_SIZE_THICK);
+    const Color penColour = tools->getColor();
+    GtkWidget* paned = window->get("utnInspectorPaned");
+    GtkWidget* canvasContainer = window->get("mainContentContainer");
+    GtkWidget* mainBox = window->get("mainContainerBox");
+    GtkWidget* rail = window->get("tbLeft1Scroller");
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 720);
+    window->show(nullptr);
+    settle();
+    if (const char* captureDir = g_getenv("UTN_VISUAL_CAPTURE_DIR")) {
+        g_mkdir_with_parents(captureDir, 0755);
+        const bool sidebarWasVisible = settings->isSidebarVisible();
+        window->setSidebarVisible(false);
+        window->getFloatingToolbox()->hide();
+        window->getPdfToolbox()->hide();
+        settle();
+        const auto originalTheme = settings->getThemeVariant();
+        const std::array<std::pair<ThemeVariant, const char*>, 3> captures{{
+                {THEME_VARIANT_FORCE_LIGHT, "utn-visual-polish-light.png"},
+                {THEME_VARIANT_FORCE_DARK, "utn-visual-polish-dark.png"},
+                {THEME_VARIANT_HIGH_CONTRAST, "utn-visual-polish-high-contrast.png"},
+        }};
+        for (const auto& [variant, name]: captures) {
+            settings->setThemeVariant(variant);
+            window->updateColorscheme();
+            settle();
+            gchar* path = g_build_filename(captureDir, name, nullptr);
+            captureWindow(window->getWindow(), path);
+            g_free(path);
+        }
+        settings->setThemeVariant(originalTheme);
+        window->updateColorscheme();
+        settle();
+        g_object_set_data(G_OBJECT(window->getWindow()), "utn-capture-sidebar-visible",
+                          GINT_TO_POINTER(sidebarWasVisible));
+    }
+
+    ASSERT_EQ(gtk_widget_get_parent(paned), mainBox);
+    ASSERT_EQ(gtk_widget_get_parent(canvasContainer), paned);
+    gtk_paned_set_position(GTK_PANED(paned), 340);
+    settle();
+    GdkEvent* release = gdk_event_new(GDK_BUTTON_RELEASE);
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(paned, "button-release-event", release, &handled);
+    gdk_event_free(release);
+    int persistedWidth = 0;
+    ASSERT_TRUE(settings->getCustomElement("utn").getInt("inspectorWidth", persistedWidth));
+    EXPECT_EQ(persistedWidth, 340);
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1024, 768);
+    settle();
+    const int available = gtk_widget_get_allocated_width(paned);
+    EXPECT_GE(gtk_paned_get_position(GTK_PANED(paned)), 150);
+    EXPECT_LE(gtk_paned_get_position(GTK_PANED(paned)), std::max(150, available - 520));
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 720);
+    settle();
+    EXPECT_EQ(gtk_paned_get_position(GTK_PANED(paned)), 340);
+    window->setTeacherWorkspace(1);
+    EXPECT_EQ(window->getTeacherWorkspace(), 1);
+    EXPECT_EQ(gtk_widget_get_parent(canvasContainer), mainBox);
+    EXPECT_FALSE(gtk_widget_get_visible(paned));
+    EXPECT_TRUE(gtk_widget_get_visible(rail));
+    if (const char* captureDir = g_getenv("UTN_VISUAL_CAPTURE_DIR")) {
+        settle();
+        gchar* path = g_build_filename(captureDir, "utn-visual-polish-rail-only.png", nullptr);
+        captureWindow(window->getWindow(), path);
+        g_free(path);
+    }
+
+    control->selectTool(TOOL_ERASER);
+    EXPECT_EQ(window->getTeacherWorkspace(), 1);
+    EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_THICK);
+    control->selectTool(TOOL_PEN);
+    EXPECT_EQ(tools->getColor(), penColour);
+
+    window->setTeacherWorkspace(2);
+    EXPECT_FALSE(gtk_widget_get_visible(rail));
+    EXPECT_EQ(gtk_widget_get_parent(canvasContainer), mainBox);
+    if (const char* captureDir = g_getenv("UTN_VISUAL_CAPTURE_DIR")) {
+        settle();
+        gchar* path = g_build_filename(captureDir, "utn-visual-polish-canvas-only.png", nullptr);
+        captureWindow(window->getWindow(), path);
+        g_free(path);
+    }
+    window->setTeacherWorkspace(0);
+    settle();
+    EXPECT_EQ(gtk_widget_get_parent(canvasContainer), paned);
+    EXPECT_TRUE(gtk_widget_get_visible(rail));
+    EXPECT_EQ(gtk_paned_get_position(GTK_PANED(paned)), 340);
+
+    int persistedMode = -1;
+    ASSERT_TRUE(settings->getCustomElement("utn").getInt("workspaceTools", persistedMode));
+    EXPECT_EQ(persistedMode, 0);
+    control->selectTool(TOOL_ERASER);
+    EXPECT_EQ(tools->getToolType(), TOOL_ERASER);
+    if (g_getenv("UTN_VISUAL_CAPTURE_DIR")) {
+        const bool sidebarWasVisible = GPOINTER_TO_INT(
+                g_object_get_data(G_OBJECT(window->getWindow()), "utn-capture-sidebar-visible"));
+        window->setSidebarVisible(sidebarWasVisible);
+    }
 }
 
 TEST_F(ClassroomWorkflow, studentWindowPrivacyFreezeBlankNavigationAndReopen) {

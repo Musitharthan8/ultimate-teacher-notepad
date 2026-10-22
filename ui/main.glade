@@ -172,6 +172,21 @@
                 <child>
                   <!-- UTN: the tool rail scrolls when the window is too short for every tool (a 1366x768 laptop). Without
                        this the toolbar's overflow arrow hid Eraser, Text and Answer Box behind a menu. -->
+                  <object class="GtkBox" id="utnRailHost">
+                    <property name="name">utnRailHost</property>
+                    <property name="visible">True</property>
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkButton" id="utnExpandInspector">
+                        <property name="name">utnExpandInspector</property>
+                        <property name="visible">True</property>
+                        <property name="can-focus">True</property>
+                        <property name="label">Show settings</property>
+                        <property name="tooltip-text">Expand the properties inspector</property>
+                      </object>
+                      <packing><property name="expand">False</property></packing>
+                    </child>
+                    <child>
                   <object class="GtkScrolledWindow" id="tbLeft1Scroller">
                     <property name="name">tbLeft1Scroller</property>
                     <property name="visible">True</property>
@@ -193,6 +208,9 @@
                       </object>
                     </child>
                   </object>
+                      <packing><property name="expand">True</property><property name="fill">True</property></packing>
+                    </child>
+                  </object>
                   <packing>
                     <property name="expand">False</property>
                     <property name="fill">True</property>
@@ -200,20 +218,40 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkToolbar" id="tbLeft2">
-                    <property name="name">tbLeft2</property>
+                  <object class="GtkPaned" id="utnInspectorPaned">
+                    <property name="name">utnInspectorPaned</property>
                     <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="orientation">vertical</property>
-                    <property name="toolbar-style">icons</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">1</property>
-                  </packing>
-                </child>
-                <child>
+                    <property name="can-focus">True</property>
+                    <property name="orientation">horizontal</property>
+                    <child>
+                      <object class="GtkBox" id="utnInspectorHost">
+                        <property name="name">utnInspectorHost</property>
+                        <property name="visible">True</property>
+                        <property name="orientation">vertical</property>
+                        <child>
+                          <object class="GtkButton" id="utnCollapseInspector">
+                            <property name="name">utnCollapseInspector</property>
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="label">Hide settings</property>
+                            <property name="tooltip-text">Collapse the properties inspector; keep the tool rail</property>
+                          </object>
+                          <packing><property name="expand">False</property></packing>
+                        </child>
+                        <child>
+                          <object class="GtkToolbar" id="tbLeft2">
+                            <property name="name">tbLeft2</property>
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="orientation">vertical</property>
+                            <property name="toolbar-style">icons</property>
+                          </object>
+                          <packing><property name="expand">True</property><property name="fill">True</property></packing>
+                        </child>
+                      </object>
+                      <packing><property name="resize">False</property><property name="shrink">True</property></packing>
+                    </child>
+                    <child>
                   <object class="GtkBox" id="mainContentContainer">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
@@ -339,11 +377,10 @@
                       </packing>
                     </child>
                   </object>
-                  <packing>
-                    <property name="expand">True</property>
-                    <property name="fill">True</property>
-                    <property name="position">3</property>
-                  </packing>
+                      <packing><property name="resize">True</property><property name="shrink">True</property></packing>
+                    </child>
+                  </object>
+                  <packing><property name="expand">True</property><property name="fill">True</property></packing>
                 </child>
                 <child>
                   <object class="GtkToolbar" id="tbRight1">

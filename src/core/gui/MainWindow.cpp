@@ -31,6 +31,7 @@
 #include "gui/toolbarMenubar/ToolMenuHandler.h"         // for ToolMenuHandler
 #include "gui/toolbarMenubar/model/ToolbarData.h"       // for ToolbarData
 #include "gui/toolbarMenubar/model/ToolbarModel.h"      // for ToolbarModel
+#include "gui/toolbarMenubar/UtnWidgets.h"              // for setAccessibleName
 #include "gui/widgets/SpinPageAdapter.h"                // for SpinPageAdapter
 #include "gui/widgets/XournalWidget.h"                  // for gtk_xournal_get_l...
 #include "util/GListView.h"                             // for GListView, GListV...
@@ -73,6 +74,47 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     boxContainerWidget.reset(get("mainContentContainer"), xoj::util::ref);
     mainContentWidget.reset(get("boxContents"), xoj::util::ref);
     sidebarWidget.reset(get("sidebar"), xoj::util::ref);
+    inspectorPaned = get("utnInspectorPaned");
+    inspectorHost = get("utnInspectorHost");
+    railScroller = get("tbLeft1Scroller");
+    g_signal_connect(get("utnExpandInspector"), "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<MainWindow*>(data)->setTeacherWorkspace(0);
+                     }), this);
+    // Keep the pane and canvas alive while the canvas is reparented for compact workspace states.
+    inspectorPanedOwner.reset(inspectorPaned, xoj::util::ref);
+    inspectorContentOwner.reset(boxContainerWidget.get(), xoj::util::ref);
+    auto& workspace = control->getSettings()->getCustomElement("utn");
+    workspace.getInt("inspectorWidth", inspectorWidth);
+    workspace.getInt("workspaceTools", teacherWorkspace);
+    workspace.getInt("toolLabels", toolLabels);
+    inspectorWidth = std::clamp(inspectorWidth, 190, 420);
+    teacherWorkspace = std::clamp(teacherWorkspace, 0, 2);
+    toolLabels = std::clamp(toolLabels, 0, 2);
+    gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
+    gtk_paned_set_wide_handle(GTK_PANED(inspectorPaned), true);
+    gtk_widget_set_tooltip_text(inspectorPaned, _("Drag the divider to resize settings. Focus it and use the arrow keys to adjust."));
+    g_signal_connect(get("utnCollapseInspector"), "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<MainWindow*>(data)->setTeacherWorkspace(1);
+                     }), this);
+    gtk_widget_add_events(inspectorPaned, GDK_BUTTON_RELEASE_MASK | GDK_KEY_RELEASE_MASK);
+    auto saveInspectorWidth = +[](GtkWidget*, GdkEvent*, gpointer data) -> gboolean {
+        auto* self = static_cast<MainWindow*>(data);
+        if (!self->inspectorApplying && self->inspectorAttached && self->teacherWorkspace == 0 &&
+            self->selectedToolbar && utn::isTeacherLayout(self->selectedToolbar->getId())) {
+            const int position = gtk_paned_get_position(GTK_PANED(self->inspectorPaned));
+            if (position >= 150) {
+                self->inspectorWidth = position;
+                self->control->getSettings()->getCustomElement("utn").setInt("inspectorWidth", position);
+                self->updateInspectorBounds();
+            }
+        }
+        return FALSE;
+    };
+    g_signal_connect(inspectorPaned, "button-release-event", G_CALLBACK(saveInspectorWidth), this);
+    g_signal_connect(inspectorPaned, "key-release-event", G_CALLBACK(saveInspectorWidth), this);
+    g_signal_connect(inspectorPaned, "size-allocate", G_CALLBACK(+[](GtkWidget*, GtkAllocation*, gpointer data) {
+                         static_cast<MainWindow*>(data)->updateInspectorBounds();
+                     }), this);
 
     loadMainCSS(gladeSearchPath, "xournalpp.css");
 
@@ -120,6 +162,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
                     win->setDPI();
                 }
                 win->updateCompactLayout(gtk_widget_get_allocated_width(widget));
+                win->updateInspectorBounds();
                 return false;
             }),
             this);
@@ -636,6 +679,7 @@ void MainWindow::setToolbarVisible(bool visible) {
             gtk_widget_set_visible(w.get(), visible);
         }
     }
+    updateTeacherWorkspace();
 }
 
 void MainWindow::setMenubarVisible(bool visible) {
@@ -678,6 +722,8 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 
     this->clearToolbar();
     this->loadToolbar(d);
+    appendWorkspaceMenu();
+    updateTeacherWorkspace();
 
     // UTN uses a dedicated shell style while Classic layouts stay untouched.
     GtkStyleContext* context = gtk_widget_get_style_context(GTK_WIDGET(this->window));
@@ -714,6 +760,133 @@ void MainWindow::loadToolbar(ToolbarData* d) {
     }
 
     this->floatingToolbox->flagRecalculateSizeRequired();
+}
+
+void MainWindow::appendWorkspaceMenu() {
+    GtkToolbar* top = GTK_TOOLBAR(this->toolbarWidgets[0].get());
+    GtkToolItem* item = gtk_tool_item_new();
+    GtkWidget* menu = gtk_menu_button_new();
+    gtk_button_set_label(GTK_BUTTON(menu), _("Workspace"));
+    gtk_widget_set_tooltip_text(menu, _("Show or hide classroom tools and choose tool labels"));
+    utn::setAccessibleName(menu, _("Workspace layout"));
+    GtkWidget* popover = gtk_popover_new();
+    GtkWidget* panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_start(panel, 8);
+    gtk_widget_set_margin_end(panel, 8);
+    gtk_widget_set_margin_top(panel, 8);
+    gtk_widget_set_margin_bottom(panel, 8);
+    const std::array<const char*, 3> workspaceLabels{{_("Tools and settings"), _("Tool rail only"), _("Canvas only")}};
+    for (int mode = 0; mode < static_cast<int>(workspaceLabels.size()); ++mode) {
+        GtkWidget* button = gtk_button_new_with_label(workspaceLabels[static_cast<size_t>(mode)]);
+        g_object_set_data(G_OBJECT(button), "utn-workspace-mode", GINT_TO_POINTER(mode));
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             self->setTeacherWorkspace(GPOINTER_TO_INT(
+                                     g_object_get_data(G_OBJECT(button), "utn-workspace-mode")));
+                             gtk_popover_popdown(GTK_POPOVER(gtk_widget_get_parent(gtk_widget_get_parent(
+                                     GTK_WIDGET(button)))));
+                         }), this);
+        utn::setAccessibleName(button, workspaceLabels[static_cast<size_t>(mode)]);
+        gtk_box_append(GTK_BOX(panel), button);
+    }
+    gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* labelsTitle = gtk_label_new(_("Tool labels"));
+    gtk_widget_set_halign(labelsTitle, GTK_ALIGN_START);
+    gtk_widget_add_css_class(labelsTitle, "utn-context-title");
+    gtk_box_append(GTK_BOX(panel), labelsTitle);
+    const std::array<const char*, 3> labelChoices{{_("Automatic"), _("Show"), _("Hide")}};
+    for (int mode = 0; mode < static_cast<int>(labelChoices.size()); ++mode) {
+        GtkWidget* button = gtk_button_new_with_label(labelChoices[static_cast<size_t>(mode)]);
+        g_object_set_data(G_OBJECT(button), "utn-label-mode", GINT_TO_POINTER(mode));
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             self->toolLabels = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-label-mode"));
+                             self->control->getSettings()->getCustomElement("utn").setInt("toolLabels", self->toolLabels);
+                             self->compactLayoutDirty = true;
+                             self->updateCompactLayout(gtk_widget_get_allocated_width(GTK_WIDGET(self->window)));
+                         }), this);
+        utn::setAccessibleName(button, labelChoices[static_cast<size_t>(mode)]);
+        gtk_box_append(GTK_BOX(panel), button);
+    }
+    gtk_container_add(GTK_CONTAINER(popover), panel);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), popover);
+    gtk_container_add(GTK_CONTAINER(item), menu);
+    gtk_toolbar_insert(top, item, -1);
+    workspaceMenu = menu;
+    gtk_widget_show_all(GTK_WIDGET(item));
+}
+
+void MainWindow::setTeacherWorkspace(int mode) {
+    teacherWorkspace = std::clamp(mode, 0, 2);
+    control->getSettings()->getCustomElement("utn").setInt("workspaceTools", teacherWorkspace);
+    updateTeacherWorkspace();
+}
+
+void MainWindow::updateInspectorBounds() {
+    if (!inspectorPaned || !selectedToolbar || !utn::isTeacherLayout(selectedToolbar->getId()) ||
+        teacherWorkspace != 0 || !inspectorAttached) {
+        return;
+    }
+    const int width = gtk_widget_get_allocated_width(inspectorPaned);
+    if (width <= 0) {
+        inspectorApplying = true;
+        gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
+        inspectorApplying = false;
+        return;
+    }
+    if (width == inspectorAvailableWidth) {
+        return;
+    }
+    inspectorAvailableWidth = width;
+    const int maximum = std::clamp(width - 520, 150, 420);
+    const int minimum = std::min(190, maximum);
+    const int position = std::clamp(inspectorWidth, minimum, maximum);
+    if (gtk_paned_get_position(GTK_PANED(inspectorPaned)) == position) {
+        return;
+    }
+    inspectorApplying = true;
+    gtk_paned_set_position(GTK_PANED(inspectorPaned), position);
+    inspectorApplying = false;
+}
+
+void MainWindow::updateTeacherWorkspace() {
+    if (!inspectorPaned || !boxContainerWidget || !selectedToolbar) {
+        return;
+    }
+    const bool teacher = utn::isTeacherLayout(selectedToolbar->getId());
+    const int mode = teacher ? teacherWorkspace : 0;
+    if (workspaceMenu) {
+        gtk_widget_set_visible(workspaceMenu, teacher);
+    }
+    gtk_widget_set_visible(railScroller, mode != 2 && control->getSettings()->isToolbarVisible());
+
+    const bool shouldAttach = mode == 0;
+    GtkWidget* mainBox = get("mainContainerBox");
+    if (shouldAttach && !inspectorAttached) {
+        gtk_container_remove(GTK_CONTAINER(mainBox), boxContainerWidget.get());
+        gtk_paned_pack2(GTK_PANED(inspectorPaned), boxContainerWidget.get(), true, true);
+        gtk_box_pack_start(GTK_BOX(mainBox), inspectorPaned, true, true, 0);
+        gtk_box_reorder_child(GTK_BOX(mainBox), inspectorPaned, 1);
+        gtk_widget_show(inspectorPaned);
+        gtk_widget_show(inspectorHost);
+        gtk_widget_show(boxContainerWidget.get());
+        inspectorAttached = true;
+        inspectorAvailableWidth = 0;
+        updateInspectorBounds();
+    } else if (!shouldAttach && inspectorAttached) {
+        gtk_container_remove(GTK_CONTAINER(inspectorPaned), boxContainerWidget.get());
+        gtk_container_remove(GTK_CONTAINER(mainBox), inspectorPaned);
+        gtk_box_pack_start(GTK_BOX(mainBox), boxContainerWidget.get(), true, true, 0);
+        gtk_box_reorder_child(GTK_BOX(mainBox), boxContainerWidget.get(), 1);
+        gtk_widget_hide(inspectorPaned);
+        inspectorAttached = false;
+    }
+    if (shouldAttach) {
+        gtk_widget_set_visible(inspectorHost, true);
+        updateInspectorBounds();
+    }
+    gtk_widget_set_visible(get("utnCollapseInspector"), teacher && mode == 0);
+    gtk_widget_set_visible(get("utnExpandInspector"), teacher && mode == 1);
 }
 
 void MainWindow::reloadToolbars() {
@@ -823,7 +996,7 @@ void MainWindow::updateCompactLayout(int width) {
     // Compact rail: icons only; names stay in tooltips and accessible names
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
-            setRailLabelsVisible(toolbar.get(), !this->compactLayout);
+            setRailLabelsVisible(toolbar.get(), toolLabels == 1 || (toolLabels == 0 && !this->compactLayout));
         }
     }
 }

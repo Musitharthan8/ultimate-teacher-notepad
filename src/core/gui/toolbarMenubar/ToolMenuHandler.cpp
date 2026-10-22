@@ -355,7 +355,7 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
     const auto& layoutId = d->getId();
     const bool teacherLayout = utn::isTeacherLayout(layoutId);
     if (!horizontal) {
-        gtk_widget_set_hexpand(toolbar, false);
+        gtk_widget_set_hexpand(toolbar, teacherLayout && g_strcmp0(toolbarName, "toolbarLeft2") == 0);
     }
     const auto& recolorParams = control->getSettings()->getRecolorParameters();
     auto recolor = recolorParams.recolorizeMainView ? std::make_optional(recolorParams.recolor) : std::nullopt;

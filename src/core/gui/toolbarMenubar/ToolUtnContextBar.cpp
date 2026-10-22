@@ -347,11 +347,11 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_widget_set_name(scroller, "utnContextSide");
         auto* side = GTK_SCROLLED_WINDOW(scroller);
         // Controls wrap to the panel width instead; a sideways scrollbar hid the XL size in the touch layout
-        gtk_scrolled_window_set_policy(side, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_set_policy(side, GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
         // A tool's natural width must not resize the canvas (and its fit-to-page zoom).
         gtk_scrolled_window_set_propagate_natural_width(side, false);
-        gtk_scrolled_window_set_min_content_width(side, 208);
-        gtk_scrolled_window_set_max_content_width(side, 208);
+        gtk_scrolled_window_set_min_content_width(side, 160);
+        gtk_scrolled_window_set_max_content_width(side, 420);
         gtk_scrolled_window_set_min_content_height(side, 160);
         gtk_scrolled_window_set_overlay_scrolling(side, false);
         gtk_widget_set_vexpand(scroller, true);
@@ -494,12 +494,6 @@ auto ToolUtnContextBar::isSidePanel() const -> bool {
     return gtk_orientable_get_orientation(GTK_ORIENTABLE(box)) == GTK_ORIENTATION_VERTICAL;
 }
 
-auto ToolUtnContextBar::isTouchUi() const -> bool {
-    bool touchUi = false;
-    control->getSettings()->getCustomElement("utn").getBool("touchUi", touchUi);
-    return touchUi;
-}
-
 auto ToolUtnContextBar::newControlGroup(int columns, int spacing) -> GtkWidget* {
     if (columns <= 0) {
         return gtk_box_new(GTK_ORIENTATION_HORIZONTAL, spacing);
@@ -540,7 +534,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     }();
 
     // Five swatches plus "More colours"; in the touch-size side panel they wrap onto two rows of three
-    GtkWidget* group = newControlGroup(isSidePanel() && isTouchUi() ? 3 : 0, 2);
+    GtkWidget* group = newControlGroup(isSidePanel() ? 3 : 0, 2);
     gtk_widget_add_css_class(group, "utn-swatches");
     int index = 0;
     for (const auto& swatch: swatches) {
@@ -614,7 +608,7 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                                                         TOOL_SIZE_NONE;
 
     // All five presets must stay reachable: the touch-size side panel shows them as XS S M / L XL
-    const int columns = isSidePanel() && isTouchUi() ? 3 : 0;
+    const int columns = isSidePanel() ? 3 : 0;
     GtkWidget* group = newControlGroup(columns, columns ? 2 : 0);
     if (!columns) {
         gtk_widget_add_css_class(group, "linked");

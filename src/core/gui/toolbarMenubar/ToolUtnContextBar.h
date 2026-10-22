@@ -54,8 +54,6 @@ private:
 
     /// The vertical panel beside the tool rail (not the horizontal strip)
     bool isSidePanel() const;
-    /// Appearance › Larger buttons for touch and stylus
-    bool isTouchUi() const;
     /// A row of controls, or a grid wrapping after @p columns when @p columns > 0
     static GtkWidget* newControlGroup(int columns, int spacing);
     static void addToGroup(GtkWidget* group, GtkWidget* child, int index);
