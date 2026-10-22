@@ -16,13 +16,15 @@
 @define-color utn_danger #b3261e;
 @define-color utn_danger_soft #f2b8b5;
 @define-color utn_danger_dark #ff8080;
-@define-color utn_surface #f7f8fb;
-@define-color utn_surface_rail #f5f7fa;
-@define-color utn_surface_dark #20242b;
-@define-color utn_surface_rail_dark #272c34;
-@define-color utn_border #dfe3e8;
-@define-color utn_border_soft #e7e9ed;
-@define-color utn_border_dark #343a44;
+@define-color utn_surface #f4f6f8;
+@define-color utn_surface_raised #ffffff;
+@define-color utn_surface_rail #edf1f5;
+@define-color utn_surface_dark #20252c;
+@define-color utn_surface_raised_dark #2a3039;
+@define-color utn_surface_rail_dark #272e36;
+@define-color utn_border #d5dce4;
+@define-color utn_border_soft #e4e9ef;
+@define-color utn_border_dark #3a424d;
 #pdfFloatingToolGrid {
     padding: 7px;
 }
@@ -673,6 +675,118 @@ window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):active {
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch) label,
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) label {
     color: inherit;
+}
+
+/* Resizable teacher workspace ------------------------------------------------ */
+window.utnShell #utnInspectorHost {
+    background-color: @utn_surface;
+    border-right: 1px solid @utn_border;
+}
+window.utnShell.darkMode #utnInspectorHost {
+    background-color: @utn_surface_dark;
+    color: #eef2f6;
+    border-color: @utn_border_dark;
+}
+window.utnShell.utnHighContrast #utnInspectorHost {
+    background-color: #000000;
+    color: #ffffff;
+    border-color: #ffffff;
+}
+window.utnShell #utnInspectorPaned separator {
+    min-width: 12px;
+    background-color: @utn_border;
+    background-image: none;
+}
+window.utnShell #utnInspectorPaned separator:hover,
+window.utnShell #utnInspectorPaned separator:focus {
+    background-color: @utn_accent;
+}
+window.utnShell.darkMode #utnInspectorPaned separator {
+    background-color: @utn_border_dark;
+}
+window.utnShell.darkMode #utnInspectorPaned separator:hover,
+window.utnShell.darkMode #utnInspectorPaned separator:focus {
+    background-color: @utn_accent_dark;
+}
+window.utnShell.utnHighContrast #utnInspectorPaned separator {
+    background-color: #ffffff;
+    min-width: 12px;
+}
+window.utnShell #utnCollapseInspector,
+window.utnShell #utnExpandInspector {
+    min-height: 32px;
+    margin: 6px;
+    border-radius: 7px;
+}
+window.utnShell #utnContextSide {
+    background-color: transparent;
+    padding: 4px 2px;
+}
+window.utnShell #utnContextSide #utnContextBar {
+    padding: 4px 2px 10px;
+}
+window.utnShell #utnContextSide .utn-context-badge {
+    min-width: 0;
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+window.utnShell #utnContextSide .utn-context-title {
+    margin-top: 4px;
+    margin-bottom: 2px;
+    color: @theme_text_color;
+    font-weight: 600;
+}
+window.utnShell.darkMode #utnContextSide .utn-context-title {
+    color: #eef2f6;
+}
+window.utnShell .utn-context-hint {
+    color: @theme_text_color;
+    padding: 2px 0;
+}
+window.utnShell.darkMode .utn-context-hint {
+    color: #c2cad4;
+}
+window.utnShell #utnContextSide button {
+    min-height: 32px;
+    border-radius: 7px;
+}
+window.utnShell #utnContextSide .utn-swatches button {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 3px;
+}
+window.utnShell #utnContextSide .utn-sizes button {
+    min-width: 44px;
+    min-height: 42px;
+    padding: 3px;
+}
+window.utnShell #utnContextSide combobox button,
+window.utnShell #utnContextSide spinbutton {
+    min-height: 32px;
+}
+window.utnShell #utnContextSide scale {
+    min-width: 120px;
+}
+window.utnShell.utnTouch #utnContextSide button {
+    min-height: 46px;
+}
+window.utnShell.utnTouch #utnContextSide .utn-swatches button {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell.utnTouch #utnContextSide .utn-sizes button {
+    min-height: 48px;
+}
+window.utnShell.utnHighContrast #utnInspectorHost,
+window.utnShell.utnHighContrast #utnContextSide {
+    background-color: #000000;
+    color: #ffffff;
+}
+window.utnShell.utnHighContrast #utnCollapseInspector,
+window.utnShell.utnHighContrast #utnExpandInspector {
+    background-color: #000000;
+    color: #ffffff;
+    border: 2px solid #ffffff;
 }
 
 /* A mode arrow belongs beside its tool, rather than consuming a second rail row. */

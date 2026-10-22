@@ -298,6 +298,31 @@ void ToolMenuHandler::unloadToolbar(GtkWidget* toolbar) {
 }
 
 namespace {
+const char* teacherChromeIcon(const std::string& item) {
+    if (item == "SAVE") return "document-save-symbolic";
+    if (item == "OPEN") return "document-open-symbolic";
+    if (item == "SAVEPDF") return "application-pdf-symbolic";
+    if (item == "UNDO") return "edit-undo-symbolic";
+    if (item == "REDO") return "edit-redo-symbolic";
+    return nullptr;
+}
+
+GtkWidget* firstImage(GtkWidget* widget) {
+    if (GTK_IS_IMAGE(widget)) {
+        return widget;
+    }
+    if (!GTK_IS_CONTAINER(widget)) {
+        return nullptr;
+    }
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+    GtkWidget* found = nullptr;
+    for (GList* child = children; child && !found; child = child->next) {
+        found = firstImage(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    return found;
+}
+
 // Teacher tools use a compact icon rail. Descriptive tooltips and accessible names
 // replace permanently visible labels, keeping every action reachable on small screens.
 /// Visible name and one-line hover explanation for teacher-layout toolbar items.
@@ -400,6 +425,14 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                     if (name == item->getId()) {
                         count++;
                         auto it = item->createToolItem(horizontal);
+                        if (teacherLayout && horizontal && g_strcmp0(toolbarName, "toolbarTop1") == 0) {
+                            if (const char* iconName = teacherChromeIcon(name);
+                                iconName && gtk_icon_theme_has_icon(gtk_icon_theme_get_default(), iconName)) {
+                                if (GtkWidget* icon = firstImage(it.get())) {
+                                    gtk_image_set_from_icon_name(GTK_IMAGE(icon), iconName, GTK_ICON_SIZE_LARGE_TOOLBAR);
+                                }
+                            }
+                        }
                         if (teacherLayout) {
                             const TeacherToolText* text = teacherToolText(name);
                             const std::string label =

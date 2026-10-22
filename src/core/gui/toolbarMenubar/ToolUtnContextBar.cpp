@@ -469,6 +469,7 @@ void ToolUtnContextBar::populate(ToolType tool) {
 
 void ToolUtnContextBar::appendBadge(const char* name) {
     GtkWidget* badge = gtk_label_new(name);
+    gtk_widget_set_halign(badge, GTK_ALIGN_START);
     gtk_widget_add_css_class(badge, "utn-context-badge");
     gtk_widget_set_tooltip_text(badge, _("The tool you are using"));
     gtk_box_append(box, badge);
@@ -534,6 +535,12 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     }();
 
     // Five swatches plus "More colours"; in the touch-size side panel they wrap onto two rows of three
+    if (isSidePanel()) {
+        GtkWidget* title = gtk_label_new(palette == Palette::Highlight ? _("Highlight colour") : _("Ink colour"));
+        gtk_widget_set_halign(title, GTK_ALIGN_START);
+        gtk_widget_add_css_class(title, "utn-context-title");
+        gtk_box_append(box, title);
+    }
     GtkWidget* group = newControlGroup(isSidePanel() ? 3 : 0, 2);
     gtk_widget_add_css_class(group, "utn-swatches");
     int index = 0;
@@ -590,10 +597,9 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                      }),
                      control);
     if (GTK_IS_GRID(group)) {
-        // The chooser button gets its own full-width row rather than a stray cell beside the last swatch
+        // The chooser uses one compact grid cell; a full-width colour sample looks like an unrelated toolbar.
         const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
-        gtk_widget_set_hexpand(more, true);
-        gtk_grid_attach(GTK_GRID(group), more, 0, (index + columns - 1) / columns, columns, 1);
+        gtk_grid_attach(GTK_GRID(group), more, index % columns, index / columns, 1, 1);
     } else {
         addToGroup(group, more, index);
     }
@@ -609,6 +615,12 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
 
     // All five presets must stay reachable: the touch-size side panel shows them as XS S M / L XL
     const int columns = isSidePanel() ? 3 : 0;
+    if (isSidePanel()) {
+        GtkWidget* title = gtk_label_new(_("Stroke width"));
+        gtk_widget_set_halign(title, GTK_ALIGN_START);
+        gtk_widget_add_css_class(title, "utn-context-title");
+        gtk_box_append(box, title);
+    }
     GtkWidget* group = newControlGroup(columns, columns ? 2 : 0);
     if (!columns) {
         gtk_widget_add_css_class(group, "linked");
@@ -701,6 +713,8 @@ void ToolUtnContextBar::appendPenControls() {
 
     // A teacher's deliberate stroke pattern overrides the solid default for freehand pen.
     GtkWidget* patternLabel = gtk_label_new(_("Stroke"));
+    gtk_widget_set_halign(patternLabel, GTK_ALIGN_START);
+    gtk_widget_add_css_class(patternLabel, "utn-context-title");
     gtk_box_append(box, patternLabel);
     GtkWidget* pattern = gtk_combo_box_text_new();
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(pattern), _("Solid"));
