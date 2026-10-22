@@ -177,7 +177,12 @@ void MainWindow::populate(GladeSearchpath* gladeSearchPath) {
 
 GMenuModel* MainWindow::getMenuModel() const { return menubar->getModel(); }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // GtkSettings is shared and can outlive this window.
+    g_signal_handlers_disconnect_by_data(gtk_widget_get_settings(this->window), this);
+    // Release dynamic toolbar widgets before their signal-handler owners, including detached/hidden toolbars.
+    clearToolbar();
+}
 
 struct ThemeProperties {
     bool dark;

@@ -246,7 +246,9 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             const XojFont& f = t->getFont();
 
             text->setAttrib(xoj::xml_attrs::FONT_STR, f.getName().c_str());
-            if (isMatrixHomogeneousScaling(*t)) {
+            // Keep boxed and wrapped text in its local coordinate system. Folding the scale into the font alone
+            // changes the box padding/border and the wrap width when the lesson is reopened.
+            if (isMatrixHomogeneousScaling(*t) && !t->isBoxEnabled() && t->getWrap() == Text::NO_WRAP) {
                 // Save as file version 4 for backward compatibility
                 text->setAttrib(xoj::xml_attrs::SIZE_STR, t->getTransformation().xx * f.getSize());
                 const auto& origin = t->getTransformation().shift;

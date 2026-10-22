@@ -356,10 +356,9 @@ static void gtk_xournal_dispose(GObject* object) {
     g_return_if_fail(GTK_IS_XOURNAL(object));
     GtkXournal* xournal = GTK_XOURNAL(object);
 
-    g_object_unref(xournal->vadjustment);
-    xournal->vadjustment = nullptr;
-    g_object_unref(xournal->hadjustment);
-    xournal->hadjustment = nullptr;
+    // GTK may dispose the widget again when its owning view releases it after window destruction.
+    g_clear_object(&xournal->vadjustment);
+    g_clear_object(&xournal->hadjustment);
 
     delete xournal->selection;
     xournal->selection = nullptr;
