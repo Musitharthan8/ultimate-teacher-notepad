@@ -107,7 +107,10 @@ Freeze deliberately retains earlier revealed content. Ordinary and explicit laye
 View audience filtering. Existing masked-PDF operator comparisons from the earlier M1 handoff remain a separate open
 question; this QA does not treat ruling loss as a proven defect or change that operator.
 
-Native tests emit device-discovery warnings in this execution environment. No physical device, Release installer,
+Native tests emit device-discovery warnings in this execution environment.
+GTK also reported permission-denied warnings while attempting recent-file bookkeeping under the Windows user data
+directory (`recently-used.xbel`); the production save/load assertions used writable temporary files and passed.
+No warning-free execution is claimed. No physical device, Release installer,
 memory sanitizer, leak detector, formatter or CI pipeline is claimed. No packaging or release was produced. Integration
 after Claude's packaging work should include these bounded source fixes and tests, then rebuild the packaged candidate
 and perform the checklist on the classroom hardware.
