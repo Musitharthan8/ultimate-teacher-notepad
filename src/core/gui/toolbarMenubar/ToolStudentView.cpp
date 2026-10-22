@@ -114,6 +114,15 @@ ToolStudentView::~ToolStudentView() {
         g_signal_handlers_disconnect_by_data(oldWindow, this);
         gtk_widget_destroy(oldWindow);
     }
+    // These overlays belong to the teacher window, which can outlive this tool (for example on toolbar reload).
+    // Their draw/destroy callbacks hold this pointer, so remove them before the tool is released.
+    for (GtkWidget** overlay: {&teacherOutline, &teacherCover}) {
+        if (*overlay) {
+            GtkWidget* widget = std::exchange(*overlay, nullptr);
+            g_signal_handlers_disconnect_by_data(widget, this);
+            gtk_widget_destroy(widget);
+        }
+    }
     if (frozenFrame) {
         cairo_surface_destroy(frozenFrame);
     }
