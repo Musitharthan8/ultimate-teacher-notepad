@@ -124,4 +124,4 @@ if [[ -n "$sevenzip" ]]; then
 else
     (cd "$setup_dir" && cmake -E tar cf "$(cygpath -w "$output_dir/UTN-$version-Windows-x64-Portable.zip")" --format=zip .)
 fi
-(cd "$output_dir" && find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+(cd "$output_dir" && find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum --text > SHA256SUMS.txt)
