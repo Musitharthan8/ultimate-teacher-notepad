@@ -92,7 +92,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     toolLabels = std::clamp(toolLabels, 0, 2);
     gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
     gtk_paned_set_wide_handle(GTK_PANED(inspectorPaned), true);
-    gtk_widget_set_tooltip_text(inspectorPaned, _("Drag the divider to resize settings. Focus it and use the arrow keys to adjust."));
+    // Avoid a pane-wide tooltip that obscures the worksheet during ordinary hovering.
     g_signal_connect(get("utnCollapseInspector"), "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<MainWindow*>(data)->setTeacherWorkspace(1);
                      }), this);
