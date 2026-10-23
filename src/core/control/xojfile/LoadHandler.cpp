@@ -14,10 +14,12 @@
 #include <stdexcept>      // for runtime_error
 #include <string>         // for string
 #include <string_view>    // for string_view
+#include <system_error>   // for error_code
 #include <unordered_map>  // for unordered_map
 #include <utility>        // for move, forward, exchange
 #include <vector>         // for vector
 
+#include <gdk-pixbuf/gdk-pixbuf.h>  // for GdkPixbufLoader
 #include <gio/gio.h>     // for g_file_get_path, g_fil...
 #include <glib.h>        // for g_message...
 #include <glibconfig.h>  // for gssize...
@@ -62,6 +64,35 @@ constexpr size_t MAX_MIMETYPE_LENGTH = 25;
 struct zip_file_deleter {
     void operator()(zip_file_t* ptr) noexcept { zip_fclose(ptr); }
 };
+
+/// "64 MiB", or "4 KiB" for limits below 1 MiB (only seen in tests)
+std::string describeSize(uint64_t bytes) {
+    if (bytes >= xoj::load::MiB || bytes % 1024 != 0) {
+        return std::to_string(bytes / xoj::load::MiB) + " MiB";
+    }
+    return std::to_string(bytes / 1024) + " KiB";
+}
+
+/**
+ * Image::setImage() asserts when the data is not a picture GdkPixbuf recognises (and leaves a null format in release
+ * builds). Corrupt or hostile data must be refused here instead of ending the program.
+ * This mirrors the detection of Image::setImage(): it looks at the first 4096 bytes only.
+ */
+bool isRecognisedPicture(const std::string& data) {
+    if (data.empty()) {
+        return false;
+    }
+    const xoj::util::GObjectSPtr<GdkPixbufLoader> loader(gdk_pixbuf_loader_new(), xoj::util::adopt);
+    const size_t head = std::min<size_t>(data.size(), 4096);
+    if (gdk_pixbuf_loader_write(loader.get(), reinterpret_cast<const guchar*>(data.data()), head, nullptr)) {
+        if (gdk_pixbuf_loader_get_format(loader.get())) {
+            gdk_pixbuf_loader_close(loader.get(), nullptr);
+            return true;
+        }
+    }
+    gdk_pixbuf_loader_close(loader.get(), nullptr);
+    return gdk_pixbuf_loader_get_format(loader.get()) != nullptr;
+}
 }  // namespace
 
 using zip_file_wrapper = std::unique_ptr<zip_file_t, zip_file_deleter>;
@@ -75,7 +106,7 @@ LoadHandler::LoadHandler(std::vector<std::string>* errorMessages):
         minimalFileVersion(0),
         isGzFile(false) {}
 
-LoadHandler::~LoadHandler() = default;
+LoadHandler::~LoadHandler() { removeExtractedAudio(); }
 
 auto LoadHandler::isAttachedPdfMissing() const -> bool { return this->attachedPdfMissing; }
 
@@ -127,8 +158,72 @@ void LoadHandler::finalizePage() {
     this->page.reset();
 }
 
+void LoadHandler::setAttachmentLimits(const xoj::load::AttachmentLimits& newLimits) { this->limits = newLimits; }
+
+auto LoadHandler::admitAttachment(uint64_t declaredBytes, uint64_t perAttachmentLimit, uint64_t budgetBytes,
+                                  uint64_t usedBytes) -> Admission {
+    if (this->attachmentCount >= this->limits.maxAttachmentCount) {
+        return Admission::CountExceeded;
+    }
+    this->attachmentCount++;
+    if (declaredBytes > perAttachmentLimit) {
+        return Admission::TooLarge;
+    }
+    // Written as a subtraction: usedBytes never exceeds budgetBytes, so this cannot wrap around
+    if (declaredBytes > budgetBytes - usedBytes) {
+        return Admission::BudgetExceeded;
+    }
+    return Admission::Ok;
+}
+
+void LoadHandler::logAttachmentRefused(const fs::path& filename, Admission reason) {
+    // The limits apply to the whole document: a hostile file would otherwise get one message per attachment
+    if (this->limitErrorLogged) {
+        return;
+    }
+    this->limitErrorLogged = true;
+    if (reason == Admission::CountExceeded) {
+        logError(FS(_F("This document has more than {1} attachments. The remaining ones, starting with \"{2}\", were "
+                       "skipped.") %
+                    this->limits.maxAttachmentCount % filename.u8string()));
+    } else {
+        logError(FS(_F("The attachments of this document are larger than the allowed total. The remaining ones, "
+                       "starting with \"{1}\", were skipped.") %
+                    filename.u8string()));
+    }
+}
+
+void LoadHandler::logAttachmentFailure(const fs::path& filename, xoj::util::zip::ReadStatus status,
+                                       uint64_t limitBytes) {
+    using xoj::util::zip::ReadStatus;
+    switch (status) {
+        case ReadStatus::TooLarge:
+        case ReadStatus::SizeNotRepresentable:
+            logError(FS(_F("Attachment \"{1}\" is larger than the {2} allowed and was skipped.") % filename.u8string() %
+                        describeSize(limitBytes)));
+            break;
+        case ReadStatus::SinkError:
+            logError(FS(_F("Attachment \"{1}\" could not be stored. Is the disk full?") % filename.u8string()));
+            break;
+        case ReadStatus::OutOfMemory:
+            logError(FS(_F("Not enough memory to load attachment \"{1}\".") % filename.u8string()));
+            break;
+        case ReadStatus::Ok:
+            break;
+        default:  // SizeUnknown, Truncated, LargerThanDeclared, ReadError
+            logError(FS(_F("Attachment \"{1}\" is damaged (truncated, inconsistent or unreadable) and was skipped.") %
+                        filename.u8string()));
+            break;
+    }
+}
+
 void LoadHandler::addAudioAttachment(const fs::path& filename) {
-    // Verify if attachment exists and is valid
+    namespace zipx = xoj::util::zip;
+
+    if (this->audioFiles.contains(filename)) {
+        return;  // Already extracted. Repeating a reference must not repeat the work.
+    }
+
     zip_stat_t attachmentFileStat;
     const int statStatus = zip_stat(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0, &attachmentFileStat);
     if (statStatus != 0) {
@@ -137,16 +232,25 @@ void LoadHandler::addAudioAttachment(const fs::path& filename) {
         return;
     }
 
-    zip_int64_t length = 0;
-    if (attachmentFileStat.valid & ZIP_STAT_SIZE) {
-        length = static_cast<zip_int64_t>(attachmentFileStat.size);
-    } else {
-        logError(FS(_F("Could not open attachment: {1}. Error message: No valid file size provided") %
-                    filename.u8string()));
+    const auto declared = zipx::declaredSize(attachmentFileStat);
+    if (!declared) {
+        logAttachmentFailure(filename, zipx::ReadStatus::SizeUnknown, this->limits.maxAudioBytes);
         return;
     }
 
-    auto attachmentFile = zip_file_wrapper{zip_fopen(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0)};
+    const auto admission = admitAttachment(*declared, this->limits.maxAudioBytes, this->limits.maxDiskBudgetBytes,
+                                           this->diskBytesUsed);
+    if (admission == Admission::TooLarge) {
+        logAttachmentFailure(filename, zipx::ReadStatus::TooLarge, this->limits.maxAudioBytes);
+        return;
+    }
+    if (admission != Admission::Ok) {
+        logAttachmentRefused(filename, admission);
+        return;
+    }
+
+    const auto attachmentFile =
+            zip_file_wrapper{zip_fopen(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0)};
 
     if (!attachmentFile) {
         logError(FS(_F("Could not open attachment: {1}. Error message: {2}") % filename.u8string() %
@@ -162,33 +266,43 @@ void LoadHandler::addAudioAttachment(const fs::path& filename) {
         logError(_("Unable to create temporary file for audio attachment"));
         return;
     }
+    const xoj::util::GObjectSPtr<GFileIOStream> ioStream(fileStream, xoj::util::adopt);
+    GOutputStream* outputStream = g_io_stream_get_output_stream(G_IO_STREAM(ioStream.get()));
 
-    GOutputStream* outputStream = g_io_stream_get_output_stream(G_IO_STREAM(fileStream));
-
-    auto data = std::make_unique<std::array<std::byte, 1024>>();
-    zip_int64_t readBytes = 0;
-    while (readBytes < length) {
-        const zip_int64_t read = zip_fread(attachmentFile.get(), data->data(), data->size());
-        if (read == -1) {
-            logError(
-                    FS(_F("Could not open attachment: {1}. Error message: Could not read file") % filename.u8string()));
-            return;
-        }
-
-        const gboolean writeSuccessful = g_output_stream_write_all(outputStream, data->data(), static_cast<gsize>(read),
-                                                                   nullptr, nullptr, nullptr);
-        if (!writeSuccessful) {
-            logError(FS(_F("Could not open attachment: {1}. Error message: Could not write temporary file") %
-                        filename.u8string()));
-            return;
-        }
-
-        readBytes += read;
+    uint64_t written = 0;
+    auto status = zipx::readZipFileBounded(
+            attachmentFile.get(), *declared, this->limits.maxAudioBytes,
+            [outputStream](const char* data, size_t size) {
+                return g_output_stream_write_all(outputStream, data, size, nullptr, nullptr, nullptr) != FALSE;
+            },
+            written);
+    // Close explicitly: a failing close (e.g. the final flush on a full disk) is a failed extraction
+    if (!g_io_stream_close(G_IO_STREAM(ioStream.get()), nullptr, nullptr) && status == zipx::ReadStatus::Ok) {
+        status = zipx::ReadStatus::SinkError;
     }
 
+    if (status != zipx::ReadStatus::Ok) {
+        // Do not leave a partial recording behind in the temp folder
+        g_file_delete(tmpFile.get(), nullptr, nullptr);
+        logAttachmentFailure(filename, status, this->limits.maxAudioBytes);
+        return;
+    }
+
+    this->diskBytesUsed += written;
     // Map the filename to the extracted temporary file path
     const char* tmpPath = g_file_peek_path(tmpFile.get());
     this->audioFiles[filename] = tmpPath;
+}
+
+void LoadHandler::removeExtractedAudio() noexcept {
+    if (!this->audioFilesOwned) {
+        return;
+    }
+    for (const auto& [attachment, tmpPath]: this->audioFiles) {
+        std::error_code ec;
+        fs::remove(tmpPath, ec);  // Best effort: nothing more can be done if it fails
+    }
+    this->audioFiles.clear();
 }
 
 void LoadHandler::setBgName(const std::string& name) {
@@ -215,7 +329,8 @@ void LoadHandler::setBgPixmap(bool attach, const fs::path& filename) {
         }
     } else {
         // The image is stored in an attachment inside the zip archive
-        const auto readResult = readZipAttachment(filename);  // Do not remove the const qualifier - see below
+        // Do not remove the const qualifier - see below
+        const auto readResult = readZipAttachment(filename, AttachmentKind::Image);
         if (!readResult) {
             return;
         }
@@ -284,7 +399,7 @@ void LoadHandler::loadBgPdf(bool attach, const fs::path& filename) {
         }
     } else {
         // filename should point to an attachment inside the zip archive
-        auto pdfBytes = readZipAttachment(filename);
+        auto pdfBytes = readZipAttachment(filename, AttachmentKind::Pdf);
         if (pdfBytes) {
             this->doc->readPdf(filename, false, attach, std::move(pdfBytes));
 
@@ -432,6 +547,12 @@ void LoadHandler::setImageData(std::string data) {
         g_warning("LoadHandler: Image data section found, but the image already has data");
     }
 
+    if (!isRecognisedPicture(data)) {
+        if (!data.empty()) {
+            logError(_("A picture in this document is damaged or in an unsupported format and was skipped."));
+        }
+        return;
+    }
     this->image->setImage(std::move(data));
 }
 
@@ -444,8 +565,12 @@ void LoadHandler::setImageAttachment(const fs::path& filename) {
         g_warning("LoadHandler: Image attachment found, but the image already has data");
     }
 
-    auto imageData = readZipAttachment(filename);
+    auto imageData = readZipAttachment(filename, AttachmentKind::Image);
     if (imageData) {
+        if (!isRecognisedPicture(*imageData)) {
+            logAttachmentFailure(filename, xoj::util::zip::ReadStatus::ReadError, this->limits.maxImageBytes);
+            return;
+        }
         this->image->setImage(std::move(*imageData));
     }
 }
@@ -512,7 +637,7 @@ void LoadHandler::setTexImageData(std::string data) {
 void LoadHandler::setTexImageAttachment(const fs::path& filename) {
     xoj_assert(this->teximage);
 
-    auto imageData = readZipAttachment(filename);
+    auto imageData = readZipAttachment(filename, AttachmentKind::Image);
     if (imageData) {
         this->teximage->loadData(std::move(*imageData));
     }
@@ -650,6 +775,7 @@ void LoadHandler::parseXml(std::unique_ptr<xoj::util::InputStream> xmlContentStr
 
     std::array<char, 1024> buffer{};
     int len{};
+    uint64_t xmlBytesRead = 0;
     xoj::util::GErrorGuard error;
     while (true) {
         len = xmlContentStream->read(buffer.data(), buffer.size());
@@ -658,6 +784,14 @@ void LoadHandler::parseXml(std::unique_ptr<xoj::util::InputStream> xmlContentStr
         } else if (len == 0) {
             // Reached EOF
             break;
+        }
+
+        // The XML is the one part of a document that is not an attachment. A compressed bomb here would bypass
+        // every attachment limit.
+        xmlBytesRead += static_cast<uint64_t>(len);
+        if (xmlBytesRead > this->limits.maxXmlBytes) {
+            throw std::runtime_error{FS(_F("The document content is larger than the {1} allowed.") %
+                                        describeSize(this->limits.maxXmlBytes))};
         }
 
         auto valid = g_markup_parse_context_parse(context.get(), buffer.data(), len, xoj::util::out_ptr(error));
@@ -713,6 +847,8 @@ auto LoadHandler::loadDocument(fs::path const& filepath) -> std::unique_ptr<Docu
         this->doc->setFilepath(filepath);
     }
 
+    // The document refers to the extracted audio files from now on; they are not ours to delete anymore
+    this->audioFilesOwned = false;
     return std::move(this->doc);
 }
 
@@ -766,7 +902,11 @@ void LoadHandler::fixNullPressureValues(std::vector<Point> pts) {
             });
 }
 
-auto LoadHandler::readZipAttachment(fs::path const& filename) -> std::unique_ptr<std::string> {
+auto LoadHandler::readZipAttachment(fs::path const& filename, AttachmentKind kind) -> std::unique_ptr<std::string> {
+    namespace zipx = xoj::util::zip;
+    const uint64_t perAttachmentLimit =
+            kind == AttachmentKind::Pdf ? this->limits.maxPdfBytes : this->limits.maxImageBytes;
+
     zip_stat_t attachmentFileStat;
     const int statStatus = zip_stat(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0, &attachmentFileStat);
     if (statStatus != 0) {
@@ -775,33 +915,42 @@ auto LoadHandler::readZipAttachment(fs::path const& filename) -> std::unique_ptr
         return {};
     }
 
-    if (!(attachmentFileStat.valid & ZIP_STAT_SIZE)) {
-        logError(FS(_F("Could not open attachment: {1}. Error message: No valid file size provided") %
-                    filename.u8string()));
+    const auto declared = zipx::declaredSize(attachmentFileStat);
+    if (!declared) {
+        logAttachmentFailure(filename, zipx::ReadStatus::SizeUnknown, perAttachmentLimit);
         return {};
     }
-    const zip_uint64_t length = attachmentFileStat.size;
 
-    auto attachmentFile = zip_file_wrapper{zip_fopen(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0)};
+    const auto admission =
+            admitAttachment(*declared, perAttachmentLimit, this->limits.maxMemoryBudgetBytes, this->memoryBytesUsed);
+    if (admission == Admission::TooLarge) {
+        logAttachmentFailure(filename, zipx::ReadStatus::TooLarge, perAttachmentLimit);
+        return {};
+    }
+    if (admission != Admission::Ok) {
+        logAttachmentRefused(filename, admission);
+        return {};
+    }
+
+    const auto attachmentFile =
+            zip_file_wrapper{zip_fopen(this->zipFp.get(), char_cast(filename.u8string().c_str()), 0)};
     if (!attachmentFile) {
         logError(FS(_F("Could not open attachment: {1}. Error message: {2}") % filename.u8string() %
                     zip_error_strerror(zip_get_error(this->zipFp.get()))));
         return {};
     }
 
-    auto data = std::make_unique<std::string>(length, 0);
-    zip_uint64_t readBytes = 0;
-    while (readBytes < length) {
-        const zip_int64_t read = zip_fread(attachmentFile.get(), data->data() + readBytes, length - readBytes);
-        if (read == -1) {
-            logError(FS(_F("Could not open attachment: {1}. Error message: No valid file size provided") %
-                        filename.u8string()));
-            return {};
-        }
-
-        readBytes += static_cast<zip_uint64_t>(read);
+    // *declared passed the limit above, so it fits in size_t (checked again, defensively, by readZipFileBounded)
+    auto data = std::make_unique<std::string>();
+    uint64_t bytesRead = 0;
+    const auto status = zipx::readZipFileBounded(attachmentFile.get(), *declared, perAttachmentLimit,
+                                                 zipx::StringSink{*data, static_cast<size_t>(*declared)}, bytesRead);
+    if (status != zipx::ReadStatus::Ok) {
+        logAttachmentFailure(filename, status, perAttachmentLimit);
+        return {};
     }
 
+    this->memoryBytesUsed += bytesRead;
     return data;
 }
 

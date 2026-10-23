@@ -1,6 +1,7 @@
 #include "util/XojPreviewExtractor.h"
 
 #include <array>    // for array
+#include <cstdint>  // for uint64_t
 #include <cstring>  // for strlen, strncmp
 #include <string>   // for allocator, string
 
@@ -9,6 +10,7 @@
 #include <zipconf.h>  // for zip_int64_t, zip_uint64_t
 #include <zlib.h>     // for gzclose, gzread, gzFile
 
+#include "util/BoundedZipRead.h"  // for readZipFileBounded
 #include "util/GzUtil.h"      // for GzUtil
 #include "util/PathUtil.h"    // for hasXournalFileExt
 #include "util/StringUtils.h"  // for char_cast
@@ -28,6 +30,8 @@ const size_t TAG_PREVIEW_END_NAME_LEN = strlen(TAG_PREVIEW_END_NAME);
 // see https://stackoverflow.com/a/4715480/2907484
 // round it up a bit
 constexpr auto BUF_SIZE = 68000;
+// A thumbnail is at most ~50 kB (see above). Anything near this limit is not a thumbnail.
+constexpr uint64_t MAX_THUMBNAIL_SIZE = uint64_t{1024} * 1024;
 
 XojPreviewExtractor::XojPreviewExtractor() = default;
 
@@ -141,9 +145,8 @@ auto XojPreviewExtractor::readFile(const fs::path& file) -> PreviewExtractResult
         return PREVIEW_RESULT_NO_PREVIEW;
     }
 
-    if (thumbStat.valid & ZIP_STAT_SIZE) {
-        dataLen = thumbStat.size;
-    } else {
+    const auto declared = xoj::util::zip::declaredSize(thumbStat);
+    if (!declared) {
         zip_close(zipFp);
         return PREVIEW_RESULT_ERROR_READING_PREVIEW;
     }
@@ -155,20 +158,21 @@ auto XojPreviewExtractor::readFile(const fs::path& file) -> PreviewExtractResult
         return PREVIEW_RESULT_ERROR_READING_PREVIEW;
     }
 
-    data = static_cast<unsigned char*>(g_malloc(thumbStat.size));
-    zip_uint64_t readBytes = 0;
-    while (readBytes < dataLen) {
-        zip_int64_t read = zip_fread(thumb, data, thumbStat.size);
-        if (read == -1) {
-            g_free(data);
-            zip_fclose(thumb);
-            zip_close(zipFp);
-            return PREVIEW_RESULT_ERROR_READING_PREVIEW;
-        }
-        readBytes += static_cast<zip_uint64_t>(read);
-    }
-
+    // The announced size is untrusted: it is checked against MAX_THUMBNAIL_SIZE before reading, and the thumbnail is
+    // read incrementally into a buffer that never grows past what the archive really delivers.
+    std::string thumbnail;
+    uint64_t bytesRead = 0;
+    const auto status = xoj::util::zip::readZipFileBounded(
+            thumb, *declared, MAX_THUMBNAIL_SIZE, xoj::util::zip::StringSink{thumbnail, static_cast<size_t>(*declared)},
+            bytesRead);
     zip_fclose(thumb);
     zip_close(zipFp);
+    if (status != xoj::util::zip::ReadStatus::Ok) {
+        return PREVIEW_RESULT_ERROR_READING_PREVIEW;
+    }
+
+    data = static_cast<unsigned char*>(g_malloc(thumbnail.size()));
+    std::memcpy(data, thumbnail.data(), thumbnail.size());
+    dataLen = thumbnail.size();
     return PREVIEW_RESULT_IMAGE_READ;
 }
