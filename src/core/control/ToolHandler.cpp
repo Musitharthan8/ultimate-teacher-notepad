@@ -187,6 +187,9 @@ void ToolHandler::selectTool(ToolType type) {
         g_warning("unknown tool selected: %i\n", type);
         return;
     }
+    // Spotlight/Curtain swallow page input; choosing any tool must leave a usable page. The presentation kit
+    // re-enables the overlay after selecting the hand tool.
+    this->clearPresentationOverlay();
     if (type != TOOL_HIGHLIGHTER) {
         this->smartHighlighterEnabled = false;
     }

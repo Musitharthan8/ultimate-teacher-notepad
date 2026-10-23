@@ -243,3 +243,29 @@ TEST(TeacherEraser, stylusEraserEndUsesTheSliderSize) {
     EXPECT_EQ(tools.getToolType(), TOOL_ERASER);
     EXPECT_DOUBLE_EQ(tools.getThickness(), 17.0);
 }
+
+// M2-01: Spotlight/Curtain consume page input, so any ordinary tool switch must leave a usable page.
+TEST(PresentationOverlay, choosingAnyOrdinaryToolClearsSpotlightAndCurtain) {
+    const ToolType ordinary[] = {TOOL_PEN, TOOL_HIGHLIGHTER, TOOL_ERASER, TOOL_TEXT, TOOL_SELECT_RECT, TOOL_HAND};
+    for (ToolType type: ordinary) {
+        ToolHandler tools(nullptr, nullptr, nullptr);
+        tools.selectTool(TOOL_HAND);
+        tools.setSpotlightEnabled(true);
+        tools.selectTool(type);
+        EXPECT_FALSE(tools.isSpotlightEnabled()) << "tool " << type;
+
+        tools.setCurtainEnabled(true);
+        tools.selectTool(type);
+        EXPECT_FALSE(tools.isCurtainEnabled()) << "tool " << type;
+    }
+}
+
+TEST(PresentationOverlay, spotlightAndCurtainAreMutuallyExclusive) {
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setSpotlightEnabled(true);
+    tools.setCurtainEnabled(true);
+    EXPECT_FALSE(tools.isSpotlightEnabled());
+    EXPECT_TRUE(tools.isCurtainEnabled());
+    tools.clearPresentationOverlay();
+    EXPECT_FALSE(tools.isCurtainEnabled());
+}
