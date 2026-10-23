@@ -1329,3 +1329,32 @@ TEST(EraseHandler, objectEraseInvalidatesEveryRenderedAnswerBoxPixel) {
         cairo_surface_destroy(surface);
     }
 }
+
+// M2-02: a stray Object-eraser swipe must not delete a page-sized picture (a scanned worksheet); small pictures,
+// text and Answer Boxes stay deletable, and the large picture is still removable by selecting it.
+TEST(EraseHandler, objectEraserDoesNotDeletePageSizedPicture) {
+    auto page = std::make_shared<XojPage>(300, 400);
+    page->getSelectedLayer()->addElement(makePngImage(0, 0, 300, 400));   // whole page
+    page->getSelectedLayer()->addElement(makePngImage(20, 20, 40, 20));   // small figure on top
+
+    Document document(nullptr);
+    UndoRedoHandler undo(nullptr);
+    ToolHandler tools(nullptr, nullptr, nullptr);
+    tools.setEraserThickness(5);
+    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.selectTool(TOOL_ERASER);
+    EraseTestView view;
+    EraseHandler eraser(&undo, &document, page, &tools, &view);
+
+    eraser.erase(200, 250);  // only the page-sized picture is here
+    eraser.erase(210, 260);
+    eraser.finalize();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 2U) << "page-sized picture must survive a stray swipe";
+    EXPECT_FALSE(undo.canUndo());
+
+    EraseHandler second(&undo, &document, page, &tools, &view);
+    second.erase(40, 30);  // the small figure
+    second.finalize();
+    EXPECT_EQ(countType(page, ELEMENT_IMAGE), 1U) << "the small picture is still deletable";
+    EXPECT_TRUE(undo.canUndo());
+}

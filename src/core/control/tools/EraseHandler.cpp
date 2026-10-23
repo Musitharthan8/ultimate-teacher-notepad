@@ -53,6 +53,11 @@ bool inkMayIntersect(const Stroke& s, const xoj::util::Rectangle<double>& rect) 
     return padded.intersects(rect).has_value();
 }
 
+/// Whether an element covers at least half of the page area (see the Object eraser)
+bool isPageSized(const xoj::util::Rectangle<double>& box, double pageWidth, double pageHeight) {
+    return pageWidth > 0 && pageHeight > 0 && box.width * box.height >= 0.5 * pageWidth * pageHeight;
+}
+
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
 bool alreadyErased(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b, double radius);
@@ -247,6 +252,11 @@ void EraseHandler::erase(double x, double y) {
                     continue;
                 }
                 const auto box = e->getBoundingBox();
+                if (e->getType() == ELEMENT_IMAGE && isPageSized(box, page->getWidth(), page->getHeight())) {
+                    // A scanned worksheet or full-page picture is background-like: a stray swipe must not delete it.
+                    // It can still be removed deliberately by selecting it.
+                    continue;
+                }
                 for (size_t i = 1; i <= steps; ++i) {
                     const double t = static_cast<double>(i) / steps;
                     const utn::eraser::Vec sample{start.x + (x - start.x) * t, start.y + (y - start.y) * t};
