@@ -550,3 +550,61 @@ TEST_F(ClassroomWorkflow, mixedLessonSelectionMoveResizeDeleteHistoryAndSave) {
     }
     EXPECT_FALSE(reopened->getPage(0)->getLayers().at(1)->isVisible());
 }
+
+namespace {
+bool pressEscape(MainWindow* window) {
+    GdkEvent* event = gdk_event_new(GDK_KEY_PRESS);
+    event->key.keyval = GDK_KEY_Escape;
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(window->getWindow(), "key-press-event", event, &handled);
+    gdk_event_free(event);
+    return handled;
+}
+
+void turnOnOverlay(Control* control, bool spotlight) {
+    auto* tools = control->getToolHandler();
+    control->selectTool(TOOL_HAND);
+    if (spotlight) {
+        tools->setSpotlightEnabled(true);
+    } else {
+        tools->setCurtainEnabled(true);
+    }
+    tools->fireToolChanged();
+    settle();
+}
+}  // namespace
+
+// M2-01: the active Spotlight/Curtain is named on screen, and Escape, the banner button, a tool switch and the
+// Present menu entry all leave a usable page.
+TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) {
+    window->show(nullptr);
+    auto* tools = control->getToolHandler();
+    EXPECT_FALSE(window->isPresentationBannerVisible());
+
+    for (bool spotlight: {true, false}) {
+        const std::string expected = spotlight ? "Spotlight" : "Curtain";
+
+        turnOnOverlay(control.get(), spotlight);
+        ASSERT_TRUE(window->isPresentationBannerVisible());
+        EXPECT_NE(window->getPresentationBannerText().find(expected), std::string::npos);
+
+        // Escape exits, and is consumed
+        EXPECT_TRUE(pressEscape(window.get()));
+        EXPECT_FALSE(tools->isSpotlightEnabled());
+        EXPECT_FALSE(tools->isCurtainEnabled());
+        EXPECT_FALSE(window->isPresentationBannerVisible());
+
+        // Any ordinary tool switch leaves a safe page and hides the banner
+        turnOnOverlay(control.get(), spotlight);
+        control->selectTool(TOOL_PEN);
+        EXPECT_FALSE(tools->isSpotlightEnabled());
+        EXPECT_FALSE(tools->isCurtainEnabled());
+        EXPECT_FALSE(window->isPresentationBannerVisible());
+
+        // The explicit exit function used by the banner button and the menu
+        turnOnOverlay(control.get(), spotlight);
+        window->exitPresentationOverlay();
+        EXPECT_FALSE(tools->isSpotlightEnabled() || tools->isCurtainEnabled());
+        EXPECT_FALSE(window->isPresentationBannerVisible());
+    }
+}

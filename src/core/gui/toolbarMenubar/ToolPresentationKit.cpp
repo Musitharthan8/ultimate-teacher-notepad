@@ -34,14 +34,22 @@ void repaintPresentationOverlay(Control* control) {
     }
 }
 
+// One exit path for the menu, the banner button and Escape
+void exitPresentationOverlay(Control* control) {
+    if (auto* window = control->getWindow()) {
+        window->exitPresentationOverlay();
+        return;
+    }
+    control->getToolHandler()->clearPresentationOverlay();
+    control->getToolHandler()->fireToolChanged();
+}
+
 // Every tool switch goes through Control so text edits, selections and special modes are finished properly
 void selectPresentationTool(Control* control, ToolType tool, bool spotlight = false, bool curtain = false) {
     auto* tools = control->getToolHandler();
     // A teacher tapping the active temporary screen effect again expects it to close.
     if ((spotlight && tools->isSpotlightEnabled()) || (curtain && tools->isCurtainEnabled())) {
-        tools->clearPresentationOverlay();
-        tools->fireToolChanged();
-        repaintPresentationOverlay(control);
+        exitPresentationOverlay(control);
         return;
     }
     tools->clearPresentationOverlay();
@@ -103,11 +111,7 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             [](Control* c) { selectPresentationTool(c, TOOL_HAND, false, true); });
     connect(utn::appendMenuButton(panel, popover, _("EXIT Spotlight / Curtain"),
                                   _("Restore the full page without deleting any saved work")),
-            [](Control* c) {
-                c->getToolHandler()->clearPresentationOverlay();
-                c->getToolHandler()->fireToolChanged();
-                repaintPresentationOverlay(c);
-            });
+            [](Control* c) { exitPresentationOverlay(c); });
 
     utn::appendPopoverHeading(panel, _("Tidy up"));
     connect(utn::appendMenuButton(panel, popover, _("Clear temporary ink"),

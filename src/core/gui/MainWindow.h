@@ -97,6 +97,13 @@ public:
     void showToast(const std::string& message, bool offerUndo = false);
     UtnToast* getToast() const;
 
+    /// UTN: leave Spotlight/Curtain and show the whole page again (Escape, the banner button and the Present menu)
+    void exitPresentationOverlay();
+    /// UTN: banner naming the active Spotlight/Curtain with an Exit button; hidden otherwise
+    void updatePresentationBanner();
+    bool isPresentationBannerVisible() const;
+    std::string getPresentationBannerText() const;
+
     /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
     void updateCompactLayout(int width);
 
@@ -183,6 +190,9 @@ private:
     std::unique_ptr<PdfFloatingToolbox> pdfFloatingToolBox;
     std::unique_ptr<FloatingToolbox> floatingToolbox;
     std::unique_ptr<UtnToast> toast;
+    GtkWidget* presentationBanner = nullptr;
+    GtkWidget* presentationBannerLabel = nullptr;
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     bool compactLayout = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
     int teacherWorkspace = 0;

@@ -132,6 +132,37 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     this->floatingToolbox = std::make_unique<FloatingToolbox>(this, overlay);
     this->toast = std::make_unique<UtnToast>(overlay);
 
+    // Spotlight/Curtain swallow page input, so a visible banner always names the active mode and offers the way out.
+    presentationBanner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(presentationBanner, "utn-toast");
+    gtk_widget_add_css_class(presentationBanner, "utn-presentation-banner");
+    gtk_widget_set_halign(presentationBanner, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(presentationBanner, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(presentationBanner, 12);
+    presentationBannerLabel = gtk_label_new(nullptr);
+    gtk_box_append(GTK_BOX(presentationBanner), presentationBannerLabel);
+    GtkWidget* exitButton = gtk_button_new_with_label(_("Show the whole page (Esc)"));
+    gtk_widget_set_focus_on_click(exitButton, false);
+    utn::setAccessibleName(exitButton, _("Exit Spotlight or Curtain"));
+    g_signal_connect(exitButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<MainWindow*>(data)->exitPresentationOverlay();
+                     }),
+                     this);
+    gtk_box_append(GTK_BOX(presentationBanner), exitButton);
+    gtk_widget_show_all(presentationBanner);
+    gtk_widget_set_no_show_all(presentationBanner, true);
+    gtk_widget_hide(presentationBanner);
+    gtk_overlay_add_overlay(overlay, presentationBanner);
+    gtk_overlay_set_overlay_pass_through(overlay, presentationBanner, false);
+    {
+        std::weak_ptr<bool> weakAlive = this->alive;
+        control->getToolHandler()->addToolChangedListener([this, weakAlive](ToolType) {
+            if (!weakAlive.expired()) {
+                updatePresentationBanner();
+            }
+        });
+    }
+
     for (size_t i = 0; i < TOOLBAR_DEFINITIONS_LEN; i++) {
         this->toolbarWidgets[i].reset(get(TOOLBAR_DEFINITIONS[i].guiName), xoj::util::ref);
     }
@@ -174,16 +205,9 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) -> gboolean {
         if (e->type == GDK_KEY_PRESS && reinterpret_cast<GdkEventKey*>(e)->keyval == GDK_KEY_Escape) {
             auto* self = static_cast<MainWindow*>(data);
-            auto* currentControl = self->getControl();
-            auto* tools = currentControl->getToolHandler();
+            auto* tools = self->getControl()->getToolHandler();
             if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
-                tools->clearPresentationOverlay();
-                tools->fireToolChanged();
-                if (auto* xournal = self->getXournal()) {
-                    if (auto* page = xournal->getViewFor(currentControl->getCurrentPageNo())) {
-                        page->repaintPage();
-                    }
-                }
+                self->exitPresentationOverlay();
                 return TRUE;
             }
         }
@@ -976,6 +1000,42 @@ void MainWindow::showToast(const std::string& message, bool offerUndo) {
 }
 
 UtnToast* MainWindow::getToast() const { return this->toast.get(); }
+
+void MainWindow::exitPresentationOverlay() {
+    auto* tools = control->getToolHandler();
+    tools->clearPresentationOverlay();
+    tools->fireToolChanged();  // updates the banner and every tool indicator
+    if (auto* view = getXournal()) {
+        if (auto* page = view->getViewFor(control->getCurrentPageNo())) {
+            page->repaintPage();
+        }
+    }
+}
+
+void MainWindow::updatePresentationBanner() {
+    if (!presentationBanner) {
+        return;
+    }
+    auto* tools = control->getToolHandler();
+    const bool spotlight = tools->isSpotlightEnabled();
+    const bool curtain = tools->isCurtainEnabled();
+    if (spotlight || curtain) {
+        gtk_label_set_text(GTK_LABEL(presentationBannerLabel),
+                           spotlight ? _("Spotlight is ON: the page is darkened") :
+                                       _("Curtain is ON: the page is covered"));
+        gtk_widget_show(presentationBanner);
+    } else {
+        gtk_widget_hide(presentationBanner);
+    }
+}
+
+bool MainWindow::isPresentationBannerVisible() const {
+    return presentationBanner && gtk_widget_get_visible(presentationBanner);
+}
+
+std::string MainWindow::getPresentationBannerText() const {
+    return isPresentationBannerVisible() ? gtk_label_get_text(GTK_LABEL(presentationBannerLabel)) : std::string();
+}
 
 namespace {
 void setRailLabelsVisible(GtkWidget* widget, bool visible) {
