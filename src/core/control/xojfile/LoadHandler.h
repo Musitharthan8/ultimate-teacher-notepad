@@ -258,8 +258,10 @@ private:
         xoj::util::zip::ReadStatus status = xoj::util::zip::ReadStatus::ReadError;
         fs::path tempPath;
     };
-    std::unordered_map<zip_uint64_t, CachedAttachment> imageAttachments;
-    std::unordered_map<zip_uint64_t, CachedAttachment> pdfAttachments;
+    // One raw read cache for every attachment kind: the same ZIP entry may be referenced under different XML roles.
+    std::unordered_map<zip_uint64_t, CachedAttachment> zipAttachments;
+    std::unordered_set<zip_uint64_t> imageLimitRefusals;
+    std::unordered_set<zip_uint64_t> pdfLimitRefusals;
     struct CachedBackground {
         bool attempted = false;
         bool valid = false;

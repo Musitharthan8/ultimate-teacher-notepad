@@ -1131,15 +1131,24 @@ auto LoadHandler::readZipAttachment(fs::path const& filename, AttachmentKind kin
         return {};
     }
     const auto index = static_cast<zip_uint64_t>(located);
-    auto& cache = kind == AttachmentKind::Pdf ? this->pdfAttachments[index] : this->imageAttachments[index];
+    auto& kindRefusals = kind == AttachmentKind::Pdf ? this->pdfLimitRefusals : this->imageLimitRefusals;
+    if (kindRefusals.contains(index)) {
+        return {};
+    }
+    auto& cache = this->zipAttachments[index];
     if (cache.attempted) {
+        if (cache.data && cache.data->size() > perAttachmentLimit) {
+            kindRefusals.emplace(index);
+            logAttachmentFailure(filename, zipx::ReadStatus::TooLarge, perAttachmentLimit);
+            return {};
+        }
         return cache.data;
     }
-    cache.attempted = true;
 
     zip_stat_t attachmentFileStat;
     const int statStatus = zip_stat_index(this->zipFp.get(), index, ZIP_FL_UNCHANGED, &attachmentFileStat);
     if (statStatus != 0) {
+        cache.attempted = true;
         cache.status = zipx::ReadStatus::ReadError;
         logError(FS(_F("Could not open attachment: {1}. Error message: {2}") % filename.u8string() %
                     zip_error_strerror(zip_get_error(this->zipFp.get()))));
@@ -1148,6 +1157,7 @@ auto LoadHandler::readZipAttachment(fs::path const& filename, AttachmentKind kin
 
     const auto declared = zipx::declaredSize(attachmentFileStat);
     if (!declared) {
+        cache.attempted = true;
         cache.status = zipx::ReadStatus::SizeUnknown;
         logAttachmentFailure(filename, zipx::ReadStatus::SizeUnknown, perAttachmentLimit);
         return {};
@@ -1160,14 +1170,16 @@ auto LoadHandler::readZipAttachment(fs::path const& filename, AttachmentKind kin
         this->countedZipEntries.emplace(index);
     }
     if (admission == Admission::TooLarge) {
-        cache.status = zipx::ReadStatus::TooLarge;
+        kindRefusals.emplace(index);
         logAttachmentFailure(filename, zipx::ReadStatus::TooLarge, perAttachmentLimit);
         return {};
     }
     if (admission != Admission::Ok) {
+        kindRefusals.emplace(index);
         logAttachmentRefused(filename, admission);
         return {};
     }
+    cache.attempted = true;
     // Charge failed reads as well as successful ones so a collection of bad entries cannot evade the work budget.
     this->memoryBytesUsed += *declared;
 

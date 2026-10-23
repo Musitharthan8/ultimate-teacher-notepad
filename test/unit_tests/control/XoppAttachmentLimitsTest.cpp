@@ -313,6 +313,12 @@ std::string pageWithImage(const std::string& attachment) {
            attachment + "\"/></image></layer></page>\n";
 }
 
+std::string pageWithPdfAndImageAttachment(const std::string& attachment) {
+    return "<page width=\"200\" height=\"200\"><background type=\"pdf\" domain=\"attach\" filename=\"" +
+           attachment + "\" pageno=\"1\"/><layer><image left=\"10\" top=\"10\" right=\"50\" bottom=\"50\"><attachment path=\"" +
+           attachment + "\"/></image></layer></page>\n";
+}
+
 std::string encodeBase64(std::string_view data) {
     gchar* encoded = g_base64_encode(reinterpret_cast<const guchar*>(data.data()), data.size());
     std::string result(encoded);
@@ -687,6 +693,16 @@ TEST(XoppAttachmentLoad, RepeatedFailedImageReferenceDoesNotBlockDistinctValidIm
     ASSERT_NE(dynamic_cast<const Image*>(elements[0]), nullptr);
     EXPECT_EQ(countErrorsContaining(r, "damaged"), 1U);
     EXPECT_EQ(countErrorsContaining(r, "more than 2 attachments"), 0U);
+}
+
+TEST(XoppAttachmentLoad, OneCorruptEntryReferencedAsImageAndPdfIsReadOnlyOnce) {
+    const auto path = makeXopp("shared-cross-type-corrupt", wrapXml(pageWithPdfAndImageAttachment("attachments/shared")),
+                               {ZipEntry{"attachments/shared", std::string("broken entry"), false}});
+    corruptStoredEntry(path, "attachments/shared");
+    auto result = load(path, smallLimits());
+    ASSERT_FALSE(result.threw) << result.what;
+    ASSERT_TRUE(result.doc);
+    EXPECT_EQ(countErrorsContaining(result, "damaged"), 1U);
 }
 
 TEST(XoppAttachmentLoad, DistinctFailedReadsConsumeTheDocumentBudget) {
