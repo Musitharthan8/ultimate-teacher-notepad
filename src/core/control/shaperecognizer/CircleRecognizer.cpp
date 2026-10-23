@@ -51,7 +51,7 @@ bool fitsSquareBetter(const Stroke& stroke, const Inertia& inertia) {
         }
         // Require strong evidence for straight sides, so jittery circular loops
         // keep the existing circle tolerance. Both errors are length weighted.
-        if (squareError < 0.5 * circleError) {
+        if (squareError < 0.9 * circleError) {
             return true;
         }
     }
