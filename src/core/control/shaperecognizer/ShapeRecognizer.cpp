@@ -331,6 +331,63 @@ auto ShapeRecognizer::isStrokeLargeEnough(Stroke* stroke, double strokeMinSize) 
     return std::hypot(rect.width, rect.height) >= strokeMinSize;
 }
 
+namespace {
+// A box or triangle found after restarting at a corner must stay this close to what was drawn, else leave the ink
+constexpr double RESTART_MAX_DEVIATION = 0.06;
+
+/**
+ * A hand often puts the pen down in the middle of an edge, so a closed box becomes five or more segments and misses the
+ * polygon test. Return the same stroke restarted at its sharpest corner, or nullptr if the stroke is not a closed loop.
+ */
+std::unique_ptr<Stroke> restartAtSharpestCorner(Stroke* original) {
+    const auto& pts = original->getPointVector();
+    const size_t n = pts.size();
+    if (n < 12) {
+        return nullptr;
+    }
+    const auto box = original->getSnappedBounds();
+    const double diagonal = std::hypot(box.width, box.height);
+    if (diagonal <= 0 || std::hypot(pts.front().x - pts.back().x, pts.front().y - pts.back().y) > 0.25 * diagonal) {
+        return nullptr;  // not a closed loop
+    }
+    const size_t window = std::max<size_t>(2, n / 20);
+    double sharpest = 0;
+    size_t corner = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const Point& before = pts[(i + n - window) % n];
+        const Point& here = pts[i];
+        const Point& after = pts[(i + window) % n];
+        const double ax = here.x - before.x, ay = here.y - before.y;
+        const double bx = after.x - here.x, by = after.y - here.y;
+        const double turn = std::fabs(std::atan2(ax * by - ay * bx, ax * bx + ay * by));
+        if (turn > sharpest) {
+            sharpest = turn;
+            corner = i;
+        }
+    }
+    auto rotated = std::make_unique<Stroke>();
+    rotated->applyStyleFrom(original);
+    for (size_t k = 0; k <= n; ++k) {
+        rotated->addPoint(pts[(corner + k) % n]);
+    }
+    return rotated;
+}
+/** Mean distance from the replacement's corners to the original ink, relative to the stroke's size. */
+double cornerDeviation(const Stroke& replacement, const Stroke& original) {
+    const auto box = original.getSnappedBounds();
+    const double diagonal = std::hypot(box.width, box.height);
+    double sum = 0;
+    for (const Point& corner: replacement.getPointVector()) {
+        double nearest = 1e18;
+        for (const Point& p: original.getPointVector()) {
+            nearest = std::min(nearest, std::hypot(corner.x - p.x, corner.y - p.y));
+        }
+        sum += nearest;
+    }
+    return diagonal > 0 ? sum / static_cast<double>(replacement.getPointCount()) / diagonal : 1e18;
+}
+}  // namespace
+
 /**
  * The main pattern recognition function
  */
@@ -435,6 +492,20 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double strokeMinSize) ->
 
             RDEBUG("return line");
             return s;
+        }
+    }
+
+    // A closed shape started away from a corner: retry once from its sharpest corner, accepting only a box or triangle
+    if (!restartedAtCorner) {
+        if (auto restarted = restartAtSharpestCorner(stroke)) {
+            ShapeRecognizer again;
+            again.restartedAtCorner = true;
+            auto result = again.recognizePatterns(restarted.get(), 0.0);
+            if (result && (result->getPointCount() == 4 || result->getPointCount() == 5) &&
+                cornerDeviation(*result, *stroke) <= RESTART_MAX_DEVIATION) {
+                RDEBUG("return polygon after restarting at a corner");
+                return result;
+            }
         }
     }
 

@@ -47,4 +47,6 @@ private:
     int queueLength;
 
     Stroke* stroke;
+    /// Set on the internal retry that restarts a closed stroke at its sharpest corner (see recognizePatterns)
+    bool restartedAtCorner = false;
 };
