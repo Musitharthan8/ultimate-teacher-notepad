@@ -37,6 +37,13 @@ void repaintPresentationOverlay(Control* control) {
 // Every tool switch goes through Control so text edits, selections and special modes are finished properly
 void selectPresentationTool(Control* control, ToolType tool, bool spotlight = false, bool curtain = false) {
     auto* tools = control->getToolHandler();
+    // A teacher tapping the active temporary screen effect again expects it to close.
+    if ((spotlight && tools->isSpotlightEnabled()) || (curtain && tools->isCurtainEnabled())) {
+        tools->clearPresentationOverlay();
+        tools->fireToolChanged();
+        repaintPresentationOverlay(control);
+        return;
+    }
     tools->clearPresentationOverlay();
     control->selectTool(tool);
     if (spotlight) {
@@ -90,22 +97,22 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     connect(utn::appendMenuButton(panel, popover, _("Temporary highlight"),
                                   _("Highlight that fades away; it is never saved")),
             [](Control* c) { selectPresentationTool(c, TOOL_LASER_POINTER_HIGHLIGHTER); });
-    connect(utn::appendMenuButton(panel, popover, _("Spotlight"), _("Darken the page except around the pointer")),
+    connect(utn::appendMenuButton(panel, popover, _("Spotlight (on / off)"), _("Darken the page; choose again to show the page")),
             [](Control* c) { selectPresentationTool(c, TOOL_HAND, true, false); });
-    connect(utn::appendMenuButton(panel, popover, _("Curtain"), _("Cover the page and drag to reveal it gradually")),
+    connect(utn::appendMenuButton(panel, popover, _("Curtain (on / off)"), _("Cover the page; choose again to show the page")),
             [](Control* c) { selectPresentationTool(c, TOOL_HAND, false, true); });
+    connect(utn::appendMenuButton(panel, popover, _("EXIT Spotlight / Curtain"),
+                                  _("Restore the full page without deleting any saved work")),
+            [](Control* c) {
+                c->getToolHandler()->clearPresentationOverlay();
+                c->getToolHandler()->fireToolChanged();
+                repaintPresentationOverlay(c);
+            });
 
     utn::appendPopoverHeading(panel, _("Tidy up"));
     connect(utn::appendMenuButton(panel, popover, _("Clear temporary ink"),
                                   _("Remove temporary ink and highlights from all pages. Saved work is not affected.")),
             clearTemporaryInk);
-    connect(utn::appendMenuButton(panel, popover, _("Show the whole page"),
-                                  _("Turn off Spotlight or Curtain without changing the tool")),
-            [](Control* c) {
-                c->getToolHandler()->clearPresentationOverlay();
-                repaintPresentationOverlay(c);
-            });
-
     utn::appendPopoverHeading(panel, _("Screen"));
     connect(utn::appendMenuButton(panel, popover, _("Presentation mode on or off"),
                                   _("Show one page at a time without the toolbars")),
