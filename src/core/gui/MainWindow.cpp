@@ -171,7 +171,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
 
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
     // Keep native GTK handling whenever no classroom overlay is active.
-    auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) {
+    auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) -> gboolean {
         if (e->type == GDK_KEY_PRESS && reinterpret_cast<GdkEventKey*>(e)->keyval == GDK_KEY_Escape) {
             auto* self = static_cast<MainWindow*>(data);
             auto* currentControl = self->getControl();
