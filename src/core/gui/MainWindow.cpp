@@ -11,6 +11,7 @@
 
 #include "control/AudioController.h"                    // for AudioController
 #include "control/Control.h"                            // for Control
+#include "control/ToolHandler.h"                        // for presentation overlay state
 #include "control/DeviceListHelper.h"                   // for getSourceMapping
 #include "control/ScrollHandler.h"                      // for ScrollHandler
 #include "control/actions/ActionDatabase.h"             // for ActionDatabase
@@ -22,6 +23,7 @@
 #include "gui/FloatingToolbox.h"                        // for FloatingToolbox
 #include "gui/GladeGui.h"                               // for GladeGui
 #include "gui/PdfFloatingToolbox.h"                     // for PdfFloatingToolbox
+#include "gui/PageView.h"                               // for repaintPage
 #include "gui/SearchBar.h"                              // for SearchBar
 #include "gui/inputdevices/InputEvents.h"               // for INPUT_DEVICE_TOUC...
 #include "gui/menus/menubar/Menubar.h"                  // for Menubar
@@ -167,12 +169,28 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
             }),
             this);
 
-    // "watch over" all key events
-    auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer) {
-        return gtk_window_propagate_key_event(GTK_WINDOW(w), (GdkEventKey*)(e));
+    // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
+    // Keep native GTK handling whenever no classroom overlay is active.
+    auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) {
+        if (e->type == GDK_KEY_PRESS && reinterpret_cast<GdkEventKey*>(e)->keyval == GDK_KEY_Escape) {
+            auto* self = static_cast<MainWindow*>(data);
+            auto* currentControl = self->getControl();
+            auto* tools = currentControl->getToolHandler();
+            if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
+                tools->clearPresentationOverlay();
+                tools->fireToolChanged();
+                if (auto* xournal = self->getXournal()) {
+                    if (auto* page = xournal->getViewFor(currentControl->getCurrentPageNo())) {
+                        page->repaintPage();
+                    }
+                }
+                return TRUE;
+            }
+        }
+        return gtk_window_propagate_key_event(GTK_WINDOW(w), reinterpret_cast<GdkEventKey*>(e));
     };
-    g_signal_connect(this->window, "key-press-event", G_CALLBACK(keyPropagate), nullptr);
-    g_signal_connect(this->window, "key-release-event", G_CALLBACK(keyPropagate), nullptr);
+    g_signal_connect(this->window, "key-press-event", G_CALLBACK(keyPropagate), this);
+    g_signal_connect(this->window, "key-release-event", G_CALLBACK(keyPropagate), this);
 
     updateScrollbarSidebarPosition();
 
