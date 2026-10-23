@@ -158,6 +158,22 @@ endif (ENABLE_PROFILING)
 
 pkg_check_modules(ExternalModules REQUIRED IMPORTED_TARGET ${pkg-module-spec})
 
+# GHSA-m3wq-j48p-jxwh (CWE-400): libzip < 1.12 opens a crafted archive in quadratic time, before any limit of ours can
+# apply. The build minimum stays low because Debian/Ubuntu/Fedora LTS ship older libzip; builds that ship their own
+# libzip (the Windows portable/installer) must set UTN_REQUIRE_PATCHED_LIBZIP=ON.
+set(UTN_PATCHED_LIBZIP_VERSION "1.12")
+option(UTN_REQUIRE_PATCHED_LIBZIP "Fail the configuration if libzip is older than ${UTN_PATCHED_LIBZIP_VERSION}" OFF)
+if (ExternalModules_libzip_VERSION VERSION_LESS UTN_PATCHED_LIBZIP_VERSION)
+  if (UTN_REQUIRE_PATCHED_LIBZIP)
+    message(FATAL_ERROR "libzip ${ExternalModules_libzip_VERSION} is affected by GHSA-m3wq-j48p-jxwh. "
+                        "Install libzip >= ${UTN_PATCHED_LIBZIP_VERSION} or unset UTN_REQUIRE_PATCHED_LIBZIP.")
+  else ()
+    message(WARNING "libzip ${ExternalModules_libzip_VERSION} is affected by GHSA-m3wq-j48p-jxwh "
+                    "(denial of service when opening a crafted .xopp). Use libzip >= ${UTN_PATCHED_LIBZIP_VERSION} "
+                    "for builds you distribute.")
+  endif ()
+endif ()
+
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
