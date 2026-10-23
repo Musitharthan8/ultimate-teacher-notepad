@@ -33,8 +33,8 @@ struct AttachmentLimits {
     /// Everything written to temporary files (audio) over the whole document
     uint64_t maxDiskBudgetBytes = 512 * MiB;
 
-    /// Number of attachments that may be extracted for one document, including repeated and failed attempts.
-    /// A 300 page notebook with a picture background and a few stamps per page stays far below.
+    /// Number of distinct archive entries and inline image payloads admitted for one document.
+    /// Repeated archive references share a cache and do not consume another slot.
     size_t maxAttachmentCount = 4096;
 
     /// Size of the (decompressed) XML. Benchmarked repository corpus is 18 MiB at the largest; 256 MiB leaves ample
