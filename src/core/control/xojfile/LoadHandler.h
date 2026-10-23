@@ -18,12 +18,14 @@
 #include <string>         // for string
 #include <string_view>    // for string_view
 #include <unordered_map>  // for unordered_map
+#include <unordered_set>  // for unordered_set
 #include <vector>         // for vector
 
 #include <zip.h>  // for zip_t
 
 #include "control/xojfile/AttachmentLimits.h"          // for AttachmentLimits
 #include "control/xojfile/DocumentBuilderInterface.h"  // for DocumentBuilderInterface
+#include "model/BackgroundImage.h"                     // for BackgroundImage
 #include "model/Document.h"                            // for Document
 #include "model/Layer.h"                               // for LayerAudience
 #include "model/DocumentHandler.h"                     // for DocumentHandler
@@ -181,7 +183,8 @@ private:
      * nullptr if there is no such file, if it is corrupt or truncated, or if it
      * exceeds the attachment limits. The reason is reported through `logError()`.
      */
-    std::unique_ptr<std::string> readZipAttachment(fs::path const& filename, AttachmentKind kind);
+    std::shared_ptr<std::string> readZipAttachment(fs::path const& filename, AttachmentKind kind);
+    std::shared_ptr<std::string> decodeInlineImage(std::string_view encoded, uint64_t perImageLimit);
 
     enum class Admission : uint8_t { Ok, CountExceeded, TooLarge, BudgetExceeded };
 
@@ -193,7 +196,7 @@ private:
      * @param usedBytes     Already used out of the budget
      */
     Admission admitAttachment(uint64_t declaredBytes, uint64_t perAttachmentLimit, uint64_t budgetBytes,
-                              uint64_t usedBytes);
+                              uint64_t usedBytes, bool countAttachment);
 
     /** Report that an attachment was refused, skipping repeated reports of document-wide limits. */
     void logAttachmentRefused(const fs::path& filename, Admission reason);
@@ -220,6 +223,10 @@ private:
 private:
     fs::path xournalFilepath;
     std::string imageStrokeData;
+    std::string imageBase64Data;
+    std::string texImageBase64Data;
+    bool imageBase64Rejected = false;
+    bool texImageBase64Rejected = false;
 
     bool parsingComplete;
     std::vector<std::string>* errorMessages;
@@ -241,6 +248,27 @@ private:
 
     std::vector<PageRef> pages;
     std::unordered_map<fs::path, fs::path> audioFiles;
+    struct CachedAttachment {
+        bool attempted = false;
+        xoj::util::zip::ReadStatus status = xoj::util::zip::ReadStatus::ReadError;
+        std::shared_ptr<std::string> data;
+    };
+    struct CachedAudio {
+        bool attempted = false;
+        xoj::util::zip::ReadStatus status = xoj::util::zip::ReadStatus::ReadError;
+        fs::path tempPath;
+    };
+    std::unordered_map<zip_uint64_t, CachedAttachment> imageAttachments;
+    std::unordered_map<zip_uint64_t, CachedAttachment> pdfAttachments;
+    struct CachedBackground {
+        bool attempted = false;
+        bool valid = false;
+        BackgroundImage image;
+    };
+    std::unordered_map<zip_uint64_t, CachedBackground> backgroundAttachments;
+    std::unordered_map<zip_uint64_t, CachedAudio> audioAttachments;
+    std::unordered_set<zip_uint64_t> countedZipEntries;
+    std::unordered_set<std::string> missingZipEntries;
     bool audioFilesOwned = true;  ///< false once the document has been returned: it owns the files then
 
     xoj::load::AttachmentLimits limits;
@@ -248,6 +276,7 @@ private:
     uint64_t memoryBytesUsed = 0;
     uint64_t diskBytesUsed = 0;
     bool limitErrorLogged = false;
+    bool incompleteLoad = false;
 
     PageRef page;
     std::unique_ptr<Layer> layer;

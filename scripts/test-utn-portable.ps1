@@ -10,7 +10,20 @@ if ($archives.Count -ne 1) { throw 'Expected exactly one portable ZIP' }
 $archive = $archives[0]
 $hash = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 $manifest = Get-Content -LiteralPath (Join-Path $packageRoot 'SHA256SUMS.txt')
-if (!($manifest | Where-Object { $_ -eq "$hash  ./$($archive.Name)" })) { throw 'ZIP checksum mismatch' }
+$matchingEntries = @(
+    foreach ($line in $manifest) {
+        if ($line -match '^([0-9A-Fa-f]{64}) ([ *])(.+)$') {
+            $entryName = $Matches[3]
+            if ($entryName.StartsWith('./', [StringComparison]::Ordinal)) { $entryName = $entryName.Substring(2) }
+            if ($entryName -ceq $archive.Name) {
+                [pscustomobject]@{ Hash = $Matches[1] }
+            }
+        }
+    }
+)
+if ($matchingEntries.Count -ne 1 -or !$matchingEntries[0].Hash.Equals($hash, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'ZIP checksum mismatch or duplicate matching manifest entry'
+}
 $extractRoot = Join-Path $env:TEMP ('UTN portable test ' + [guid]::NewGuid())
 Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extractRoot
 if ((Get-Content -LiteralPath (Join-Path $extractRoot 'SOURCE-COMMIT.txt') -Raw).Trim() -ne $ExpectedCommit) {

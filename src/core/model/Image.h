@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>      // for size_t
+#include <memory>       // for shared_ptr
 #include <optional>     // for optional
 #include <string>       // for string
 #include <string_view>  // for string_view
@@ -44,6 +45,9 @@ public:
     /// Set the image data by moving the data.
     void setImage(std::string&& data);
 
+    /// Set image data shared by repeated references to one attachment in a document.
+    void setImage(std::shared_ptr<std::string> data);
+
     /// Set the image data by copying the data from the provided pixbuf.
     ///
     /// \deprecated Pass the raw image data instead.
@@ -69,7 +73,7 @@ public:
     size_t getRawDataLength() const;
 
     /// Returns the raw data
-    inline const std::string& getBinaryData() const { return data; }
+    inline const std::string& getBinaryData() const { return *data; }
 
     [[maybe_unused]] GdkPixbufFormat* getImageFormat() const;
 
@@ -88,5 +92,5 @@ private:
     /// Image format information.
     mutable GdkPixbufFormat* format = nullptr;
 
-    std::string data;
+    std::shared_ptr<std::string> data = std::make_shared<std::string>();
 };

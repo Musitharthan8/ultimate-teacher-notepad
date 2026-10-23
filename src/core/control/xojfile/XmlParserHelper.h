@@ -98,7 +98,6 @@ std::optional<Color> parseColorCode(std::string_view sv);
 std::optional<Color> parsePredefinedColor(string_utf8_view sv);
 
 // Decode C-string of Base64-encoded data into a string of binary data
-std::string decodeBase64(std::string_view base64data);
 
 /**
  * Attempt parsing a number (floating point or integral) from a string

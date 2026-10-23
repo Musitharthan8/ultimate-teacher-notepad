@@ -69,6 +69,9 @@ public:
      */
     bool loadData(std::string&& bytes, GError** err = nullptr);
 
+    /// Set immutable binary data shared by repeated references to a document attachment.
+    bool loadData(std::shared_ptr<std::string> bytes, GError** err = nullptr);
+
 public:
     // Serialize interface
     void serialize(ObjectOutputStream& out) const override;
@@ -98,7 +101,7 @@ private:
     /**
      * PNG Image / PDF Document
      */
-    std::string binaryData;
+    std::shared_ptr<std::string> binaryData = std::make_shared<std::string>();
 
     /**
      * Read position for PNG binaryData (deprecated).

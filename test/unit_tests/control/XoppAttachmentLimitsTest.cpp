@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <config-test.h>
@@ -32,8 +33,10 @@
 #include "model/Layer.h"
 #include "model/PageRef.h"
 #include "model/Stroke.h"
+#include "model/TexImage.h"
 #include "model/XojPage.h"
 #include "util/BoundedZipRead.h"
+#include "util/BoundedPixbuf.h"
 #include "util/PathUtil.h"
 #include "util/StringUtils.h"
 
@@ -193,6 +196,19 @@ TEST(XoppAttachmentRead, StringSinkDoesNotTrustTheDeclaredSize) {
     EXPECT_LE(out.capacity(), 4U * 1024 * 1024);
 }
 
+TEST(XoppAttachmentRead, RasterDimensionsAreBoundedWithoutIntegerOverflow) {
+    for (const auto [width, height]: {std::pair{16000, 12000},
+                                      std::pair{std::numeric_limits<int>::max(),
+                                                std::numeric_limits<int>::max()},
+                                      std::pair{std::numeric_limits<int>::max(), 1}}) {
+        const auto [boundedWidth, boundedHeight] = xoj::util::boundedPixbufDimensions(width, height);
+        EXPECT_GT(boundedWidth, 0);
+        EXPECT_GT(boundedHeight, 0);
+        EXPECT_LE(static_cast<uint64_t>(boundedWidth) * static_cast<uint64_t>(boundedHeight),
+                  xoj::util::MAX_DECODED_PIXBUF_PIXELS);
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // LoadHandler with synthetic archives
 // ---------------------------------------------------------------------------------------------------------------
@@ -205,6 +221,30 @@ const std::vector<unsigned char> TINY_PNG = {
         0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00,
         0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01,
         0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+std::string pngHeader(uint32_t width, uint32_t height) {
+    std::string data("\x89PNG\r\n\x1a\n", 8);
+    data.append("\0\0\0\rIHDR", 8);
+    auto appendBigEndian = [&](uint32_t value) {
+        data.push_back(static_cast<char>(value >> 24));
+        data.push_back(static_cast<char>(value >> 16));
+        data.push_back(static_cast<char>(value >> 8));
+        data.push_back(static_cast<char>(value));
+    };
+    appendBigEndian(width);
+    appendBigEndian(height);
+    data.append("\x08\x06\0\0\0", 5);
+    return data;
+}
+
+TEST(XoppAttachmentRead, TexPngDimensionsAreRejectedBeforeCairoAllocation) {
+    TexImage tooLarge;
+    EXPECT_FALSE(tooLarge.loadData(pngHeader(8192, 8192)));
+
+    TexImage valid;
+    std::string onePixel(TINY_PNG.begin(), TINY_PNG.end());
+    EXPECT_TRUE(valid.loadData(std::move(onePixel)));
+}
 
 /// A valid PNG padded with zeros to `size` bytes. Decoders ignore what follows IEND.
 std::string paddedPng(size_t size) {
@@ -273,6 +313,19 @@ std::string pageWithImage(const std::string& attachment) {
            attachment + "\"/></image></layer></page>\n";
 }
 
+std::string encodeBase64(std::string_view data) {
+    gchar* encoded = g_base64_encode(reinterpret_cast<const guchar*>(data.data()), data.size());
+    std::string result(encoded);
+    g_free(encoded);
+    return result;
+}
+
+std::string pageWithInlineImage(const std::string& encoded) {
+    return "<page width=\"200\" height=\"200\"><background type=\"solid\" color=\"#ffffffff\" style=\"plain\"/>"
+           "<layer><image left=\"10\" top=\"10\" right=\"50\" bottom=\"50\">" + encoded +
+           "</image></layer></page>\n";
+}
+
 /// Archive layout matching what LoadHandler requires, plus the given entries
 fs::path makeXopp(const std::string& name, const std::string& contentXml, std::vector<ZipEntry> attachments,
                   bool* ok = nullptr) {
@@ -317,6 +370,28 @@ bool patchDeclaredSize(const fs::path& zipPath, const std::string& entryName, ui
     }
     writeWholeFile(zipPath, bytes);
     return central;
+}
+
+bool corruptStoredEntry(const fs::path& zipPath, const std::string& entryName) {
+    std::string bytes = readWholeFile(zipPath);
+    auto get16 = [&](size_t off) {
+        return static_cast<size_t>(static_cast<unsigned char>(bytes[off])) |
+               (static_cast<size_t>(static_cast<unsigned char>(bytes[off + 1])) << 8);
+    };
+    for (size_t i = 0; i + 30 < bytes.size(); i++) {
+        if (bytes.compare(i, 4, "PK\x03\x04", 4) != 0 || get16(i + 26) != entryName.size() ||
+            bytes.compare(i + 30, entryName.size(), entryName) != 0) {
+            continue;
+        }
+        const size_t data = i + 30 + entryName.size() + get16(i + 28);
+        if (data >= bytes.size()) {
+            return false;
+        }
+        bytes[data + std::min<size_t>(10, bytes.size() - data - 1)] ^= 0x55;
+        writeWholeFile(zipPath, bytes);
+        return true;
+    }
+    return false;
 }
 
 struct LoadResult {
@@ -571,13 +646,12 @@ TEST(XoppAttachmentLoad, CumulativeBudgetStopsManyIndividuallyAcceptableAttachme
     EXPECT_EQ(countErrorsContaining(r, "larger than the allowed total"), 1U) << "reported once, not per attachment";
 }
 
-TEST(XoppAttachmentLoad, RepeatedReferencesToOneAttachmentAreCountedEachTime) {
-    // A small file referenced many times must not bypass the budget
+TEST(XoppAttachmentLoad, RepeatedReferencesToOneAttachmentShareTheReadBudget) {
     AttachmentLimits l = smallLimits();
-    l.maxMemoryBudgetBytes = 3 * 4000 + 1;
+    l.maxMemoryBudgetBytes = 4000;
     std::string xml;
     for (int i = 0; i < 20; i++) {
-        xml += pageWithAttachedBg("attachments/same.png");
+        xml += pageWithImage("attachments/same.png");
     }
     const auto p = makeXopp("repeat", wrapXml(xml), {{"attachments/same.png", paddedPng(4000)}});
     auto r = load(p, l);
@@ -585,10 +659,141 @@ TEST(XoppAttachmentLoad, RepeatedReferencesToOneAttachmentAreCountedEachTime) {
     ASSERT_TRUE(r.doc);
     size_t loaded = 0;
     for (size_t i = 0; i < r.doc->getPageCount(); i++) {
-        loaded += r.doc->getPage(i)->getBackgroundImage().isEmpty() ? 0 : 1;
+        const auto elements = r.doc->getPage(i)->getLayersView()[0]->getElementsView();
+        loaded += elements.size() != 0 && dynamic_cast<const Image*>(elements[0]) ? 1 : 0;
     }
-    EXPECT_EQ(loaded, 3U);
+    EXPECT_EQ(loaded, 20U);
+    EXPECT_TRUE(r.errors.empty());
+}
+
+TEST(XoppAttachmentLoad, RepeatedFailedImageReferenceDoesNotBlockDistinctValidImage) {
+    AttachmentLimits l = smallLimits();
+    l.maxAttachmentCount = 2;
+    std::string xml;
+    for (int i = 0; i < 20; i++) {
+        xml += pageWithImage("attachments/broken.png");
+    }
+    xml += pageWithImage("attachments/good.png");
+    const auto p = makeXopp("repeat-broken-image", wrapXml(xml),
+                            {{"attachments/broken.png", paddedPng(1000), false},
+                             {"attachments/good.png", paddedPng(1000)}});
+    ASSERT_TRUE(corruptStoredEntry(p, "attachments/broken.png"));
+
+    auto r = load(p, l);
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    const auto elements = r.doc->getPage(20)->getLayersView()[0]->getElementsView();
+    ASSERT_EQ(elements.size(), 1U);
+    ASSERT_NE(dynamic_cast<const Image*>(elements[0]), nullptr);
+    EXPECT_EQ(countErrorsContaining(r, "damaged"), 1U);
+    EXPECT_EQ(countErrorsContaining(r, "more than 2 attachments"), 0U);
+}
+
+TEST(XoppAttachmentLoad, DistinctFailedReadsConsumeTheDocumentBudget) {
+    AttachmentLimits l = smallLimits();
+    l.maxImageBytes = 4096;
+    l.maxMemoryBudgetBytes = 5000;
+    const auto p = makeXopp("distinct-broken-images",
+                            wrapXml(pageWithImage("attachments/broken-a.png") +
+                                    pageWithImage("attachments/broken-b.png") +
+                                    pageWithImage("attachments/good.png")),
+                            {{"attachments/broken-a.png", paddedPng(3000), false},
+                             {"attachments/broken-b.png", paddedPng(3000), false},
+                             {"attachments/good.png", paddedPng(1000)}});
+    ASSERT_TRUE(corruptStoredEntry(p, "attachments/broken-a.png"));
+    ASSERT_TRUE(corruptStoredEntry(p, "attachments/broken-b.png"));
+
+    auto r = load(p, l);
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    EXPECT_EQ(firstImage(*r.doc), nullptr);
+    const auto lastElements = r.doc->getPage(2)->getLayersView()[0]->getElementsView();
+    ASSERT_EQ(lastElements.size(), 1U);
+    EXPECT_NE(dynamic_cast<const Image*>(lastElements[0]), nullptr);
+    EXPECT_EQ(countErrorsContaining(r, "damaged"), 1U) << "the second corrupt entry is refused before another read";
     EXPECT_EQ(countErrorsContaining(r, "larger than the allowed total"), 1U);
+}
+
+TEST(XoppAttachmentLoad, RepeatedFailedAudioReferenceIsCachedByZipEntry) {
+    AttachmentLimits l = smallLimits();
+    l.maxAttachmentCount = 2;
+    std::string xml;
+    for (int i = 0; i < 20; i++) {
+        xml += "<audio fn=\"attachments/broken.ogg\"/>\n";
+    }
+    xml += "<audio fn=\"attachments/good.ogg\"/>\n";
+    xml += "<page width=\"200\" height=\"200\"><background type=\"solid\" color=\"#ffffffff\" style=\"plain\"/>"
+           "<layer><stroke tool=\"pen\" ts=\"0\" fn=\"attachments/good.ogg\" color=\"#000000ff\" width=\"1\">"
+           "1 1 5 5</stroke></layer></page>\n";
+    const auto p = makeXopp("repeat-broken-audio", wrapXml(xml),
+                            {{"attachments/broken.ogg", patternData(1000), false},
+                             {"attachments/good.ogg", patternData(1100)}});
+    ASSERT_TRUE(corruptStoredEntry(p, "attachments/broken.ogg"));
+
+    auto r = load(p, l);
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    const auto* stroke = dynamic_cast<const Stroke*>(r.doc->getPage(0)->getLayersView()[0]->getElementsView()[0]);
+    ASSERT_NE(stroke, nullptr);
+    const fs::path extracted = stroke->getAudioFilename();
+    ASSERT_FALSE(extracted.empty());
+    EXPECT_EQ(fs::file_size(extracted), 1100U);
+    EXPECT_EQ(countErrorsContaining(r, "damaged"), 1U);
+    EXPECT_EQ(countErrorsContaining(r, "more than 2 attachments"), 0U);
+    std::error_code ec;
+    fs::remove(extracted, ec);
+}
+
+TEST(XoppAttachmentLoad, CorruptAttachmentWithNoErrorCollectorCannotSaveOverSource) {
+    const auto p = makeXopp("no-errors-collector", wrapXml(pageWithImage("attachments/broken.png")),
+                            {{"attachments/broken.png", paddedPng(1000), false}});
+    ASSERT_TRUE(corruptStoredEntry(p, "attachments/broken.png"));
+    LoadHandler loader;
+    auto doc = loader.loadDocument(p);
+    ASSERT_TRUE(doc);
+    EXPECT_TRUE(doc->getFilepath().empty()) << "partial loads must use Save As even without a diagnostic collector";
+}
+
+TEST(XoppAttachmentLoad, OversizedInlineImageIsRefusedBeforeDecode) {
+    AttachmentLimits l = smallLimits();
+    l.maxImageBytes = 512;
+    l.maxMemoryBudgetBytes = 4096;
+    const auto p = makeXopp("inline-image-large", wrapXml(pageWithInlineImage(encodeBase64(paddedPng(1000)))), {});
+    auto r = load(p, l);
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    EXPECT_EQ(firstImage(*r.doc), nullptr);
+    EXPECT_EQ(countErrorsContaining(r, "larger than"), 1U);
+}
+
+TEST(XoppAttachmentLoad, RepeatedInlineImagesConsumeCumulativeBudget) {
+    AttachmentLimits l = smallLimits();
+    l.maxImageBytes = 4096;
+    l.maxMemoryBudgetBytes = 2000;
+    const auto encoded = encodeBase64(paddedPng(1000));
+    std::string xml;
+    for (int i = 0; i < 5; i++) {
+        xml += pageWithInlineImage(encoded);
+    }
+    auto r = load(makeXopp("inline-image-budget", wrapXml(xml), {}), l);
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    size_t loaded = 0;
+    for (size_t i = 0; i < r.doc->getPageCount(); i++) {
+        const auto elements = r.doc->getPage(i)->getLayersView()[0]->getElementsView();
+        loaded += elements.size() != 0 && dynamic_cast<const Image*>(elements[0]) ? 1 : 0;
+    }
+    EXPECT_EQ(loaded, 2U);
+    EXPECT_EQ(countErrorsContaining(r, "larger than the allowed total"), 1U);
+}
+
+TEST(XoppAttachmentLoad, MalformedInlineBase64IsRejectedAndForcesSaveAs) {
+    auto r = load(makeXopp("inline-image-invalid", wrapXml(pageWithInlineImage("!!!!")), {}));
+    ASSERT_FALSE(r.threw) << r.what;
+    ASSERT_TRUE(r.doc);
+    EXPECT_EQ(firstImage(*r.doc), nullptr);
+    EXPECT_EQ(countErrorsContaining(r, "invalid base64"), 1U);
+    EXPECT_TRUE(r.doc->getFilepath().empty());
 }
 
 TEST(XoppAttachmentLoad, AttachmentCountIsLimited) {

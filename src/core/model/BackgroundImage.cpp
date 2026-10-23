@@ -4,9 +4,56 @@
 #include <utility>  // for move
 
 #include <glib-object.h>  // for g_object_unref
+#include <gio/gio.h>
 
+#include "util/BoundedPixbuf.h"  // for limitGdkPixbufLoaderPixels
 #include "util/Stacktrace.h"  // for Stacktrace
 #include "util/StringUtils.h"
+
+namespace {
+auto loadBoundedPixbuf(GInputStream* stream, GError** error) -> GdkPixbuf* {
+    GdkPixbufLoader* loader = gdk_pixbuf_loader_new();
+    xoj::util::limitGdkPixbufLoaderPixels(loader);
+    guchar buffer[64 * 1024];
+    bool success = true;
+    while (true) {
+        const gssize count = g_input_stream_read(stream, buffer, sizeof(buffer), nullptr, error);
+        if (count < 0) {
+            success = false;
+            break;
+        }
+        if (count == 0) {
+            break;
+        }
+        if (!gdk_pixbuf_loader_write(loader, buffer, static_cast<size_t>(count), error)) {
+            success = false;
+            break;
+        }
+    }
+    if (success && !gdk_pixbuf_loader_close(loader, error)) {
+        success = false;
+    }
+    GdkPixbuf* pixbuf = success ? gdk_pixbuf_loader_get_pixbuf(loader) : nullptr;
+    if (pixbuf) {
+        g_object_ref(pixbuf);
+    }
+    g_object_unref(loader);
+    return pixbuf;
+}
+
+auto loadBoundedPixbufFromFile(const fs::path& path, GError** error) -> GdkPixbuf* {
+    GFile* file = g_file_new_for_path(char_cast(path.u8string().c_str()));
+    GFileInputStream* stream = g_file_read(file, nullptr, error);
+    g_object_unref(file);
+    if (!stream) {
+        return nullptr;
+    }
+    GdkPixbuf* pixbuf = loadBoundedPixbuf(G_INPUT_STREAM(stream), error);
+    g_input_stream_close(G_INPUT_STREAM(stream), nullptr, nullptr);
+    g_object_unref(stream);
+    return pixbuf;
+}
+}  // namespace
 
 /*
  * The contents of a background image
@@ -19,10 +66,10 @@
 
 struct BackgroundImage::Content {
     Content(fs::path path, GError** error):
-            path(std::move(path)), pixbuf(gdk_pixbuf_new_from_file(char_cast(this->path.u8string().c_str()), error)) {}
+            path(std::move(path)), pixbuf(loadBoundedPixbufFromFile(this->path, error)) {}
 
     Content(GInputStream* stream, fs::path path, GError** error):
-            path(std::move(path)), pixbuf(gdk_pixbuf_new_from_stream(stream, nullptr, error)) {}
+            path(std::move(path)), pixbuf(loadBoundedPixbuf(stream, error)) {}
 
     Content(fs::path path, GdkPixbuf* pixbuf, bool attached):
             path(std::move(path)), pixbuf(pixbuf), attach(attached) {}

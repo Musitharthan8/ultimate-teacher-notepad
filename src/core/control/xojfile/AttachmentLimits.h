@@ -37,8 +37,9 @@ struct AttachmentLimits {
     /// A 300 page notebook with a picture background and a few stamps per page stays far below.
     size_t maxAttachmentCount = 4096;
 
-    /// Size of the (decompressed) XML of the document. Real documents with hours of handwriting are ~20-50 MiB.
-    uint64_t maxXmlBytes = 1024 * MiB;
+    /// Size of the (decompressed) XML. Benchmarked repository corpus is 18 MiB at the largest; 256 MiB leaves ample
+    /// room for inline image base64 and very large notes while preventing a multi-gigabyte XML allocation/parse.
+    uint64_t maxXmlBytes = 256 * MiB;
 };
 
 }  // namespace xoj::load
