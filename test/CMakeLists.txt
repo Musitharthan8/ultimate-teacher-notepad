@@ -77,6 +77,14 @@ target_link_libraries (test-gtk-integration xoj::core xoj::util gtest_main gtest
 target_compile_features(test-gtk-integration PRIVATE cxx_std_20)
 target_include_directories(test-gtk-integration PRIVATE "${PROJECT_BINARY_DIR}/test")
 
+# GTK integration tests load these generated resources at runtime.
+add_custom_target(test-gtk-resources
+  DEPENDS
+    "${PROJECT_BINARY_DIR}/resources-templates/pagetemplates.ini"
+    "${PROJECT_BINARY_DIR}/resources-templates/toolbar.ini"
+)
+add_dependencies(test-gtk-integration test-gtk-resources)
+
 ###############################################################################
 # Discover and Register Tests
 ###############################################################################
