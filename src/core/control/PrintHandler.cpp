@@ -1,4 +1,5 @@
 #include "PrintHandler.h"
+#include "model/LayerAudience.h"
 
 #include <cmath>   // for M_PI_2
 #include <memory>  // for __shared_ptr_access
@@ -53,6 +54,7 @@ void drawPage(GtkPrintOperation* /*operation*/, GtkPrintContext* context, int pa
     flags.showPDF = xoj::view::HIDE_PDF_BACKGROUND;  // Already printed (if any)
 
     DocumentView view;
+    view.setLayerFilter(utn::visibleToStudents);
     view.drawPage(page, cr, true /* dont render eraseable */, flags);
 }
 

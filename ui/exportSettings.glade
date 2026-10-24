@@ -347,6 +347,20 @@ Set export parameters</property>
                   </packing>
                 </child>
                 <child>
+                  <object class="GtkCheckButton" id="cbTeacherCopy">
+                    <property name="label" translatable="yes">Teacher copy (private content permitted)</property>
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="active">False</property>
+                    <property name="tooltip-text" translatable="yes">Student copies include visible public content and revealed answers. Teacher copies allow private layers; explicit layer ranges and progressive mode may also include hidden layers. Native lesson files retain all layers.</property>
+                  </object>
+                  <packing>
+                    <property name="left-attach">0</property>
+                    <property name="top-attach">2</property>
+                    <property name="width">3</property>
+                  </packing>
+                </child>
+                <child>
                   <object class="GtkComboBox" id="cbBackgroundType">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>

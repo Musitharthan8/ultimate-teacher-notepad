@@ -14,6 +14,7 @@
 #include <string>
 
 #include "control/jobs/BaseExportJob.h"
+#include "model/ExportAudience.h"
 #include "util/ElementRange.h"
 
 #include "filesystem.h"
@@ -39,5 +40,8 @@ public:
      */
     virtual void setLayerRange(const char* rangeStr) = 0;
 
-private:
+    void setExportAudience(ExportAudience audience) { exportAudience = audience; }
+
+protected:
+    ExportAudience exportAudience = ExportAudience::Student;
 };

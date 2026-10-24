@@ -77,6 +77,7 @@ private:
 
     /// Backend used for exporting the PDF background to PDF
     ExportBackend pdfExportBackend = ExportBackend::DEFAULT;
+    ExportAudience exportAudience = ExportAudience::Student;
 
     /**
      * Export all Layers progressively

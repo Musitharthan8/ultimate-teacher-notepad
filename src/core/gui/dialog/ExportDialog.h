@@ -38,6 +38,7 @@ public:
     bool progressiveModeSelected() const;
     ExportBackgroundType getBackgroundType() const;
     inline ExportBackend getPdfExportBackend() const { return pdfExportBackend; }
+    ExportAudience getExportAudience() const { return exportAudience; }
 
     /**
      * @brief Reads the quality parameter from the dialog
@@ -63,6 +64,7 @@ private:
     size_t pageCount = 0;
 
     bool confirmed = false;
+    ExportAudience exportAudience = ExportAudience::Student;
     bool progressiveMode;
     ExportBackgroundType backgroundType;
     ExportBackend pdfExportBackend;

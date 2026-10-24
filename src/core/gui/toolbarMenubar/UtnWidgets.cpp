@@ -12,6 +12,7 @@
 
 #include "util/Util.h"         // for argb_to_GdkRGBA
 #include "util/gtk4_helper.h"  // for gtk_box_append, gtk_popover_set_child
+#include "util/i18n.h"
 
 namespace utn {
 
@@ -103,6 +104,48 @@ void syncToggle(GtkToggleButton* toggle, bool active) {
 }
 
 auto isSyncing(GtkWidget* widget) -> bool { return g_object_get_data(G_OBJECT(widget), "utn-syncing") != nullptr; }
+
+static void refreshToolOptionsName(GtkWidget* tool, GtkMenuButton* options) {
+    gchar* name = gtk_widget_get_tooltip_text(tool);
+    gchar* label = g_strdup_printf(_("%s options"), name ? name : _("Tool"));
+    setAccessibleName(GTK_WIDGET(options), label);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(options), label);
+    g_free(label);
+    g_free(name);
+}
+
+void bindActiveToolOptions(GtkToggleButton* tool, GtkMenuButton* options) {
+    refreshToolOptionsName(GTK_WIDGET(tool), options);
+    g_signal_connect_object(tool, "notify::tooltip-text",
+            G_CALLBACK(+[](GObject* widget, GParamSpec*, gpointer data) {
+                refreshToolOptionsName(GTK_WIDGET(widget), GTK_MENU_BUTTON(data));
+            }), options, GConnectFlags(0));
+    g_signal_connect_object(tool, "button-press-event",
+            G_CALLBACK(+[](GtkWidget* widget, GdkEventButton* event, gpointer data) -> gboolean {
+                if (event->button != 1 || !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+                    return FALSE;
+                }
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(data), true);
+                return TRUE;
+            }), options, GConnectFlags(0));
+    g_signal_connect_object(tool, "key-press-event",
+            G_CALLBACK(+[](GtkWidget* widget, GdkEventKey* event, gpointer data) -> gboolean {
+                if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)) ||
+                    (event->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK)) ||
+                    (event->keyval != GDK_KEY_Return && event->keyval != GDK_KEY_KP_Enter &&
+                     event->keyval != GDK_KEY_space)) {
+                    return FALSE;
+                }
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(data), true);
+                return TRUE;
+            }), options, GConnectFlags(0));
+    g_signal_connect_object(tool, "notify::active",
+            G_CALLBACK(+[](GObject* widget, GParamSpec*, gpointer data) {
+                if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+                    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(data), false);
+                }
+            }), options, GConnectFlags(0));
+}
 
 auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
     GtkWidget* button = gtk_button_new();

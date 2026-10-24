@@ -23,6 +23,7 @@
 #include "gui/XournalView.h"
 #include "gui/dialog/RenameLayerDialog.h"
 #include "gui/toolbarMenubar/ToolMenuHandler.h"
+#include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "model/Document.h"
 #include "model/Font.h"
 #include "model/StrokeStyle.h"
@@ -55,6 +56,26 @@
  */
 template <Action action>
 struct ActionProperties {};
+
+template <Action action>
+struct ClassroomActionProperties {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        ToolPresentationKit::runClassroomAction(ctrl, action);
+    }
+};
+
+template <> struct ActionProperties<Action::CLASSROOM_SPOTLIGHT>:
+        ClassroomActionProperties<Action::CLASSROOM_SPOTLIGHT> {};
+template <> struct ActionProperties<Action::CLASSROOM_CURTAIN>:
+        ClassroomActionProperties<Action::CLASSROOM_CURTAIN> {};
+template <> struct ActionProperties<Action::CLASSROOM_EXIT_OVERLAY>:
+        ClassroomActionProperties<Action::CLASSROOM_EXIT_OVERLAY> {};
+template <> struct ActionProperties<Action::CLASSROOM_TEMPORARY_INK>:
+        ClassroomActionProperties<Action::CLASSROOM_TEMPORARY_INK> {};
+template <> struct ActionProperties<Action::CLASSROOM_TEMPORARY_HIGHLIGHT>:
+        ClassroomActionProperties<Action::CLASSROOM_TEMPORARY_HIGHLIGHT> {};
+template <> struct ActionProperties<Action::CLASSROOM_CLEAR_TEMPORARY_INK>:
+        ClassroomActionProperties<Action::CLASSROOM_CLEAR_TEMPORARY_INK> {};
 
 /**
  * @brief true if the Action has a parameter

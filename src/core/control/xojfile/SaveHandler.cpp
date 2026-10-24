@@ -64,6 +64,26 @@ void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
         backgroundImages.clear();
     }
 
+    // Compatibility export can reference a whole source PDF/image, and LaTeX carries its source and original binary.
+    // Check the whole document before visiting pages: visitPage may write an attached PDF as a side effect.
+    if (this->exportAudience == ExportAudience::Student) {
+        for (size_t i = 0; i < doc->getPageCount(); ++i) {
+            const auto page = doc->getPage(i);
+            bool unsupported = page->getBackgroundType().isPdfPage() || page->getBackgroundType().isImagePage();
+            for (const Layer* layer: page->getLayersView()) {
+                if (!includeLayer(*layer)) continue;
+                for (const Element* element: layer->getElementsView()) {
+                    unsupported = unsupported || element->getType() == ELEMENT_TEXIMAGE;
+                }
+            }
+            if (unsupported) {
+                errorMessage = _("Xournal student copies cannot safely include PDF/image backgrounds or LaTeX sources. "
+                                 "Export a rendered student PNG instead.");
+                return;
+            }
+        }
+    }
+
     this->firstPdfPageVisited = false;
     this->attachBgId = 1;
 
@@ -71,11 +91,14 @@ void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
 
     writeHeader();
 
-    auto preview = doc->getPreview();
-    if (preview) {
-        auto* image = new XmlImageNode(TAG_NAMES[TagType::PREVIEW]);
-        image->setImage(preview.get());
-        this->root->addChild(image);
+    // The thumbnail shows every visible layer, teacher-only ink included: a student copy carries none
+    if (this->exportAudience == ExportAudience::Teacher) {
+        auto preview = doc->getPreview();
+        if (preview) {
+            auto* image = new XmlImageNode(TAG_NAMES[TagType::PREVIEW]);
+            image->setImage(preview.get());
+            this->root->addChild(image);
+        }
     }
 
     for (size_t i = 0; i < doc->getPageCount(); i++) {
@@ -191,7 +214,7 @@ static inline bool isMatrixPositiveScaling(const RectangularElement& e) {
 void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
     auto* layer = new XmlNode(TAG_NAMES[TagType::LAYER]);
     page->addChild(layer);
-    if (l->hasName()) {
+    if (this->exportAudience == ExportAudience::Teacher && l->hasName()) {
         layer->setAttrib(xoj::xml_attrs::NAME_STR, l->getName().c_str());
     }
     if (l->getAudience() != LayerAudience::Everyone) {
@@ -203,7 +226,10 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             auto* s = dynamic_cast<const Stroke*>(e);
             if (!s->getErasures().empty()) {
                 auto fallback = utn::eraser::rasterizeMaskedStroke(*s);
-                const auto metadata = fallback ? utn::eraser::encodeMaskedStroke(*s, fallback->matrix) : std::string{};
+                // Editable metadata contains the original unerased ink and its audio path. Only native/private saves
+                // may preserve it; a student copy receives the clipped raster pixels alone.
+                const auto metadata = fallback && this->exportAudience == ExportAudience::Teacher ?
+                                              utn::eraser::encodeMaskedStroke(*s, fallback->matrix) : std::string{};
                 if (!fallback) {
                     errorMessage = "Could not safely save a partially erased stroke.";
                     continue;
@@ -227,7 +253,8 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
                 // Oversized editable metadata must never prevent saving the
                 // lesson. Keep the clipped image when codec limits are exceeded.
                 if (!metadata.empty()) image->setAttrib(u8"utn-stroke-v1", metadata);
-                else g_warning("Saving complex erased stroke as a clipped image (editable metadata limit exceeded)");
+                else if (this->exportAudience == ExportAudience::Teacher)
+                    g_warning("Saving complex erased stroke as a clipped image (editable metadata limit exceeded)");
                 layer->addChild(image);
                 continue;
             }
@@ -355,7 +382,7 @@ void SaveHandler::visitPage(XmlNode* root, ConstPageRef p, const Document* doc, 
     page->setAttrib(xoj::xml_attrs::WIDTH_STR, p->getWidth());
     page->setAttrib(xoj::xml_attrs::HEIGHT_STR, p->getHeight());
 
-    if (!p->getUtnPageLabel().empty()) {
+    if (this->exportAudience == ExportAudience::Teacher && !p->getUtnPageLabel().empty()) {
         page->setAttrib(xoj::xml_attrs::UTN_PAGE_LABEL_STR, p->getUtnPageLabel().c_str());
     }
 
@@ -438,15 +465,23 @@ void SaveHandler::visitPage(XmlNode* root, ConstPageRef p, const Document* doc, 
         writeSolidBackground(background, p);
     }
 
+    bool wroteLayer = false;
+    for (const Layer* l: p->getLayersView()) {
+        if (includeLayer(*l)) {
+            visitLayer(page, l);
+            wroteLayer = true;
+        }
+    }
+
     // no layer, but we need to write one layer, else the old Xournal cannot read the file
-    if (p->getLayerCount() == 0) {
+    if (!wroteLayer) {
         auto* layer = new XmlNode(TAG_NAMES[TagType::LAYER]);
         page->addChild(layer);
     }
+}
 
-    for (const Layer* l: p->getLayersView()) {
-        visitLayer(page, l);
-    }
+bool SaveHandler::includeLayer(const Layer& layer) const {
+    return this->exportAudience == ExportAudience::Teacher || utn::visibleToStudents(layer);
 }
 
 void SaveHandler::writeSolidBackground(XmlNode* background, ConstPageRef p) {

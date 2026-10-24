@@ -438,6 +438,47 @@
    </section>
   </submenu>
   <submenu>
+   <attribute name="label" translatable="yes">_Classroom</attribute>
+   <section>
+    <item>
+     <attribute name="label" translatable="yes">Spotlight (on / off)</attribute>
+     <attribute name="action">win.classroom-spotlight</attribute>
+    </item>
+    <item>
+     <attribute name="label" translatable="yes">Curtain (on / off)</attribute>
+     <attribute name="action">win.classroom-curtain</attribute>
+    </item>
+    <item>
+     <attribute name="label" translatable="yes">Exit Spotlight / Curtain</attribute>
+     <attribute name="action">win.classroom-exit-overlay</attribute>
+    </item>
+   </section>
+   <section>
+    <item>
+     <attribute name="label" translatable="yes">Temporary ink</attribute>
+     <attribute name="action">win.classroom-temporary-ink</attribute>
+    </item>
+    <item>
+     <attribute name="label" translatable="yes">Temporary highlight</attribute>
+     <attribute name="action">win.classroom-temporary-highlight</attribute>
+    </item>
+    <item>
+     <attribute name="label" translatable="yes">Clear temporary ink</attribute>
+     <attribute name="action">win.classroom-clear-temporary-ink</attribute>
+    </item>
+   </section>
+   <section>
+    <item>
+     <attribute name="label" translatable="yes">Presentation mode</attribute>
+     <attribute name="action">win.presentation-mode</attribute>
+    </item>
+    <item>
+     <attribute name="label" translatable="yes">Full screen</attribute>
+     <attribute name="action">win.fullscreen</attribute>
+    </item>
+   </section>
+  </submenu>
+  <submenu>
    <attribute name="label" translatable="yes">_Journal</attribute>
    <section id="menu7">
     <item>

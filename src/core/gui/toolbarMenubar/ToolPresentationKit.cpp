@@ -82,6 +82,31 @@ void clearTemporaryInk(Control* control) {
 }
 }  // namespace
 
+void ToolPresentationKit::runClassroomAction(Control* control, Action action) {
+    switch (action) {
+        case Action::CLASSROOM_SPOTLIGHT:
+            selectPresentationTool(control, TOOL_HAND, true, false);
+            break;
+        case Action::CLASSROOM_CURTAIN:
+            selectPresentationTool(control, TOOL_HAND, false, true);
+            break;
+        case Action::CLASSROOM_EXIT_OVERLAY:
+            exitPresentationOverlay(control);
+            break;
+        case Action::CLASSROOM_TEMPORARY_INK:
+            selectPresentationTool(control, TOOL_LASER_POINTER_PEN);
+            break;
+        case Action::CLASSROOM_TEMPORARY_HIGHLIGHT:
+            selectPresentationTool(control, TOOL_LASER_POINTER_HIGHLIGHTER);
+            break;
+        case Action::CLASSROOM_CLEAR_TEMPORARY_INK:
+            clearTemporaryInk(control);
+            break;
+        default:
+            xoj_assert(false);
+    }
+}
+
 ToolPresentationKit::ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper):
         AbstractToolItem(std::move(id), Category::MISC),
         control(control),

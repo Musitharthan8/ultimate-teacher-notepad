@@ -826,6 +826,8 @@ void ToolUtnContextBar::appendHighlightControls() {
                          auto* tools = static_cast<Control*>(data)->getToolHandler();
                          const auto& entry = utn::HIGHLIGHT_MODES[static_cast<size_t>(active)];
                          tools->setSmartHighlighterEnabled(entry.snap.has_value());
+                         static_cast<Control*>(data)->getSettings()->getCustomElement("utn").setBool(
+                                 "smartHighlighterPreferred", entry.snap.has_value());
                          if (entry.snap) {
                              tools->setSmartHighlighterSnapMode(*entry.snap);
                          }

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <set>
 #include <string>
@@ -9,6 +10,9 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/actions/ActionDatabase.h"
+#include "control/jobs/AutosaveJob.h"
+#include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
@@ -17,6 +21,9 @@
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
+#include "gui/ResponsiveLayout.h"
+#include "gui/menus/menubar/Menubar.h"
+#include "gui/dialog/ExportDialog.h"
 #include "gui/FloatingToolbox.h"
 #include "gui/PdfFloatingToolbox.h"
 #include "gui/PageView.h"
@@ -24,12 +31,14 @@
 #include "gui/inputdevices/PositionInputData.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "model/Document.h"
+#include "model/DocumentLockAudit.h"
 #include "model/Layer.h"
 #include "model/PageType.h"
 #include "model/Text.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "util/PathUtil.h"
+#include "util/PopupWindowWrapper.h"
 #include "util/XojMsgBox.h"
 #include "config-test.h"
 
@@ -60,6 +69,23 @@ GtkWidget* studentWindow() {
     }
     g_list_free(windows);
     return found;
+}
+
+GtkWidget* railLabel(GtkWidget* widget, const char* text) {
+    if (GTK_IS_LABEL(widget) && g_strcmp0(gtk_widget_get_name(widget), "utnRailLabel") == 0 &&
+        g_strcmp0(gtk_label_get_text(GTK_LABEL(widget)), text) == 0) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = railLabel(GTK_WIDGET(child->data), text);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
 }
 
 void settle() {
@@ -196,6 +222,173 @@ protected:
 };
 }  // namespace
 
+namespace {
+const std::vector<const char*> RAIL_CAPTIONS = {"Select",     "Area",   "Pen",        "Shapes",   "Highlight",
+                                                "Colours",    "Eraser", "Text",       "Answer Box", "Feedback",
+                                                "Classroom",  "Reveal", "Move"};
+
+/// Every rail caption must show exactly when `expectVisible` says so
+void expectCaptions(GtkWidget* rail, bool expectVisible, const std::string& context) {
+    for (const char* text: RAIL_CAPTIONS) {
+        auto* label = railLabel(rail, text);
+        ASSERT_NE(label, nullptr) << text << " " << context;
+        EXPECT_EQ(gtk_widget_get_visible(label), expectVisible) << text << " " << context;
+    }
+}
+
+/// Run the event loop until the toplevel allocation stops changing, and return it. A desktop smaller than the
+/// request (the 1024 px GitHub Windows runner) clamps the window, so the caller must read what was really allocated.
+int allocatedWidthAfterResize(GtkWidget* window, int requested) {
+    gtk_window_resize(GTK_WINDOW(window), requested, 720);
+    int previous = -1;
+    int current = gtk_widget_get_allocated_width(window);
+    for (int attempt = 0; attempt < 30 && current != previous; ++attempt) {
+        previous = current;
+        settle();
+        current = gtk_widget_get_allocated_width(window);
+    }
+    return current;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, teacherRailCaptionsSitBeneathIconsWithAccessibleNames) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    window->setToolLabelMode(1);  // captions shown, so the structure is checked at any width
+    auto* rail = window->get("tbLeft1");
+    expectCaptions(rail, true, "Show");
+    for (const char* text: RAIL_CAPTIONS) {
+        auto* label = railLabel(rail, text);
+        ASSERT_NE(label, nullptr) << text;
+        auto* box = gtk_widget_get_parent(label);
+        ASSERT_TRUE(GTK_IS_BOX(box)) << text;
+        EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(box)), GTK_ORIENTATION_VERTICAL) << text;
+        auto* button = gtk_widget_get_parent(box);
+        ASSERT_TRUE(GTK_IS_BUTTON(button)) << text;
+        EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(button)), nullptr) << text;
+    }
+    window->setToolLabelMode(0);
+}
+
+// Widget level test at the width the desktop really gives the window: the monitor decides what is allocated, so the
+// expectation is derived from the allocation and the documented thresholds, never from the requested size.
+TEST_F(ClassroomWorkflow, teacherRailCaptionsFollowTheRealAllocatedWidth) {
+    window->toolbarSelected("UTN Teacher");
+    control->selectTool(TOOL_ERASER);
+    gtk_widget_show(window->getWindow());
+    settle();
+    gtk_window_unmaximize(GTK_WINDOW(window->getWindow()));
+    settle();
+    window->setToolLabelMode(0);
+    auto* rail = window->get("tbLeft1");
+    for (int requested: {1280, 1024, 1500, 900, 1280}) {
+        const int actual = allocatedWidthAfterResize(window->getWindow(), requested);
+        const std::string context = "requested " + std::to_string(requested) + ", allocated " + std::to_string(actual);
+        SCOPED_TRACE(context);
+        RecordProperty("allocated_width_for_request_" + std::to_string(requested), actual);
+        ASSERT_GT(actual, utn::layout::MIN_MEANINGFUL_WIDTH);
+        // Outside the hysteresis band the layout is fully determined by the width
+        if (actual < utn::layout::COMPACT_ENTER_BELOW) {
+            EXPECT_TRUE(window->isCompactLayout());
+        } else if (actual > utn::layout::COMPACT_LEAVE_ABOVE) {
+            EXPECT_FALSE(window->isCompactLayout());
+        }
+        for (int mode: {0, 1, 2}) {
+            window->setToolLabelMode(mode);
+            expectCaptions(rail, utn::layout::railLabelsVisible(mode, window->isCompactLayout()),
+                           context + ", mode " + std::to_string(mode));
+        }
+        window->setToolLabelMode(0);
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+    }
+}
+
+// The same widgets at fixed logical widths, independent of the monitor. updateCompactLayout() is what the
+// size-allocate handler calls; nothing iterates the main loop between the call and the check, so the real allocation
+// cannot overwrite the width under test.
+TEST_F(ClassroomWorkflow, teacherRailCaptionsAtFixedLogicalWidths) {
+    window->toolbarSelected("UTN Teacher");
+    control->selectTool(TOOL_PEN);
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* rail = window->get("tbLeft1");
+    auto atWidth = [&](int width, int mode, bool expectCompact) {
+        window->setToolLabelMode(mode);
+        window->updateCompactLayout(width);
+        const std::string context = "width " + std::to_string(width) + ", mode " + std::to_string(mode);
+        EXPECT_EQ(window->isCompactLayout(), expectCompact) << context;
+        expectCaptions(rail, utn::layout::railLabelsVisible(mode, expectCompact), context);
+    };
+
+    // Automatic: wide -> compact -> wide -> compact
+    atWidth(1280, 0, false);
+    atWidth(1008, 0, true);   // what the 1024 px CI desktop allocates
+    atWidth(1280, 0, false);  // the wide behaviour is exercised even where no monitor can show it
+    atWidth(1024, 0, true);
+    atWidth(1920, 0, false);
+    // Hysteresis band: the state before the band is kept
+    atWidth(1100, 0, false);
+    atWidth(1079, 0, true);
+    atWidth(1100, 0, true);
+    atWidth(1121, 0, false);
+    // Show and Hide ignore the width
+    for (int width: {1008, 1280, 1920}) {
+        for (int mode: {1, 2}) {
+            atWidth(width, mode, utn::layout::nextCompactLayout(window->isCompactLayout(), width));
+        }
+    }
+    atWidth(1008, 1, true);
+    expectCaptions(rail, true, "Show at 1008");
+    atWidth(1280, 2, false);
+    expectCaptions(rail, false, "Hide at 1280");
+
+    // Tool state and the inspector workspace survive a layout change
+    window->setToolLabelMode(0);
+    control->selectTool(TOOL_ERASER);
+    window->updateCompactLayout(1008);
+    window->setTeacherWorkspace(1);
+    window->updateCompactLayout(1280);
+    window->setTeacherWorkspace(0);
+    window->updateCompactLayout(1008);
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+    EXPECT_EQ(window->getTeacherWorkspace(), 0);
+    EXPECT_NE(railLabel(rail, "Pen"), nullptr);
+
+    window->updateCompactLayout(realWidth);
+    window->setToolLabelMode(0);
+}
+
+// The real Workspace menu buttons, which is how a teacher changes the mode
+TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    auto* rail = window->get("tbLeft1");
+    auto* workspace = buttonNamed(window->getWindow(), "Workspace");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(workspace));
+    auto* options = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(workspace)));
+    auto chooseLabels = [&](const char* text) {
+        auto* choice = buttonNamed(options, text);
+        ASSERT_NE(choice, nullptr) << text;
+        gtk_button_clicked(GTK_BUTTON(choice));
+    };
+    window->updateCompactLayout(1008);
+    chooseLabels("Hide");
+    EXPECT_EQ(window->getToolLabelMode(), 2);
+    expectCaptions(rail, false, "Hide");
+    chooseLabels("Show");
+    EXPECT_EQ(window->getToolLabelMode(), 1);
+    expectCaptions(rail, true, "Show while compact");
+    chooseLabels("Automatic");
+    EXPECT_EQ(window->getToolLabelMode(), 0);
+    expectCaptions(rail, false, "Automatic while compact");
+    window->updateCompactLayout(1280);
+    expectCaptions(rail, true, "Automatic while wide");
+    window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
+}
+
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {
     auto page = control->getCurrentPage();
     std::set<std::string> names;
@@ -210,6 +403,300 @@ TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers)
     EXPECT_EQ(control->countHiddenAnswersOnCurrentPage(), 10);
     EXPECT_EQ(control->setAnswersRevealed(true, false), 10);
     EXPECT_EQ(control->setAnswersRevealed(false, false), 10);
+}
+
+TEST_F(ClassroomWorkflow, exportDialogDefaultsToStudentCopyAndRequiresTeacherOptIn) {
+    bool confirmed = false;
+    ExportAudience audience = ExportAudience::Student;
+    xoj::popup::PopupWindowWrapper<xoj::popup::ExportDialog> popup(&paths, EXPORT_GRAPHICS_PDF, 1, 2, false,
+                                   [&](const xoj::popup::ExportDialog& selected) {
+                                       confirmed = selected.isConfirmed();
+                                       audience = selected.getExportAudience();
+                                   });
+    auto* dialog = popup.getPopup();
+    EXPECT_EQ(dialog->getExportAudience(), ExportAudience::Student);
+    auto* dialogWindow = GTK_WIDGET(dialog->getWindow());
+    popup.show(GTK_WINDOW(window->getWindow()));
+    settle();
+    auto* teacher = buttonNamed(dialogWindow, "Teacher copy (private content permitted)");
+    ASSERT_TRUE(GTK_IS_CHECK_BUTTON(teacher));
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(teacher)));
+    gtk_button_clicked(GTK_BUTTON(teacher));
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(teacher)));
+    auto* ok = buttonNamed(dialogWindow, "Ok");
+    ASSERT_NE(ok, nullptr);
+    gtk_button_clicked(GTK_BUTTON(ok));
+    settle();
+    EXPECT_TRUE(confirmed);
+    EXPECT_EQ(audience, ExportAudience::Teacher);
+}
+
+TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEraserMode) {
+    struct ActivationCounter {
+        GObject* action;
+        gulong handler;
+        int count = 0;
+        explicit ActivationCounter(GObject* action): action(action) {
+            handler = g_signal_connect(action, "change-state", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer data) {
+                ++static_cast<ActivationCounter*>(data)->count;
+            }), this);
+        }
+        ~ActivationCounter() { g_signal_handler_disconnect(action, handler); }
+    } activations(G_OBJECT(control->getActionDatabase()->getAction(Action::SELECT_TOOL).get()));
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    auto* tools = control->getToolHandler();
+    auto button = [&](const char* caption) {
+        auto* label = railLabel(rail, caption);
+        return label ? gtk_widget_get_parent(gtk_widget_get_parent(label)) : nullptr;
+    };
+    auto menuFor = [](GtkWidget* primary) -> GtkMenuButton* {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(gtk_widget_get_parent(primary)));
+        GtkMenuButton* menu = nullptr;
+        for (GList* child = children; child && !menu; child = child->next) {
+            if (GTK_IS_MENU_BUTTON(child->data)) menu = GTK_MENU_BUTTON(child->data);
+        }
+        g_list_free(children);
+        return menu;
+    };
+    control->selectTool(TOOL_TEXT);
+    for (const auto& [caption, tool]: {std::pair{"Area", TOOL_SELECT_RECT}, {"Pen", TOOL_PEN}, {"Eraser", TOOL_ERASER},
+                                     {"Highlight", TOOL_HIGHLIGHTER}}) {
+        auto* primary = button(caption);
+        ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(primary)) << caption;
+        auto* menu = menuFor(primary);
+        ASSERT_NE(menu, nullptr) << caption;
+        auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(menu));
+        EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(GTK_WIDGET(menu))), nullptr);
+        gchar* oldTooltip = gtk_widget_get_tooltip_text(primary);
+        gtk_widget_set_tooltip_text(primary, "Changed subtype");
+        EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(GTK_WIDGET(menu))), "Changed subtype options");
+        gtk_widget_set_tooltip_text(primary, oldTooltip);
+        g_free(oldTooltip);
+        const int beforeSelect = activations.count;
+        gtk_button_clicked(GTK_BUTTON(primary));
+        settle();
+        if (tool != TOOL_HIGHLIGHTER) {
+            EXPECT_GT(activations.count, beforeSelect);
+        }
+        EXPECT_EQ(tools->getToolType(), tool);
+        EXPECT_FALSE(gtk_widget_get_visible(popover));
+        GdkEvent* press = gdk_event_new(GDK_BUTTON_PRESS);
+        press->button.window = GDK_WINDOW(g_object_ref(gtk_widget_get_window(primary)));
+        gdk_event_set_device(press, gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default())));
+        press->button.button = 1;
+        gboolean handled = FALSE;
+        const int beforeOptions = activations.count;
+        g_signal_emit_by_name(primary, "button-press-event", press, &handled);
+        GdkEvent* release = gdk_event_copy(press);
+        release->type = GDK_BUTTON_RELEASE;
+        gtk_widget_event(primary, release);
+        gdk_event_free(release);
+        gdk_event_free(press);
+        settle();
+        EXPECT_TRUE(handled) << caption;
+        EXPECT_TRUE(gtk_widget_get_visible(popover)) << caption;
+        EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(primary)));
+        EXPECT_EQ(tools->getToolType(), tool);
+        EXPECT_EQ(activations.count, beforeOptions) << "active press/release must not activate SELECT_TOOL";
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        settle();
+        GdkEvent* key = gdk_event_new(GDK_KEY_PRESS);
+        key->key.window = GDK_WINDOW(g_object_ref(gtk_widget_get_window(primary)));
+        gdk_event_set_device(key, gdk_seat_get_keyboard(gdk_display_get_default_seat(gdk_display_get_default())));
+        key->key.keyval = GDK_KEY_Return;
+        handled = FALSE;
+        g_signal_emit_by_name(primary, "key-press-event", key, &handled);
+        gdk_event_free(key);
+        settle();
+        EXPECT_TRUE(handled) << caption;
+        EXPECT_TRUE(gtk_widget_get_visible(popover)) << caption;
+        control->selectTool(TOOL_TEXT);
+        for (int attempt = 0; attempt < 8 && gtk_widget_get_visible(popover); ++attempt) {
+            settle();
+        }
+        EXPECT_FALSE(gtk_widget_get_visible(popover)) << caption;
+    }
+    auto* eraser = button("Eraser");
+    auto* options = GTK_WIDGET(gtk_menu_button_get_popover(menuFor(eraser)));
+    auto* wholeStroke = buttonNamed(options, "delete stroke");
+    ASSERT_NE(wholeStroke, nullptr);
+    gtk_button_clicked(GTK_BUTTON(eraser));
+    gtk_button_clicked(GTK_BUTTON(wholeStroke));
+    EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
+    EXPECT_FALSE(gtk_widget_get_visible(options));
+    gtk_button_clicked(GTK_BUTTON(button("Pen")));
+    gtk_button_clicked(GTK_BUTTON(eraser));
+    EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
+}
+
+TEST_F(ClassroomWorkflow, classroomMenuUsesSharedPresentationActions) {
+    auto* model = window->getMenubar()->getModel();
+    bool found = false;
+    std::set<std::string> menuActions;
+    for (int i = 0; i < g_menu_model_get_n_items(model); ++i) {
+        gchar* label = nullptr;
+        g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_LABEL, "s", &label);
+        if (g_strcmp0(label, "_Classroom") == 0) {
+            found = true;
+            auto* submenu = g_menu_model_get_item_link(model, i, G_MENU_LINK_SUBMENU);
+            if (submenu) {
+                for (int section = 0; section < g_menu_model_get_n_items(submenu); ++section) {
+                    auto* items = g_menu_model_get_item_link(submenu, section, G_MENU_LINK_SECTION);
+                    if (!items) {
+                        continue;
+                    }
+                    for (int item = 0; item < g_menu_model_get_n_items(items); ++item) {
+                        gchar* action = nullptr;
+                        if (g_menu_model_get_item_attribute(items, item, G_MENU_ATTRIBUTE_ACTION, "s", &action)) {
+                            menuActions.insert(action);
+                        }
+                        g_free(action);
+                    }
+                    g_object_unref(items);
+                }
+                g_object_unref(submenu);
+            }
+        }
+        g_free(label);
+    }
+    ASSERT_TRUE(found);
+    auto* actions = G_ACTION_GROUP(window->getWindow());
+    for (const auto& action: menuActions) {
+        ASSERT_EQ(action.substr(0, 4), "win.");
+        EXPECT_TRUE(g_action_group_has_action(actions, action.c_str() + 4)) << action;
+    }
+    EXPECT_EQ(menuActions.size(), 8);
+    for (const char* name: {"classroom-spotlight", "classroom-curtain", "classroom-exit-overlay"}) {
+        ASSERT_TRUE(g_action_group_has_action(actions, name)) << name;
+        EXPECT_TRUE(g_action_group_get_action_enabled(actions, name));
+    }
+    auto* tools = control->getToolHandler();
+    g_action_group_activate_action(actions, "classroom-spotlight", nullptr);
+    EXPECT_TRUE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-spotlight", nullptr);
+    EXPECT_FALSE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-curtain", nullptr);
+    EXPECT_TRUE(tools->isCurtainEnabled());
+    EXPECT_FALSE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-exit-overlay", nullptr);
+    EXPECT_FALSE(tools->isCurtainEnabled());
+}
+
+TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
+    struct Heartbeat {
+        gint64 last = g_get_monotonic_time();
+        gint64 longestGap = 0;
+        guint source = g_timeout_add(1, +[](gpointer data) -> gboolean {
+            auto& timer = *static_cast<Heartbeat*>(data);
+            const auto now = g_get_monotonic_time();
+            timer.longestGap = std::max(timer.longestGap, now - timer.last);
+            timer.last = now;
+            return G_SOURCE_CONTINUE;
+        }, this);
+        ~Heartbeat() { g_source_remove(source); }
+    } heartbeat;
+    const char* requested = g_getenv("UTN_STRESS_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 32;
+    const int strokes = static_cast<int>(std::clamp<gint64>(parsed, 1, 20000));
+    window->show(nullptr);
+    settle();
+    heartbeat.last = g_get_monotonic_time();
+    heartbeat.longestGap = 0;
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+    auto page = control->getCurrentPage();
+    auto* layer = page->getSelectedLayer();
+    for (bool highlight: {false, true}) {
+        if (highlight) {
+            control->selectHighlighter(false);
+        } else {
+            control->selectTool(TOOL_PEN);
+        }
+        control->getToolHandler()->setDrawingType(DRAWING_TYPE_DEFAULT);
+        std::vector<gint64> latencies;
+        std::vector<gint64> releaseLatencies;
+        latencies.reserve(static_cast<size_t>(strokes));
+        for (int stroke = 0; stroke < strokes; ++stroke) {
+            PositionInputData pos{};
+            pos.pressure = 0.7;
+            pos.x = (80 + stroke % 20) * view->getZoom();
+            pos.y = (100 + stroke % 240) * view->getZoom();
+            const auto begin = g_get_monotonic_time();
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int point = 1; point <= 16; ++point) {
+                pos.x += 3 * view->getZoom();
+                pos.y += (point % 2 ? 1 : -1) * view->getZoom();
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            const auto releaseBegin = g_get_monotonic_time();
+            view->onButtonReleaseEvent(pos);
+            releaseLatencies.push_back(g_get_monotonic_time() - releaseBegin);
+            for (int event = 0; event < 8 && gtk_events_pending(); ++event) {
+                gtk_main_iteration_do(false);
+            }
+            latencies.push_back(g_get_monotonic_time() - begin);
+            if (requested && ((stroke + 1) % 100 == 0 || stroke + 1 == strokes)) {
+                auto sorted = latencies;
+                std::sort(sorted.begin(), sorted.end());
+                const auto prefix = std::string(highlight ? "highlight_" : "pen_") + std::to_string(stroke + 1);
+                RecordProperty(prefix + "_p95_us", std::to_string(sorted[(sorted.size() - 1) * 95 / 100]));
+                RecordProperty(prefix + "_p99_us", std::to_string(sorted[(sorted.size() - 1) * 99 / 100]));
+                RecordProperty(prefix + "_max_us", std::to_string(sorted.back()));
+            }
+        }
+        EXPECT_EQ(layer->getElements().size(), static_cast<size_t>(strokes * (highlight ? 2 : 1)));
+        if (requested) {
+            std::sort(releaseLatencies.begin(), releaseLatencies.end());
+            const std::string prefix = highlight ? "highlight_release" : "pen_release";
+            RecordProperty(prefix + "_p99_us",
+                           std::to_string(releaseLatencies[(releaseLatencies.size() - 1) * 99 / 100]));
+            RecordProperty(prefix + "_max_us", std::to_string(releaseLatencies.back()));
+            RecordProperty(highlight ? "highlight_heartbeat_gap_us" : "pen_heartbeat_gap_us",
+                           std::to_string(heartbeat.longestGap));
+            heartbeat.last = g_get_monotonic_time();
+            heartbeat.longestGap = 0;
+        }
+    }
+    const auto count = layer->getElements().size();
+    control->getUndoRedoHandler()->undo();
+    EXPECT_EQ(layer->getElements().size(), count - 1);
+    control->getUndoRedoHandler()->redo();
+    EXPECT_EQ(layer->getElements().size(), count);
+    const auto file = Util::getTmpDirSubfolder() / "m3-repeated-ink.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto restored = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(restored->getPage(0)->getSelectedLayer()->getElements().size(), count);
+}
+
+TEST_F(ClassroomWorkflow, highlighterRestoresFreehandAndSemanticModeAfterSwitchingTools) {
+    window->toolbarSelected("UTN Teacher");
+    auto* caption = railLabel(window->get("tbLeft1"), "Highlight");
+    ASSERT_NE(caption, nullptr);
+    auto* highlight = GTK_BUTTON(gtk_widget_get_parent(gtk_widget_get_parent(caption)));
+    auto* tools = control->getToolHandler();
+    control->selectHighlighter(false);
+    control->selectTool(TOOL_PEN);
+    gtk_button_clicked(highlight);
+    EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER);
+    EXPECT_FALSE(tools->isSmartHighlighterEnabled());
+    control->selectHighlighter(true, SmartHighlighterSnapMode::Underline);
+    control->selectTool(TOOL_ERASER);
+    gtk_button_clicked(highlight);
+    EXPECT_TRUE(tools->isSmartHighlighterEnabled());
+    EXPECT_EQ(tools->getSmartHighlighterSnapMode(), SmartHighlighterSnapMode::Underline);
+    control->selectTool(TOOL_HIGHLIGHTER);
+    control->selectTool(TOOL_PEN);
+    gtk_button_clicked(highlight);
+    EXPECT_TRUE(tools->isSmartHighlighterEnabled()) << "incidental resets must not overwrite a chosen mode";
+    EXPECT_EQ(tools->getSmartHighlighterSnapMode(), SmartHighlighterSnapMode::Underline);
 }
 
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
@@ -606,5 +1093,283 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) 
         window->exitPresentationOverlay();
         EXPECT_FALSE(tools->isSpotlightEnabled() || tools->isCurtainEnabled());
         EXPECT_FALSE(window->isPresentationBannerVisible());
+    }
+}
+
+// Closer to a teaching session than the single-page stress test: strokes spread over several pages, undo/redo
+// churn, and the real AutosaveJob running on the scheduler while worker threads render. UTN_SOAK_STROKES raises the
+// size (default is small enough for the normal suite). When built with -DUTN_LOCK_AUDIT=ON it also fails on any nested
+// Document lock acquisition, the pattern that deadlocks std::shared_mutex once a writer is waiting.
+TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocumentLockHealthy) {
+    const char* requested = g_getenv("UTN_SOAK_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 90;
+    const int strokes = static_cast<int>(std::clamp<gint64>(parsed, 1, 20000));
+    constexpr size_t PAGES = 5;
+
+    Document* doc = control->getDocument();
+    // File backed, so the autosave lands next to a temporary file and never in the user's autosave folder
+    const auto lesson = Util::getTmpDirSubfolder() / "soak-lesson.xopp";
+    doc->lock();
+    doc->setFilepath(lesson);
+    doc->unlock();
+    while (doc->getPageCount() < PAGES) {
+        control->insertNewPage(doc->getPageCount(), true);
+    }
+    window->show(nullptr);
+    settle();
+#ifdef UTN_LOCK_AUDIT
+    const unsigned nestedBefore = utn::lockaudit::nestedViolations();
+#endif
+    control->selectTool(TOOL_PEN);
+    control->getToolHandler()->setDrawingType(DRAWING_TYPE_DEFAULT);
+
+    std::vector<gint64> latencies;
+    latencies.reserve(static_cast<size_t>(strokes));
+    size_t drawn = 0;
+    for (int stroke = 0; stroke < strokes; ++stroke) {
+        auto* view = window->getXournal()->getViewFor(static_cast<size_t>(stroke) % PAGES);
+        ASSERT_NE(view, nullptr);
+        PositionInputData pos{};
+        pos.pressure = 0.6;
+        pos.x = (60 + (stroke * 37) % 300) * view->getZoom();
+        pos.y = (60 + (stroke * 53) % 500) * view->getZoom();
+        const auto begin = g_get_monotonic_time();
+        ASSERT_TRUE(view->onButtonPressEvent(pos));
+        for (int point = 1; point <= 24; ++point) {
+            pos.x += 4 * view->getZoom();
+            pos.y += (point % 3 - 1) * 2 * view->getZoom();
+            pos.timestamp += 8;
+            view->onMotionNotifyEvent(pos);
+        }
+        view->onButtonReleaseEvent(pos);
+        ++drawn;
+        if (stroke % 11 == 10) {
+            control->getUndoRedoHandler()->undo();
+            control->getUndoRedoHandler()->redo();
+        }
+        if (stroke % 20 == 19) {
+            auto* job = new AutosaveJob(control.get());
+            control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
+            job->unref();
+        }
+        for (int event = 0; event < 40 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        latencies.push_back(g_get_monotonic_time() - begin);
+    }
+    settle();  // let queued renders and the last autosave finish
+
+    size_t elements = 0;
+    for (size_t i = 0; i < PAGES; ++i) {
+        elements += doc->getPage(i)->getSelectedLayer()->getElements().size();
+    }
+    EXPECT_EQ(elements, drawn) << "every stroke survives the undo/redo churn and the saves";
+
+    std::sort(latencies.begin(), latencies.end());
+    RecordProperty("soak_strokes", strokes);
+    RecordProperty("soak_p95_us", std::to_string(latencies[(latencies.size() - 1) * 95 / 100]));
+    RecordProperty("soak_p99_us", std::to_string(latencies[(latencies.size() - 1) * 99 / 100]));
+    RecordProperty("soak_max_us", std::to_string(latencies.back()));
+    // A multi-second stall on one stroke is the field symptom; this is a tripwire, not a latency benchmark
+    EXPECT_LT(latencies.back(), 5 * G_USEC_PER_SEC);
+#ifdef UTN_LOCK_AUDIT
+    EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore) << "nested Document lock acquisition on one thread";
+    RecordProperty("soak_longest_lock_wait_ms", std::to_string(utn::lockaudit::longestWaitMs()));
+    RecordProperty("soak_slow_lock_waits", static_cast<int>(utn::lockaudit::slowAcquisitions()));
+#endif
+    std::error_code ec;
+    fs::remove(fs::path(lesson).replace_filename(".soak-lesson.autosave.xopp"), ec);
+}
+
+namespace {
+/// Deliver a key press to the text editor the way the canvas does, through its key bindings
+bool pressEditorKey(MainWindow* window, TextEditor* editor, guint keyval, GdkModifierType state = GdkModifierType(0)) {
+    GdkEvent* event = gdk_event_new(GDK_KEY_PRESS);
+    if (auto* gdkWindow = gtk_widget_get_window(window->getWindow())) {
+        event->key.window = GDK_WINDOW(g_object_ref(gdkWindow));
+    }
+    event->key.keyval = keyval;
+    event->key.state = state;
+    const bool handled = editor->onKeyPressEvent(KeyEvent{keyval, state, event});
+    gdk_event_free(event);
+    return handled;
+}
+
+std::string editorText(TextEditor* editor) {
+    return pango_layout_get_text(editor->getUpToDateLayout());
+}
+
+}  // namespace
+
+TEST_F(ClassroomWorkflow, enterContinuesAListAndShiftEnterBreaksInsideTheItem) {
+    auto page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("\xE2\x80\xA2 one");  // "• one"
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+
+    // Enter starts the next item
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 one\n\xE2\x80\xA2 ");
+    // Enter on the empty item ends the list
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 one\n");
+
+    // Shift+Enter in a bullet item: a new line without a marker, lined up under the text. Repeating keeps the line up.
+    control->clearSelectionEndText();
+    auto second = std::make_unique<Text>();
+    second->setText("\xE2\x80\xA2 two");
+    second->move(100, 200);
+    page->getSelectedLayer()->addElement(std::move(second));
+    control->selectTextMode(TextMode::Plain);
+    editor = editAt(101, 201);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 two\n  ");
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_KP_Enter, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 two\n  \n  ");
+    control->clearSelectionEndText();
+}
+
+TEST_F(ClassroomWorkflow, enterContinuesTheListAfterASoftBreakAndExitsAnEmptyContinuation) {
+    for (const auto& [source, continued, empty]: {
+                 std::array<std::string, 3>{"12. answer\n    more", "12. answer\n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"12. answer\n    first\n    more",
+                                            "12. answer\n    first\n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"12. answer\n    \n    more",
+                                            "12. answer\n    \n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"\xE2\x80\xA2 answer\n  more",
+                                            "\xE2\x80\xA2 answer\n  more\n\xE2\x80\xA2 ",
+                                            "\xE2\x80\xA2 answer\n"}}) {
+        auto* layer = control->getCurrentPage()->getSelectedLayer();
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        auto* editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), continued);
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        while (!layer->getElements().empty()) {
+            layer->removeElement(layer->getElements().front().get());
+        }
+
+        text = std::make_unique<Text>();
+        text->setText(source.substr(0, source.find('\n')));
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), empty);
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        while (!layer->getElements().empty()) {
+            layer->removeElement(layer->getElements().front().get());
+        }
+    }
+}
+
+TEST_F(ClassroomWorkflow, enterDoesNotContinueAcrossAParagraphOrDifferentIndentation) {
+    for (const char* source: {"12. answer\n\n    paragraph", "12. answer\n  paragraph",
+                             "12. answer\nplain\n    paragraph"}) {
+        auto* layer = control->getCurrentPage()->getSelectedLayer();
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        auto* editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), std::string(source) + "\n");
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        // Finalizing replaces the original Text object.
+        layer->removeElement(layer->getElements().back().get());
+    }
+}
+
+TEST_F(ClassroomWorkflow, softBreakSplitsUnicodeAndReplacesTheSelectedText) {
+    auto text = std::make_unique<Text>();
+    text->setText("alpha \xCE\xB2 tail");
+    text->move(100, 100);
+    control->getCurrentPage()->getSelectedLayer()->addElement(std::move(text));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Home, GDK_CONTROL_MASK));
+    for (int i = 0; i < 7; ++i) {
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Right));
+    }
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "alpha \xCE\xB2\n tail");
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_a, GDK_CONTROL_MASK));
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_ISO_Enter, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\n");
+    const auto controlShift = static_cast<GdkModifierType>(GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    EXPECT_FALSE(pressEditorKey(window.get(), editor, GDK_KEY_Return, controlShift));
+    EXPECT_EQ(editorText(editor), "\n");
+    control->clearSelectionEndText();
+}
+
+TEST_F(ClassroomWorkflow, softBreakHasOneTextUndoTransactionAndSurvivesSaveReopen) {
+    auto* layer = control->getCurrentPage()->getSelectedLayer();
+    const std::string source = "12. \xE7\xAD\x94\xE6\xA1\x88";
+    const auto expected = source + "\n    \n    \n    ";
+    for (bool answerBox: {false, true}) {
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->setBoxEnabled(answerBox);
+        const int y = answerBox ? 250 : 100;
+        text->move(100, y);
+        layer->addElement(std::move(text));
+        control->selectTextMode(answerBox ? TextMode::AnswerBox : TextMode::Plain);
+        auto* editor = editAt(101, y + 1);
+        ASSERT_NE(editor, nullptr);
+        auto* history = control->getUndoRedoHandler();
+        history->clearContents();
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        for (guint key: {GDK_KEY_Return, GDK_KEY_KP_Enter, GDK_KEY_ISO_Enter}) {
+            ASSERT_TRUE(pressEditorKey(window.get(), editor, key, GDK_SHIFT_MASK));
+        }
+        EXPECT_EQ(editorText(editor), expected);
+        EXPECT_FALSE(history->canUndo()) << "editing is committed as one text transaction on exit";
+        control->clearSelectionEndText();
+        ASSERT_TRUE(history->canUndo());
+        history->undo();
+        EXPECT_EQ(static_cast<Text*>(layer->getElements().back().get())->getText(), source);
+        EXPECT_FALSE(history->canUndo()) << "no duplicate transactions for the three soft breaks";
+        history->redo();
+        EXPECT_EQ(static_cast<Text*>(layer->getElements().back().get())->getText(), expected);
+        EXPECT_FALSE(history->canRedo());
+    }
+    const auto file = Util::getTmpDirSubfolder() / "m3-soft-break-text.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto reopened = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(reopened, nullptr);
+    const auto& elements = reopened->getPage(0)->getSelectedLayer()->getElements();
+    ASSERT_EQ(elements.size(), 2U);
+    for (size_t i = 0; i < elements.size(); ++i) {
+        auto* saved = dynamic_cast<Text*>(elements[i].get());
+        ASSERT_NE(saved, nullptr);
+        EXPECT_EQ(saved->getText(), expected);
+        EXPECT_EQ(saved->isBoxEnabled(), i == 1);
     }
 }

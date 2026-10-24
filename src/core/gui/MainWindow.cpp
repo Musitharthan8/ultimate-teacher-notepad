@@ -23,6 +23,7 @@
 #include "gui/FloatingToolbox.h"                        // for FloatingToolbox
 #include "gui/GladeGui.h"                               // for GladeGui
 #include "gui/PdfFloatingToolbox.h"                     // for PdfFloatingToolbox
+#include "gui/ResponsiveLayout.h"                       // for nextCompactLayout, railLabelsVisible
 #include "gui/PageView.h"                               // for repaintPage
 #include "gui/SearchBar.h"                              // for SearchBar
 #include "gui/inputdevices/InputEvents.h"               // for INPUT_DEVICE_TOUC...
@@ -194,11 +195,16 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
                     g_debug("Window moved to monitor \"%s\"", monitorName);
                     win->setDPI();
                 }
-                win->updateCompactLayout(gtk_widget_get_allocated_width(widget));
                 win->updateInspectorBounds();
                 return false;
             }),
             this);
+
+    g_signal_connect(this->window, "size-allocate",
+                     G_CALLBACK(+[](GtkWidget*, GtkAllocation* allocation, gpointer self) {
+                         auto* win = static_cast<MainWindow*>(self);
+                         win->updateCompactLayout(allocation->width);
+                     }), this);
 
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
     // Keep native GTK handling whenever no classroom overlay is active.
@@ -842,10 +848,7 @@ void MainWindow::appendWorkspaceMenu() {
         g_object_set_data(G_OBJECT(button), "utn-label-mode", GINT_TO_POINTER(mode));
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
-                             self->toolLabels = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-label-mode"));
-                             self->control->getSettings()->getCustomElement("utn").setInt("toolLabels", self->toolLabels);
-                             self->compactLayoutDirty = true;
-                             self->updateCompactLayout(gtk_widget_get_allocated_width(GTK_WIDGET(self->window)));
+                             self->setToolLabelMode(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-label-mode")));
                          }), this);
         utn::setAccessibleName(button, labelChoices[static_cast<size_t>(mode)]);
         gtk_box_append(GTK_BOX(panel), button);
@@ -909,12 +912,12 @@ void MainWindow::updateTeacherWorkspace() {
         gtk_paned_pack2(GTK_PANED(inspectorPaned), boxContainerWidget.get(), true, true);
         gtk_box_pack_start(GTK_BOX(mainBox), inspectorPaned, true, true, 0);
         gtk_box_reorder_child(GTK_BOX(mainBox), inspectorPaned, 1);
+        inspectorAvailableWidth = 0;
+        gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
         gtk_widget_show(inspectorPaned);
         gtk_widget_show(inspectorHost);
         gtk_widget_show(boxContainerWidget.get());
         inspectorAttached = true;
-        inspectorAvailableWidth = 0;
-        updateInspectorBounds();
     } else if (!shouldAttach && inspectorAttached) {
         gtk_container_remove(GTK_CONTAINER(inspectorPaned), boxContainerWidget.get());
         gtk_container_remove(GTK_CONTAINER(mainBox), inspectorPaned);
@@ -925,7 +928,7 @@ void MainWindow::updateTeacherWorkspace() {
     }
     if (shouldAttach) {
         gtk_widget_set_visible(inspectorHost, true);
-        updateInspectorBounds();
+        gtk_widget_queue_resize(inspectorPaned);
     }
     gtk_widget_set_visible(get("utnCollapseInspector"), teacher && mode == 0);
     gtk_widget_set_visible(get("utnExpandInspector"), teacher && mode == 1);
@@ -1053,14 +1056,18 @@ void setRailLabelsVisible(GtkWidget* widget, bool visible) {
 }
 }  // namespace
 
+void MainWindow::setToolLabelMode(int mode) {
+    this->toolLabels = std::clamp(mode, 0, 2);
+    this->control->getSettings()->getCustomElement("utn").setInt("toolLabels", this->toolLabels);
+    this->compactLayoutDirty = true;
+    updateCompactLayout(this->layoutWidth);
+}
+
 void MainWindow::updateCompactLayout(int width) {
-    // Hysteresis: enter compact under 1080 px, leave above 1120 px, so dragging the edge does not flicker
+    // The decision itself (with hysteresis) lives in ResponsiveLayout.h so it is tested at any logical width
     const bool wasCompact = this->compactLayout;
-    if (!wasCompact && width >= 200 && width < 1080) {  // ignore the 1 px size before the window is shown
-        this->compactLayout = true;
-    } else if (wasCompact && width > 1120) {
-        this->compactLayout = false;
-    }
+    this->layoutWidth = width;
+    this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
     if (wasCompact == this->compactLayout && !this->compactLayoutDirty) {
         return;
     }
@@ -1074,7 +1081,7 @@ void MainWindow::updateCompactLayout(int width) {
     // Compact rail: icons only; names stay in tooltips and accessible names
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
-            setRailLabelsVisible(toolbar.get(), toolLabels == 1 || (toolLabels == 0 && !this->compactLayout));
+            setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));
         }
     }
 }

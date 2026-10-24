@@ -1,4 +1,5 @@
 #include "ImageExport.h"
+#include "model/LayerAudience.h"
 
 #include <cmath>    // for round
 #include <cstddef>  // for size_t
@@ -235,6 +236,9 @@ void ImageExport::exportGraphics(ProgressListener* stateListener) {
     }
 
     DocumentView view;
+    if (exportAudience == ExportAudience::Student) {
+        view.setLayerFilter(utn::visibleToStudents);
+    }
     size_t current = 0;
 
     for (size_t i = 0; i < count; i++) {

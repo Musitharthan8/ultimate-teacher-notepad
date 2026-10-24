@@ -118,6 +118,7 @@ private:
     void moveCursor(GtkMovementStep step, int count, bool extendSelection);
     void backspace();
     void linebreak();
+    void softLinebreak();  ///< Shift+Enter: line break inside a list item, no new marker
     void tabulation();
 
     void afterFontChange();

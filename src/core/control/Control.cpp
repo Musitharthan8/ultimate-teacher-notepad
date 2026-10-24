@@ -836,6 +836,7 @@ void Control::selectHighlighter(bool smart, std::optional<SmartHighlighterSnapMo
     clearSelectionEndText();
     selectTool(TOOL_HIGHLIGHTER);
     this->toolHandler->setSmartHighlighterEnabled(smart);
+    settings->getCustomElement("utn").setBool("smartHighlighterPreferred", smart);
     if (mode) {
         this->toolHandler->setSmartHighlighterSnapMode(*mode);
     }

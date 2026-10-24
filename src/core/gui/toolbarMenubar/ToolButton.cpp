@@ -50,6 +50,9 @@ auto ToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
         gtk_menu_button_set_popover(menubutton, popoverFactory->createPopover());
         gtk_menu_button_set_direction(menubutton, GTK_ARROW_DOWN);
+        if (action == Action::SELECT_TOOL && toggle) {
+            utn::bindActiveToolOptions(GTK_TOGGLE_BUTTON(btn), menubutton);
+        }
 
         GtkBox* box = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
         gtk_box_append(box, btn);

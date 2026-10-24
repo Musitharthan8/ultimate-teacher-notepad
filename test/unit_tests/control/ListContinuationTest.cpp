@@ -68,3 +68,30 @@ TEST(ListContinuationTest, MultiByteBulletTextIsRecognised) {
     EXPECT_EQ(c.prefix, "• ");
     EXPECT_FALSE(c.emptyItem);
 }
+
+// Shift+Enter breaks the line inside the current item: the next line lines up under the item text and has no marker
+
+using utn::list::softBreakIndent;
+
+TEST(SoftBreakIndentTest, BulletItemIndentsUnderItsText) {
+    EXPECT_EQ(softBreakIndent("• buy pens"), "  ");
+}
+
+TEST(SoftBreakIndentTest, NumberedItemIndentsByTheWidthOfItsMarker) {
+    EXPECT_EQ(softBreakIndent("1. first"), "   ");
+    EXPECT_EQ(softBreakIndent("12. twelfth"), "    ");
+}
+
+TEST(SoftBreakIndentTest, AnIndentedContinuationLineKeepsItsIndent) {
+    EXPECT_EQ(softBreakIndent("    more text of the same item"), "    ");
+}
+
+TEST(SoftBreakIndentTest, PlainTextAddsNothing) {
+    EXPECT_EQ(softBreakIndent("plain sentence"), "");
+    EXPECT_EQ(softBreakIndent(""), "");
+}
+
+TEST(SoftBreakIndentTest, AMarkerWithoutItsSpaceIsNotAListItem) {
+    EXPECT_EQ(softBreakIndent("1.5 litres"), "");
+    EXPECT_EQ(softBreakIndent("•text"), "");
+}

@@ -120,6 +120,9 @@ void DocumentView::drawLayersOfPage(const LayerRangeVector& layerRange, ConstPag
     xoj::view::Context context{cr, (xoj::view::NonAudioTreatment)this->markAudioStroke,
                                (xoj::view::EditionTreatment) !this->dontRenderEditingStroke, xoj::view::NORMAL_COLOR};
     for (auto&& [_, l]: visibleLayers) {
+        if (layerFilter && !layerFilter(*l)) {
+            continue;
+        }
         xoj::view::LayerView layerView(l);
         layerView.draw(context);
     }

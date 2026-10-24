@@ -56,7 +56,7 @@ private:
 protected:
     void configureCairoFontOptions();
     bool endPdf();
-    void exportPage(size_t page, bool exportPdfBackground = true);
+    void exportPage(size_t page, bool exportPdfBackground = true, const LayerRangeVector* progressiveLayers = nullptr);
     /**
      * Export as a PDF document where each additional layer creates a
      * new page */

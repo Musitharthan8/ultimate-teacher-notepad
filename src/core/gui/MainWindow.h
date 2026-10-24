@@ -106,6 +106,11 @@ public:
 
     /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
     void updateCompactLayout(int width);
+    bool isCompactLayout() const { return compactLayout; }
+    /// UTN: tool captions under the rail icons: 0 = automatic (follows the width), 1 = show, 2 = hide.
+    /// Re-applies at the last width given to updateCompactLayout().
+    void setToolLabelMode(int mode);
+    int getToolLabelMode() const { return toolLabels; }
 
     /// Teacher workspace: 0 = inspector, 1 = rail only, 2 = canvas only.
     void setTeacherWorkspace(int mode);
@@ -195,6 +200,7 @@ private:
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     bool compactLayout = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
+    int layoutWidth = 0;             ///< last width passed to updateCompactLayout()
     int teacherWorkspace = 0;
     int inspectorWidth = 250;
     int inspectorAvailableWidth = 0;
