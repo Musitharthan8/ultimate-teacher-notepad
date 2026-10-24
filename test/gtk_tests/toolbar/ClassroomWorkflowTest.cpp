@@ -10,6 +10,8 @@
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "control/actions/ActionDatabase.h"
+#include "control/jobs/AutosaveJob.h"
+#include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
@@ -28,6 +30,7 @@
 #include "gui/inputdevices/PositionInputData.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "model/Document.h"
+#include "model/DocumentLockAudit.h"
 #include "model/Layer.h"
 #include "model/PageType.h"
 #include "model/Text.h"
@@ -1090,4 +1093,89 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) 
         EXPECT_FALSE(tools->isSpotlightEnabled() || tools->isCurtainEnabled());
         EXPECT_FALSE(window->isPresentationBannerVisible());
     }
+}
+
+// Closer to a teaching session than the single-page stress test: strokes spread over several pages, undo/redo
+// churn, and the real AutosaveJob running on the scheduler while worker threads render. UTN_SOAK_STROKES raises the
+// size (default is small enough for the normal suite). When built with -DUTN_LOCK_AUDIT=ON it also fails on any nested
+// Document lock acquisition, the pattern that deadlocks std::shared_mutex once a writer is waiting.
+TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocumentLockHealthy) {
+    const char* requested = g_getenv("UTN_SOAK_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 90;
+    const int strokes = static_cast<int>(std::clamp<gint64>(parsed, 1, 20000));
+    constexpr size_t PAGES = 5;
+
+    Document* doc = control->getDocument();
+    // File backed, so the autosave lands next to a temporary file and never in the user's autosave folder
+    const auto lesson = Util::getTmpDirSubfolder() / "soak-lesson.xopp";
+    doc->lock();
+    doc->setFilepath(lesson);
+    doc->unlock();
+    while (doc->getPageCount() < PAGES) {
+        control->insertNewPage(doc->getPageCount(), true);
+    }
+    window->show(nullptr);
+    settle();
+#ifdef UTN_LOCK_AUDIT
+    const unsigned nestedBefore = utn::lockaudit::nestedViolations();
+#endif
+    control->selectTool(TOOL_PEN);
+    control->getToolHandler()->setDrawingType(DRAWING_TYPE_DEFAULT);
+
+    std::vector<gint64> latencies;
+    latencies.reserve(static_cast<size_t>(strokes));
+    size_t drawn = 0;
+    for (int stroke = 0; stroke < strokes; ++stroke) {
+        auto* view = window->getXournal()->getViewFor(static_cast<size_t>(stroke) % PAGES);
+        ASSERT_NE(view, nullptr);
+        PositionInputData pos{};
+        pos.pressure = 0.6;
+        pos.x = (60 + (stroke * 37) % 300) * view->getZoom();
+        pos.y = (60 + (stroke * 53) % 500) * view->getZoom();
+        const auto begin = g_get_monotonic_time();
+        ASSERT_TRUE(view->onButtonPressEvent(pos));
+        for (int point = 1; point <= 24; ++point) {
+            pos.x += 4 * view->getZoom();
+            pos.y += (point % 3 - 1) * 2 * view->getZoom();
+            pos.timestamp += 8;
+            view->onMotionNotifyEvent(pos);
+        }
+        view->onButtonReleaseEvent(pos);
+        ++drawn;
+        if (stroke % 11 == 10) {
+            control->getUndoRedoHandler()->undo();
+            control->getUndoRedoHandler()->redo();
+        }
+        if (stroke % 20 == 19) {
+            auto* job = new AutosaveJob(control.get());
+            control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
+            job->unref();
+        }
+        for (int event = 0; event < 40 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        latencies.push_back(g_get_monotonic_time() - begin);
+    }
+    settle();  // let queued renders and the last autosave finish
+
+    size_t elements = 0;
+    for (size_t i = 0; i < PAGES; ++i) {
+        elements += doc->getPage(i)->getSelectedLayer()->getElements().size();
+    }
+    EXPECT_EQ(elements, drawn) << "every stroke survives the undo/redo churn and the saves";
+
+    std::sort(latencies.begin(), latencies.end());
+    RecordProperty("soak_strokes", strokes);
+    RecordProperty("soak_p95_us", std::to_string(latencies[(latencies.size() - 1) * 95 / 100]));
+    RecordProperty("soak_p99_us", std::to_string(latencies[(latencies.size() - 1) * 99 / 100]));
+    RecordProperty("soak_max_us", std::to_string(latencies.back()));
+    // A multi-second stall on one stroke is the field symptom; this is a tripwire, not a latency benchmark
+    EXPECT_LT(latencies.back(), 5 * G_USEC_PER_SEC);
+#ifdef UTN_LOCK_AUDIT
+    EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore) << "nested Document lock acquisition on one thread";
+    RecordProperty("soak_longest_lock_wait_ms", std::to_string(utn::lockaudit::longestWaitMs()));
+    RecordProperty("soak_slow_lock_waits", static_cast<int>(utn::lockaudit::slowAcquisitions()));
+#endif
+    std::error_code ec;
+    fs::remove(fs::path(lesson).replace_filename(".soak-lesson.autosave.xopp"), ec);
 }

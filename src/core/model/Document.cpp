@@ -14,6 +14,7 @@
 
 #include "model/DocumentChangeType.h"         // for DOCUMENT_CHANGE_CLEARED
 #include "model/DocumentHandler.h"            // for DocumentHandler
+#include "model/DocumentLockAudit.h"          // for utn::lockaudit (no-ops unless UTN_LOCK_AUDIT)
 #include "model/PageRef.h"                    // for PageRef
 #include "model/PageType.h"                   // for PageType
 #include "pdf/base/XojPdfAction.h"            // for XojPdfAction
@@ -64,12 +65,42 @@ auto Document::freeTreeContentEntry(GtkTreeModel* treeModel, GtkTreePath* path, 
     return false;
 }
 
-void Document::lock() { this->documentLock.lock(); }
-void Document::unlock() { this->documentLock.unlock(); }
-auto Document::try_lock() -> bool { return this->documentLock.try_lock(); }
-void Document::lock_shared() { this->documentLock.lock_shared(); }
-void Document::unlock_shared() { this->documentLock.unlock_shared(); }
-auto Document::try_lock_shared() -> bool { return this->documentLock.try_lock_shared(); }
+// With UTN_LOCK_AUDIT the wrappers below record nested acquisitions and slow waits (see DocumentLockAudit.h). The
+// depth is per thread, not per Document, so holding the lock of one document while locking another is also reported.
+void Document::lock() {
+    const auto start = utn::lockaudit::begin(true, true);
+    this->documentLock.lock();
+    utn::lockaudit::acquired(true, start);
+}
+void Document::unlock() {
+    utn::lockaudit::released(true);
+    this->documentLock.unlock();
+}
+auto Document::try_lock() -> bool {
+    const auto start = utn::lockaudit::begin(true, false);
+    const bool locked = this->documentLock.try_lock();
+    if (locked) {
+        utn::lockaudit::acquired(true, start);
+    }
+    return locked;
+}
+void Document::lock_shared() {
+    const auto start = utn::lockaudit::begin(false, true);
+    this->documentLock.lock_shared();
+    utn::lockaudit::acquired(false, start);
+}
+void Document::unlock_shared() {
+    utn::lockaudit::released(false);
+    this->documentLock.unlock_shared();
+}
+auto Document::try_lock_shared() -> bool {
+    const auto start = utn::lockaudit::begin(false, false);
+    const bool locked = this->documentLock.try_lock_shared();
+    if (locked) {
+        utn::lockaudit::acquired(false, start);
+    }
+    return locked;
+}
 
 void Document::clearDocument(bool destroy) {
     this->preview.reset();

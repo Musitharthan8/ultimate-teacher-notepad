@@ -298,6 +298,11 @@ configure_file(
 # Development options
 option(DEV_CALL_LOG "Call log" OFF)
 add_compile_definitions(G_LOG_DOMAIN="xopp")
+# UTN diagnostics: report nested or slow acquisitions of the Document lock (see src/core/model/DocumentLockAudit.h)
+option(UTN_LOCK_AUDIT "Report nested and slow Document lock acquisitions with stack traces" OFF)
+if (UTN_LOCK_AUDIT)
+  add_compile_definitions(UTN_LOCK_AUDIT)
+endif ()
 
 # Debug options
 option(DEBUG_INPUT "Input debugging, e.g. eraser events etc" OFF)
