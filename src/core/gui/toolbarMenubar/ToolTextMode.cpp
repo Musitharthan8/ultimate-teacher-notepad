@@ -13,6 +13,7 @@
 #include "util/i18n.h"
 
 #include "UtnWidgets.h"
+#include "ToolUtnContextBar.h"
 
 ToolTextMode::ToolTextMode(std::string id, Control* control, IconNameHelper iconNameHelper, TextMode mode):
         AbstractToolItem(std::move(id), Category::TOOLS),
@@ -60,7 +61,20 @@ auto ToolTextMode::createItem(bool) -> xoj::util::WidgetSPtr {
                      this);
 
     utn::syncToggle(button, isSelected());
-    return xoj::util::WidgetSPtr(toggle, xoj::util::adopt);
+
+    auto [popover, panel] = utn::createPopoverPanel(8);
+    gtk_box_append(panel, ToolUtnContextBar::createTextSettingsPanel(control));
+    gtk_widget_add_css_class(GTK_WIDGET(panel), "utn-text-settings");
+    GtkWidget* options = gtk_menu_button_new();
+    gtk_widget_set_tooltip_text(options, _("Text settings"));
+    utn::setAccessibleName(options, _("Text settings"));
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(options), GTK_WIDGET(popover));
+    utn::bindActiveToolOptions(button, GTK_MENU_BUTTON(options));
+    GtkWidget* group = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(group, "utn-tool-with-options");
+    gtk_box_append(GTK_BOX(group), toggle);
+    gtk_box_append(GTK_BOX(group), options);
+    return xoj::util::WidgetSPtr(group, xoj::util::adopt);
 }
 
 auto ToolTextMode::getToolDisplayName() const -> std::string {

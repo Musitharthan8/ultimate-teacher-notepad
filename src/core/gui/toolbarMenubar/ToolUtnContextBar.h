@@ -38,7 +38,11 @@ public:
      */
     static GtkWidget* createPropertiesViewport(GtkWidget* content);
 
+    /// Create the same live Text/Answer Box controls for an anchored tool popover.
+    static GtkWidget* createTextSettingsPanel(Control* control);
+
 private:
+    static void populateTextSettingsPanel(Control* control, GtkBox* panel);
     enum class Palette { Ink, Highlight };
 
     void rebuild(ToolType tool);
