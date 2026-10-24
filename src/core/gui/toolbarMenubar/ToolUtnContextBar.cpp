@@ -306,8 +306,12 @@ GtkWidget* newMenuButton(const char* label, const char* hint, GtkPopover* popove
 }
 }  // namespace
 
-ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control):
+ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control, bool followToolChanges):
         AbstractToolItem(std::move(id), Category::TOOLS), control(control) {
+    if (!followToolChanges) {
+        // A short-lived builder (the text settings popover) has nothing to rebuild, and the handler never forgets a listener
+        return;
+    }
     // The handler outlives this bar when the window closes, so check the token before touching this object
     std::weak_ptr<bool> alive = this->alive;
     control->getToolHandler()->addToolChangedListener([this, alive](ToolType tool) {
@@ -384,6 +388,95 @@ auto ToolUtnContextBar::createPropertiesViewport(GtkWidget* content) -> GtkWidge
     gtk_widget_set_vexpand(viewport, false);
     gtk_container_add(GTK_CONTAINER(viewport), content);
     return viewport;
+}
+
+void ToolUtnContextBar::populateTextSettingsPanel(Control* control, GtkBox* panel) {
+    GtkWidget* modes = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(modes), _("Text"));
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(modes), _("Answer Box"));
+    const auto mode = control->getToolHandler()->getTextMode();
+    gtk_combo_box_set_active(GTK_COMBO_BOX(modes), mode == TextMode::AnswerBox ? 1 : 0);
+    gtk_widget_set_tooltip_text(modes, _("Text and Answer Box mode"));
+    utn::setAccessibleName(modes, _("Text and Answer Box mode"));
+    g_signal_connect(
+            modes, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
+                const int active = gtk_combo_box_get_active(combo);
+                if (active >= 0 && active <= 1) {
+                    auto* ctrl = static_cast<Control*>(data);
+                    GtkWidget* popover = gtk_widget_get_ancestor(GTK_WIDGET(combo), GTK_TYPE_POPOVER);
+                    GtkWidget* focusTarget = popover == nullptr ? nullptr : gtk_popover_get_relative_to(GTK_POPOVER(popover));
+                    ctrl->selectTextMode(active == 0 ? TextMode::Plain : TextMode::AnswerBox);
+                    struct Rebuild {
+                        Control* control;
+                        GtkBox* panel;
+                        GtkWidget* focusTarget;
+                    };
+                    auto* rebuild = new Rebuild;
+                    rebuild->control = ctrl;
+                    rebuild->panel = GTK_BOX(g_object_get_data(G_OBJECT(combo), "utn-text-settings-panel"));
+                    g_object_ref(rebuild->panel);
+                    rebuild->focusTarget = focusTarget == nullptr ? nullptr : GTK_WIDGET(g_object_ref(focusTarget));
+                    g_idle_add_full(
+                            G_PRIORITY_DEFAULT_IDLE,
+                            +[](gpointer data) -> gboolean {
+                                auto* rebuild = static_cast<Rebuild*>(data);
+                                if (!gtk_widget_in_destruction(GTK_WIDGET(rebuild->panel))) {
+                                    GList* children = gtk_container_get_children(GTK_CONTAINER(rebuild->panel));
+                                    for (GList* child = children; child; child = child->next) {
+                                        gtk_widget_destroy(GTK_WIDGET(child->data));
+                                    }
+                                    g_list_free(children);
+                                    ToolUtnContextBar::populateTextSettingsPanel(rebuild->control, rebuild->panel);
+                                    gtk_widget_show_all(GTK_WIDGET(rebuild->panel));
+                                }
+                                if (rebuild->focusTarget != nullptr && gtk_widget_get_visible(rebuild->focusTarget) &&
+                                    gtk_widget_get_can_focus(rebuild->focusTarget)) {
+                                    gtk_widget_grab_focus(rebuild->focusTarget);
+                                }
+                                return G_SOURCE_REMOVE;
+                            },
+                            rebuild,
+                            +[](gpointer data) {
+                                auto* rebuild = static_cast<Rebuild*>(data);
+                                g_object_unref(rebuild->panel);
+                                if (rebuild->focusTarget != nullptr) {
+                                    g_object_unref(rebuild->focusTarget);
+                                }
+                                delete rebuild;
+                            });
+                }
+            }),
+            control);
+    g_object_set_data(G_OBJECT(modes), "utn-text-settings-panel", panel);
+    gtk_box_append(panel, modes);
+
+    // Build the established controls through their existing implementation. The temporary builder owns no
+    // callbacks: controls bind to Control and the created widgets own their GTK signal closures.
+    ToolUtnContextBar builder("UTN_TEXT_SETTINGS_POPOVER", control, false);
+    builder.box = panel;
+    builder.appendTextControls();
+    builder.box = nullptr;
+}
+
+void ToolUtnContextBar::refreshTextSettingsPanel(Control* control, GtkWidget* panel) {
+    if (!GTK_IS_BOX(panel) || gtk_widget_in_destruction(panel)) {
+        return;
+    }
+    GList* children = gtk_container_get_children(GTK_CONTAINER(panel));
+    for (GList* child = children; child; child = child->next) {
+        gtk_widget_destroy(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    populateTextSettingsPanel(control, GTK_BOX(panel));
+    gtk_widget_show_all(panel);
+}
+
+auto ToolUtnContextBar::createTextSettingsPanel(Control* control) -> GtkWidget* {
+    auto* panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_add_css_class(panel, "utn-context-panel");
+    populateTextSettingsPanel(control, GTK_BOX(panel));
+    gtk_widget_show_all(panel);
+    return panel;
 }
 
 void ToolUtnContextBar::rebuild(ToolType tool) {
