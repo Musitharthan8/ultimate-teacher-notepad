@@ -6,6 +6,9 @@
 
 #include "UtnWidgets.h"
 
+#include "control/Control.h"
+#include "gui/MainWindow.h"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -50,6 +53,19 @@ auto appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* label, con
         g_signal_connect_swapped(button, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
     }
     gtk_box_append(panel, button);
+    return button;
+}
+
+auto appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* control) -> GtkWidget* {
+    GtkWidget* button = appendMenuButton(panel, popover, _("Pin settings panel"),
+                                         _("Keep the full tool settings panel open beside the worksheet"));
+    setAccessibleName(button, _("Pin settings panel"));
+    g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         auto* control = static_cast<Control*>(data);
+                         if (MainWindow* window = control->getWindow()) {
+                             window->setTeacherWorkspace(0);
+                         }
+                     }), control);
     return button;
 }
 
