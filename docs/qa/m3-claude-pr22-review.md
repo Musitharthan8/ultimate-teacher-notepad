@@ -59,3 +59,13 @@ layout has no Shapes or Feedback menu.
   focus, target behaviour, dismissal); no WCAG conformance is claimed for a GTK popover.
 * No other skill was invoked for this review. The root cause was found by dumping the widget tree and reading `ToolMenuHandler`; the new tests
   passed on first run against the unchanged production code, so they are characterisation tests, not red-first tests.
+
+## Follow-up: CI run 40072892137 and the popover dismissal assertion
+
+The new test failed on Windows CI at `gtk_widget_get_visible(popover) == true` right after Pin settings was clicked; every other assertion (workspace 0, tool,
+colour, drawing type, width) passed. Root cause: the test measured a transitional state. GTK3 popovers have `transitions-enabled` on (and
+`gtk-enable-animations` is on); `gtk_popover_popdown` starts a fade-out and `visible` and `mapped` both stay true until the frame-clock transition ends.
+Sampled on this machine after clicking: visible and mapped true at 0, 86, 118, 147 and 175 ms, both false at 214 ms; in a second round both false at 75 ms.
+So the popover was being dismissed, and the fixed 60 ms `settle()` raced the animation, which is why it passed locally and failed on the slower runner.
+Fix: `waitUntilHidden()` pumps the main loop until the popover is neither visible nor mapped, with a 3 s ceiling, and the test fails with a clear message if
+it never closes. There is no fixed sleep, the transition setting is left as shipped, and no assertion was removed. Local: 54/54 three times, the two pin tests five times.

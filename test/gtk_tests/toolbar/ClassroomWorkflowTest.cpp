@@ -116,6 +116,22 @@ void settle() {
     }
 }
 
+/// A GTK3 popover fades out after popdown: `visible` and `mapped` stay true until the transition (about 150 to 200 ms,
+/// driven by the frame clock) has finished. Wait for that end state instead of sampling the transition.
+bool waitUntilHidden(GtkWidget* popover, gint64 timeoutUs = 3 * G_USEC_PER_SEC) {
+    const gint64 deadline = g_get_monotonic_time() + timeoutUs;
+    while (gtk_widget_get_visible(popover) || gtk_widget_get_mapped(popover)) {
+        if (g_get_monotonic_time() > deadline) {
+            return false;
+        }
+        for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        g_usleep(2000);
+    }
+    return true;
+}
+
 void captureWindow(GtkWidget* window, const char* path) {
     GdkWindow* gdkWindow = gtk_widget_get_window(window);
     if (!gdkWindow) {
@@ -475,7 +491,7 @@ TEST_F(ClassroomWorkflow, pinSettingsKeepsToolColourModeAndInspectorWidthAndClos
         gtk_button_clicked(GTK_BUTTON(pin));  // a focused GtkButton turns Enter and Space into this same signal
         settle();
 
-        EXPECT_FALSE(gtk_widget_get_visible(popover)) << name << ": the popover closes";
+        EXPECT_TRUE(waitUntilHidden(popover)) << name << ": the popover finishes closing (hidden and unmapped)";
         EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
         EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER) << name;
         EXPECT_EQ(tools->getDrawingType(), DRAWING_TYPE_DEFAULT) << name;
