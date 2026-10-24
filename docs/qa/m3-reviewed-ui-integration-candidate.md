@@ -15,14 +15,15 @@ Production changes include the Shapes/Feedback Pin settings action and its uncha
 
 ## Privacy observation and recommendation
 
-The Answer Box popover still has a one-click “Reveal on this page” action. This candidate does not change that reviewed behavior. Safer follow-up proposal: make reveal a two-step, page-scoped action. The first activation should show the exact page and answer-layer scope to be revealed; a separately labeled confirmation then reveals only that page, while Cancel/Escape leave every answer hidden. Keep “Hide answers” immediately available. The reveal path must never change audience classification. This is an open privacy design decision for review before integration.
+The Answer Box popover still has a one-click â€œReveal on this pageâ€ action. This candidate does not change that reviewed behavior. Safer follow-up proposal: make reveal a two-step, page-scoped action. The first activation should show the exact page and answer-layer scope to be revealed; a separately labeled confirmation then reveals only that page, while Cancel/Escape leave every answer hidden. Keep â€œHide answersâ€ immediately available. The reveal path must never change audience classification. This is an open privacy design decision for review before integration.
 
 ## Keyboard focus observation
 
-Mode changes rebuild the mode-specific panel asynchronously and cause the old mode's toolbar item to become inactive, which closes its popover. The focused selector is destroyed during the rebuild. The focused GTK regression test in this candidate checks that closure returns focus to a visible window control, outside the hidden popover; it does not claim physical keyboard or screen-reader behavior.
+Mode changes rebuild the mode-specific panel asynchronously and cause the old mode's toolbar item to become inactive, which closes its popover. The focused selector is destroyed during the rebuild. Initial combined Windows CI exposed that focus became null after this dismissal (61/62 GTK tests passed). The candidate now returns focus to the popover's visible anchor button after the deferred rebuild. A corrected Windows run is required to verify the fix. Physical keyboard and screen-reader behavior remain unverified.
 
 ## Remaining validation limits
 
 Windows IME composition, screen-reader output, high-contrast contrast, and hardware stylus behavior have not been verified. The stylus-freeze root cause remains a release blocker. Synthetic GTK tests do not resolve it.
 
-Hosted Windows verification runs on the candidate PR head; use its linked Actions run for the authoritative combined counts and package/portable results.
+Initial combined Windows run: Actions run `40083531631` on `fac6a5edd658c14f57b55982b760418820cf5f97`; build, test build, and all 354 unit tests passed; GTK had 61 passed and 1 focus regression failure. Lock-audit and packaging/portable steps were skipped after the GTK failure. A focus correction is now on the candidate and a complete Windows rerun is required before integration readiness.
+
