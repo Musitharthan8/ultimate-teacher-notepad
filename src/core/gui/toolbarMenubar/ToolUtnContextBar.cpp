@@ -306,8 +306,12 @@ GtkWidget* newMenuButton(const char* label, const char* hint, GtkPopover* popove
 }
 }  // namespace
 
-ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control):
+ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control, bool followToolChanges):
         AbstractToolItem(std::move(id), Category::TOOLS), control(control) {
+    if (!followToolChanges) {
+        // A short-lived builder (the text settings popover) has nothing to rebuild, and the handler never forgets a listener
+        return;
+    }
     // The handler outlives this bar when the window closes, so check the token before touching this object
     std::weak_ptr<bool> alive = this->alive;
     control->getToolHandler()->addToolChangedListener([this, alive](ToolType tool) {
@@ -437,10 +441,23 @@ void ToolUtnContextBar::populateTextSettingsPanel(Control* control, GtkBox* pane
 
     // Build the established controls through their existing implementation. The temporary builder owns no
     // callbacks: controls bind to Control and the created widgets own their GTK signal closures.
-    ToolUtnContextBar builder("UTN_TEXT_SETTINGS_POPOVER", control);
+    ToolUtnContextBar builder("UTN_TEXT_SETTINGS_POPOVER", control, false);
     builder.box = panel;
     builder.appendTextControls();
     builder.box = nullptr;
+}
+
+void ToolUtnContextBar::refreshTextSettingsPanel(Control* control, GtkWidget* panel) {
+    if (!GTK_IS_BOX(panel) || gtk_widget_in_destruction(panel)) {
+        return;
+    }
+    GList* children = gtk_container_get_children(GTK_CONTAINER(panel));
+    for (GList* child = children; child; child = child->next) {
+        gtk_widget_destroy(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    populateTextSettingsPanel(control, GTK_BOX(panel));
+    gtk_widget_show_all(panel);
 }
 
 auto ToolUtnContextBar::createTextSettingsPanel(Control* control) -> GtkWidget* {

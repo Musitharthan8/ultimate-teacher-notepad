@@ -22,7 +22,7 @@ class Control;
 
 class ToolUtnContextBar: public AbstractToolItem {
 public:
-    ToolUtnContextBar(std::string id, Control* control);
+    ToolUtnContextBar(std::string id, Control* control, bool followToolChanges = true);
     ~ToolUtnContextBar() override = default;
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
@@ -40,6 +40,10 @@ public:
 
     /// Create the same live Text/Answer Box controls for an anchored tool popover.
     static GtkWidget* createTextSettingsPanel(Control* control);
+
+    /// Rebuild a panel from createTextSettingsPanel() so it shows the current text mode, font and colours.
+    /// The panel is built once with the toolbar; call this whenever it is about to be shown.
+    static void refreshTextSettingsPanel(Control* control, GtkWidget* panel);
 
 private:
     static void populateTextSettingsPanel(Control* control, GtkBox* panel);
