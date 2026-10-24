@@ -25,5 +25,7 @@ Mode changes rebuild the mode-specific panel asynchronously and cause the old mo
 
 Windows IME composition, screen-reader output, high-contrast contrast, and hardware stylus behavior have not been verified. The stylus-freeze root cause remains a release blocker. Synthetic GTK tests do not resolve it.
 
-Initial combined Windows run: Actions run `40083531631` on `fac6a5edd658c14f57b55982b760418820cf5f97`; build, test build, and all 354 unit tests passed; GTK had 61 passed and 1 focus regression failure. Lock-audit and packaging/portable steps were skipped after the GTK failure. A focus correction is now on the candidate and a complete Windows rerun is required before integration readiness.
+Initial combined Windows run: Actions run `40083531631` on `fac6a5edd658c14f57b55982b760418820cf5f97`; build, test build, and all 354 unit tests passed; GTK had 61 passed and 1 focus regression failure. Lock-audit and packaging/portable steps were skipped after the GTK failure. Commit `2a4de053a33b65fcfb077657bebb56384c375688` restores focus to the popover anchor after the deferred panel rebuild.
+
+Final-head Windows run: Actions run `40085974225` on `8970bedca6f4fe5d448e7e2dd4badb18751005b1`; build passed, 354 unit tests passed, 62 GTK tests passed, 6 lock-audit tests passed, standalone Windows packaging passed, and portable validation passed. No test was disabled or skipped.
 
