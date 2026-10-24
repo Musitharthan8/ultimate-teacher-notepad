@@ -18,7 +18,9 @@ class Stroke;
 class XmlAudioNode;
 class XmlPointNode;
 
-XojExportHandler::XojExportHandler() = default;
+// This is the file teachers hand to students (or open in plain Xournal, which ignores the audience attribute), so
+// it is a student copy unless the caller opts in to the private lesson with setExportAudience(Teacher).
+XojExportHandler::XojExportHandler() { this->exportAudience = ExportAudience::Student; }
 
 XojExportHandler::~XojExportHandler() = default;
 

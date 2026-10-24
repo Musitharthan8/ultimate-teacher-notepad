@@ -71,11 +71,14 @@ void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
 
     writeHeader();
 
-    auto preview = doc->getPreview();
-    if (preview) {
-        auto* image = new XmlImageNode(TAG_NAMES[TagType::PREVIEW]);
-        image->setImage(preview.get());
-        this->root->addChild(image);
+    // The thumbnail shows every visible layer, teacher-only ink included: a student copy carries none
+    if (this->exportAudience == ExportAudience::Teacher) {
+        auto preview = doc->getPreview();
+        if (preview) {
+            auto* image = new XmlImageNode(TAG_NAMES[TagType::PREVIEW]);
+            image->setImage(preview.get());
+            this->root->addChild(image);
+        }
     }
 
     for (size_t i = 0; i < doc->getPageCount(); i++) {
@@ -438,15 +441,23 @@ void SaveHandler::visitPage(XmlNode* root, ConstPageRef p, const Document* doc, 
         writeSolidBackground(background, p);
     }
 
+    bool wroteLayer = false;
+    for (const Layer* l: p->getLayersView()) {
+        if (includeLayer(*l)) {
+            visitLayer(page, l);
+            wroteLayer = true;
+        }
+    }
+
     // no layer, but we need to write one layer, else the old Xournal cannot read the file
-    if (p->getLayerCount() == 0) {
+    if (!wroteLayer) {
         auto* layer = new XmlNode(TAG_NAMES[TagType::LAYER]);
         page->addChild(layer);
     }
+}
 
-    for (const Layer* l: p->getLayersView()) {
-        visitLayer(page, l);
-    }
+bool SaveHandler::includeLayer(const Layer& layer) const {
+    return this->exportAudience == ExportAudience::Teacher || utn::visibleToStudents(layer);
 }
 
 void SaveHandler::writeSolidBackground(XmlNode* background, ConstPageRef p) {

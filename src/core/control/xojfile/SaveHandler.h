@@ -18,6 +18,7 @@
 
 #include "control/xml/XmlNode.h"    // for XmlNode
 #include "model/BackgroundImage.h"  // for BackgroundImage
+#include "model/ExportAudience.h"   // for ExportAudience
 #include "model/PageRef.h"          // for PageRef
 #include "util/Color.h"             // for Color
 
@@ -52,8 +53,18 @@ public:
 
     const std::string& getErrorMessage();
 
+    /**
+     * UTN: who the written file is for. Teacher (the default) writes the complete private lesson, which is what the
+     * native save needs. Student writes only what students may see (see utn::visibleToStudents) and omits the page
+     * thumbnail, which is rendered from every visible layer.
+     */
+    void setExportAudience(ExportAudience audience) { this->exportAudience = audience; }
+
 protected:
     static std::string getColorStr(Color c, unsigned char alpha = 0xff);
+
+    /// Whether a layer is written for the current export audience
+    bool includeLayer(const Layer& layer) const;
 
     virtual void visitPage(XmlNode* root, ConstPageRef p, const Document* doc, int id, const fs::path& target);
     virtual void visitLayer(XmlNode* page, const Layer* l);
@@ -71,6 +82,7 @@ protected:
 
 protected:
     std::unique_ptr<XmlNode> root{};
+    ExportAudience exportAudience = ExportAudience::Teacher;
     bool firstPdfPageVisited;
     int attachBgId;
 

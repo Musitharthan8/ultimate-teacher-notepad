@@ -29,7 +29,7 @@ CustomExportJob::CustomExportJob(Control* control): BaseExportJob(control, _("Cu
     filters.insert({_("PDF files"), ExportType(".pdf", "application/pdf")});
     filters.insert({_("PNG graphics"), ExportType(".png", "image/png")});
     filters.insert({_("SVG graphics"), ExportType(".svg", "image/svg+xml")});
-    filters.insert({_("Xournal (Compatibility)"), ExportType(".xoj", "application/x-xojpp")});
+    filters.insert({_("Xournal (Compatibility, student copy)"), ExportType(".xoj", "application/x-xojpp")});
 }
 
 CustomExportJob::~CustomExportJob() = default;
