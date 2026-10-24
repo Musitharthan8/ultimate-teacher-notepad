@@ -52,3 +52,9 @@ Active Pen, Area, Eraser and Highlight controls now open their existing anchored
 Student exports now default to audience-filtered content for PDF, progressive/range exports and images; print installs the same predicate. Explicit Teacher copy is available in custom export. Native editable lessons retain private data. Six real-file unit regressions and one dialog regression pass; see m3-export-privacy.md for exact scope and limits. Full suite: 327 units / 41 GTK. Initial matrix rows above are superseded by these results, not by an assertion that M3 is complete.
 
 Top-level Classroom menu, Enter/Shift+Enter refinements, handwriting engine, remaining full options redesign, packaging and final independent review remain open. Hardware-stylus freeze remains release-blocking. Native GUI testing is paused by explicit user instruction.
+
+### Classroom menu follow-up
+
+Top-level native Classroom menu now provides Spotlight, Curtain, Exit, temporary ink/highlight/clear, Presentation mode and Full screen. All entries resolve to registered application actions; GTK tests verify overlay toggle/recovery. Existing toolbar quick controls remain. Other classroom workflows still use their existing launchers; this does not complete every menu/workflow requirement. No new native screenshots were taken under the GUI stop.
+
+Options accessible names now refresh when combo subtype tooltips change. Teacher-copy labelling discloses hidden-layer range/progressive semantics. Final fresh validation: 327 unit and 42 GTK tests passed. Text/IME refinements, full contextual formatting, Classic/profile highlighter preference consistency, physical print, packaging, native visual/scaling and final candidate review remain outstanding.

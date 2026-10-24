@@ -39,3 +39,11 @@ Claude's separate static audit (`m3-claude-initial-audit.md`) identified a fresh
 - Memory after quiescence and repeated document close/reopen, plus a self-contained portable Release build.
 
 The existing pressure-warning log is a correlation, not a causal explanation. The preserved Windows Application Hang record remains the primary historical symptom. No request for minor owner testing is made.
+
+## Resumed synthetic measurement
+
+A fresh 20,000 pen + 20,000 highlighter stroke run passed with undo/redo and native save/reopen: 10.166 s test duration. Pen p95/p99/max: 0.154/0.521/9.792 ms. Highlighter: 0.142/0.466/53.002 ms. Source: build-m3-logs/batch-stress.xml. These timings reflect this run, not a controlled before/after speedup; build configuration, load and warm caches differ from earlier runs. No hardware-reliability inference.
+
+Extended the existing stress harness to separately record release-event p99/max and a 1 ms GLib heartbeat's largest serviced gap. Timer lifetime is scoped to the test, including assertion exits. The gap includes time between event-loop servicing and sampling overhead; it is not a measured document-lock wait or OS pen latency. Autosave/multipage/real-stylus evidence remains required before clearing the freeze gate.
+
+Instrumented 40,000-stroke result (menu-instrumented-stress.xml): passed in 10.409 s with history and save/reopen. Pen total p95/p99/max 0.160/0.816/10.942 ms; release p99/max 0.086/1.748 ms; largest serviced heartbeat gap 10.519 ms. Highlighter total 0.180/0.870/27.928 ms; release 0.104/1.231 ms; heartbeat gap 20.720 ms. Fatal-critical mode and strict XML gate passed. This run does not reproduce the field hang, profile contention or include hardware pen events/autosave/multipage workloads; the freeze remains unresolved.

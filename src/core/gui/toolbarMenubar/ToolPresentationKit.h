@@ -13,12 +13,15 @@
 #include <gtk/gtk.h>
 
 #include "AbstractToolItem.h"
+#include "enums/Action.enum.h"
 #include "gui/IconNameHelper.h"
 
 class Control;
 
 class ToolPresentationKit: public AbstractToolItem {
 public:
+    static void runClassroomAction(Control* control, Action action);
+
     ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper);
     ~ToolPresentationKit() override = default;
 

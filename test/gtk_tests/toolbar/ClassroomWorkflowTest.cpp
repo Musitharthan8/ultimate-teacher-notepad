@@ -18,6 +18,7 @@
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
+#include "gui/menus/menubar/Menubar.h"
 #include "gui/dialog/ExportDialog.h"
 #include "gui/FloatingToolbox.h"
 #include "gui/PdfFloatingToolbox.h"
@@ -304,7 +305,7 @@ TEST_F(ClassroomWorkflow, exportDialogDefaultsToStudentCopyAndRequiresTeacherOpt
     auto* dialogWindow = GTK_WIDGET(dialog->getWindow());
     popup.show(GTK_WINDOW(window->getWindow()));
     settle();
-    auto* teacher = buttonNamed(dialogWindow, "Teacher copy (includes private layers)");
+    auto* teacher = buttonNamed(dialogWindow, "Teacher copy (private content permitted)");
     ASSERT_TRUE(GTK_IS_CHECK_BUTTON(teacher));
     EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(teacher)));
     gtk_button_clicked(GTK_BUTTON(teacher));
@@ -356,6 +357,11 @@ TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEra
         ASSERT_NE(menu, nullptr) << caption;
         auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(menu));
         EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(GTK_WIDGET(menu))), nullptr);
+        gchar* oldTooltip = gtk_widget_get_tooltip_text(primary);
+        gtk_widget_set_tooltip_text(primary, "Changed subtype");
+        EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(GTK_WIDGET(menu))), "Changed subtype options");
+        gtk_widget_set_tooltip_text(primary, oldTooltip);
+        g_free(oldTooltip);
         const int beforeSelect = activations.count;
         gtk_button_clicked(GTK_BUTTON(primary));
         settle();
@@ -395,7 +401,9 @@ TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEra
         EXPECT_TRUE(handled) << caption;
         EXPECT_TRUE(gtk_widget_get_visible(popover)) << caption;
         control->selectTool(TOOL_TEXT);
-        settle();
+        for (int attempt = 0; attempt < 8 && gtk_widget_get_visible(popover); ++attempt) {
+            settle();
+        }
         EXPECT_FALSE(gtk_widget_get_visible(popover)) << caption;
     }
     auto* eraser = button("Eraser");
@@ -411,12 +419,79 @@ TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEra
     EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
 }
 
+TEST_F(ClassroomWorkflow, classroomMenuUsesSharedPresentationActions) {
+    auto* model = window->getMenubar()->getModel();
+    bool found = false;
+    std::set<std::string> menuActions;
+    for (int i = 0; i < g_menu_model_get_n_items(model); ++i) {
+        gchar* label = nullptr;
+        g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_LABEL, "s", &label);
+        if (g_strcmp0(label, "_Classroom") == 0) {
+            found = true;
+            auto* submenu = g_menu_model_get_item_link(model, i, G_MENU_LINK_SUBMENU);
+            if (submenu) {
+                for (int section = 0; section < g_menu_model_get_n_items(submenu); ++section) {
+                    auto* items = g_menu_model_get_item_link(submenu, section, G_MENU_LINK_SECTION);
+                    if (!items) {
+                        continue;
+                    }
+                    for (int item = 0; item < g_menu_model_get_n_items(items); ++item) {
+                        gchar* action = nullptr;
+                        if (g_menu_model_get_item_attribute(items, item, G_MENU_ATTRIBUTE_ACTION, "s", &action)) {
+                            menuActions.insert(action);
+                        }
+                        g_free(action);
+                    }
+                    g_object_unref(items);
+                }
+                g_object_unref(submenu);
+            }
+        }
+        g_free(label);
+    }
+    ASSERT_TRUE(found);
+    auto* actions = G_ACTION_GROUP(window->getWindow());
+    for (const auto& action: menuActions) {
+        ASSERT_EQ(action.substr(0, 4), "win.");
+        EXPECT_TRUE(g_action_group_has_action(actions, action.c_str() + 4)) << action;
+    }
+    EXPECT_EQ(menuActions.size(), 8);
+    for (const char* name: {"classroom-spotlight", "classroom-curtain", "classroom-exit-overlay"}) {
+        ASSERT_TRUE(g_action_group_has_action(actions, name)) << name;
+        EXPECT_TRUE(g_action_group_get_action_enabled(actions, name));
+    }
+    auto* tools = control->getToolHandler();
+    g_action_group_activate_action(actions, "classroom-spotlight", nullptr);
+    EXPECT_TRUE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-spotlight", nullptr);
+    EXPECT_FALSE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-curtain", nullptr);
+    EXPECT_TRUE(tools->isCurtainEnabled());
+    EXPECT_FALSE(tools->isSpotlightEnabled());
+    g_action_group_activate_action(actions, "classroom-exit-overlay", nullptr);
+    EXPECT_FALSE(tools->isCurtainEnabled());
+}
+
 TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
+    struct Heartbeat {
+        gint64 last = g_get_monotonic_time();
+        gint64 longestGap = 0;
+        guint source = g_timeout_add(1, +[](gpointer data) -> gboolean {
+            auto& timer = *static_cast<Heartbeat*>(data);
+            const auto now = g_get_monotonic_time();
+            timer.longestGap = std::max(timer.longestGap, now - timer.last);
+            timer.last = now;
+            return G_SOURCE_CONTINUE;
+        }, this);
+        ~Heartbeat() { g_source_remove(source); }
+    } heartbeat;
     const char* requested = g_getenv("UTN_STRESS_STROKES");
     const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 32;
     const int strokes = static_cast<int>(std::clamp<gint64>(parsed, 1, 20000));
     window->show(nullptr);
     settle();
+    heartbeat.last = g_get_monotonic_time();
+    heartbeat.longestGap = 0;
     auto* view = window->getXournal()->getViewFor(0);
     ASSERT_NE(view, nullptr);
     auto page = control->getCurrentPage();
@@ -429,6 +504,7 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
         }
         control->getToolHandler()->setDrawingType(DRAWING_TYPE_DEFAULT);
         std::vector<gint64> latencies;
+        std::vector<gint64> releaseLatencies;
         latencies.reserve(static_cast<size_t>(strokes));
         for (int stroke = 0; stroke < strokes; ++stroke) {
             PositionInputData pos{};
@@ -443,7 +519,9 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
                 pos.timestamp += 8;
                 view->onMotionNotifyEvent(pos);
             }
+            const auto releaseBegin = g_get_monotonic_time();
             view->onButtonReleaseEvent(pos);
+            releaseLatencies.push_back(g_get_monotonic_time() - releaseBegin);
             for (int event = 0; event < 8 && gtk_events_pending(); ++event) {
                 gtk_main_iteration_do(false);
             }
@@ -458,6 +536,17 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
             }
         }
         EXPECT_EQ(layer->getElements().size(), static_cast<size_t>(strokes * (highlight ? 2 : 1)));
+        if (requested) {
+            std::sort(releaseLatencies.begin(), releaseLatencies.end());
+            const std::string prefix = highlight ? "highlight_release" : "pen_release";
+            RecordProperty(prefix + "_p99_us",
+                           std::to_string(releaseLatencies[(releaseLatencies.size() - 1) * 99 / 100]));
+            RecordProperty(prefix + "_max_us", std::to_string(releaseLatencies.back()));
+            RecordProperty(highlight ? "highlight_heartbeat_gap_us" : "pen_heartbeat_gap_us",
+                           std::to_string(heartbeat.longestGap));
+            heartbeat.last = g_get_monotonic_time();
+            heartbeat.longestGap = 0;
+        }
     }
     const auto count = layer->getElements().size();
     control->getUndoRedoHandler()->undo();
