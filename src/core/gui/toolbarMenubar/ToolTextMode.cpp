@@ -12,6 +12,8 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include <algorithm>
+
 #include "UtnWidgets.h"
 #include "ToolUtnContextBar.h"
 
@@ -63,8 +65,32 @@ auto ToolTextMode::createItem(bool) -> xoj::util::WidgetSPtr {
     utn::syncToggle(button, isSelected());
 
     auto [popover, panel] = utn::createPopoverPanel(8);
-    gtk_box_append(panel, ToolUtnContextBar::createTextSettingsPanel(control));
+    GtkWidget* settings = ToolUtnContextBar::createTextSettingsPanel(control);
+    // The Answer Box panel is about 620 px tall: scroll it instead of letting a short window clip the popover
+    GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroller), true);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), true);
+    gtk_container_add(GTK_CONTAINER(scroller), settings);
+    gtk_box_append(panel, scroller);
     gtk_widget_add_css_class(GTK_WIDGET(panel), "utn-text-settings");
+    // The panel is built once with the toolbar, so refresh it on every opening: the mode, font and colours may have
+    // changed since. The popover owns the panel; the reference below only lives as long as the popover.
+    g_object_set_data_full(G_OBJECT(popover), "utn-text-settings", g_object_ref(settings), g_object_unref);
+    g_object_set_data(G_OBJECT(popover), "utn-text-scroller", scroller);
+    g_signal_connect(popover, "show", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+                         ToolUtnContextBar::refreshTextSettingsPanel(
+                                 static_cast<Control*>(data),
+                                 GTK_WIDGET(g_object_get_data(G_OBJECT(widget), "utn-text-settings")));
+                         // Leave room for the toolbar and title around the popover; never shrink below a usable height
+                         GtkWidget* anchor = gtk_popover_get_relative_to(GTK_POPOVER(widget));
+                         GtkWidget* window = anchor ? gtk_widget_get_toplevel(anchor) : nullptr;
+                         const int available = (window ? gtk_widget_get_allocated_height(window) : 800) - 150;
+                         gtk_scrolled_window_set_max_content_height(
+                                 GTK_SCROLLED_WINDOW(g_object_get_data(G_OBJECT(widget), "utn-text-scroller")),
+                                 std::max(available, 220));
+                     }),
+                     control);
     GtkWidget* options = gtk_menu_button_new();
     gtk_widget_set_tooltip_text(options, _("Text settings"));
     utn::setAccessibleName(options, _("Text settings"));
