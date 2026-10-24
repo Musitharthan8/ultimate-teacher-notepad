@@ -18,6 +18,7 @@
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
+#include "gui/ResponsiveLayout.h"
 #include "gui/menus/menubar/Menubar.h"
 #include "gui/dialog/ExportDialog.h"
 #include "gui/FloatingToolbox.h"
@@ -217,63 +218,171 @@ protected:
 };
 }  // namespace
 
-TEST_F(ClassroomWorkflow, teacherRailShowsCaptionsBeneathIconsAndPreservesTool) {
+namespace {
+const std::vector<const char*> RAIL_CAPTIONS = {"Select",     "Area",   "Pen",        "Shapes",   "Highlight",
+                                                "Colours",    "Eraser", "Text",       "Answer Box", "Feedback",
+                                                "Classroom",  "Reveal", "Move"};
+
+/// Every rail caption must show exactly when `expectVisible` says so
+void expectCaptions(GtkWidget* rail, bool expectVisible, const std::string& context) {
+    for (const char* text: RAIL_CAPTIONS) {
+        auto* label = railLabel(rail, text);
+        ASSERT_NE(label, nullptr) << text << " " << context;
+        EXPECT_EQ(gtk_widget_get_visible(label), expectVisible) << text << " " << context;
+    }
+}
+
+/// Run the event loop until the toplevel allocation stops changing, and return it. A desktop smaller than the
+/// request (the 1024 px GitHub Windows runner) clamps the window, so the caller must read what was really allocated.
+int allocatedWidthAfterResize(GtkWidget* window, int requested) {
+    gtk_window_resize(GTK_WINDOW(window), requested, 720);
+    int previous = -1;
+    int current = gtk_widget_get_allocated_width(window);
+    for (int attempt = 0; attempt < 30 && current != previous; ++attempt) {
+        previous = current;
+        settle();
+        current = gtk_widget_get_allocated_width(window);
+    }
+    return current;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, teacherRailCaptionsSitBeneathIconsWithAccessibleNames) {
     window->toolbarSelected("UTN Teacher");
-    control->selectTool(TOOL_PEN);
+    gtk_widget_show(window->getWindow());
+    settle();
+    window->setToolLabelMode(1);  // captions shown, so the structure is checked at any width
+    auto* rail = window->get("tbLeft1");
+    expectCaptions(rail, true, "Show");
+    for (const char* text: RAIL_CAPTIONS) {
+        auto* label = railLabel(rail, text);
+        ASSERT_NE(label, nullptr) << text;
+        auto* box = gtk_widget_get_parent(label);
+        ASSERT_TRUE(GTK_IS_BOX(box)) << text;
+        EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(box)), GTK_ORIENTATION_VERTICAL) << text;
+        auto* button = gtk_widget_get_parent(box);
+        ASSERT_TRUE(GTK_IS_BUTTON(button)) << text;
+        EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(button)), nullptr) << text;
+    }
+    window->setToolLabelMode(0);
+}
+
+// Widget level test at the width the desktop really gives the window: the monitor decides what is allocated, so the
+// expectation is derived from the allocation and the documented thresholds, never from the requested size.
+TEST_F(ClassroomWorkflow, teacherRailCaptionsFollowTheRealAllocatedWidth) {
+    window->toolbarSelected("UTN Teacher");
+    control->selectTool(TOOL_ERASER);
     gtk_widget_show(window->getWindow());
     settle();
     gtk_window_unmaximize(GTK_WINDOW(window->getWindow()));
     settle();
-    auto resize = [&](int width, int height) {
-        gtk_window_resize(GTK_WINDOW(window->getWindow()), width, height);
-        for (int attempt = 0; attempt < 30; ++attempt) {
-            settle();
-            if (gtk_widget_get_allocated_width(window->getWindow()) == width) {
-                break;
-            }
-        }
-        EXPECT_EQ(gtk_widget_get_allocated_width(window->getWindow()), width);
-    };
-    resize(1280, 720);
+    window->setToolLabelMode(0);
     auto* rail = window->get("tbLeft1");
-    for (const char* text: {"Select", "Area", "Pen", "Shapes", "Highlight", "Colours", "Eraser", "Text",
-                           "Answer Box", "Feedback", "Classroom", "Reveal", "Move"}) {
-        auto* label = railLabel(rail, text);
-        ASSERT_NE(label, nullptr) << text;
-        EXPECT_TRUE(gtk_widget_get_visible(label)) << text;
-        auto* box = gtk_widget_get_parent(label);
-        ASSERT_TRUE(GTK_IS_BOX(box));
-        EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(box)), GTK_ORIENTATION_VERTICAL);
-        auto* button = gtk_widget_get_parent(box);
-        ASSERT_TRUE(GTK_IS_BUTTON(button));
-        EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(button)), nullptr);
+    for (int requested: {1280, 1024, 1500, 900, 1280}) {
+        const int actual = allocatedWidthAfterResize(window->getWindow(), requested);
+        const std::string context = "requested " + std::to_string(requested) + ", allocated " + std::to_string(actual);
+        SCOPED_TRACE(context);
+        RecordProperty("allocated_width_for_request_" + std::to_string(requested), actual);
+        ASSERT_GT(actual, utn::layout::MIN_MEANINGFUL_WIDTH);
+        // Outside the hysteresis band the layout is fully determined by the width
+        if (actual < utn::layout::COMPACT_ENTER_BELOW) {
+            EXPECT_TRUE(window->isCompactLayout());
+        } else if (actual > utn::layout::COMPACT_LEAVE_ABOVE) {
+            EXPECT_FALSE(window->isCompactLayout());
+        }
+        for (int mode: {0, 1, 2}) {
+            window->setToolLabelMode(mode);
+            expectCaptions(rail, utn::layout::railLabelsVisible(mode, window->isCompactLayout()),
+                           context + ", mode " + std::to_string(mode));
+        }
+        window->setToolLabelMode(0);
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
     }
-    control->selectTool(TOOL_ERASER);
-    window->setTeacherWorkspace(1);
-    window->setTeacherWorkspace(0);
+}
+
+// The same widgets at fixed logical widths, independent of the monitor. updateCompactLayout() is what the
+// size-allocate handler calls; nothing iterates the main loop between the call and the check, so the real allocation
+// cannot overwrite the width under test.
+TEST_F(ClassroomWorkflow, teacherRailCaptionsAtFixedLogicalWidths) {
+    window->toolbarSelected("UTN Teacher");
+    control->selectTool(TOOL_PEN);
+    gtk_widget_show(window->getWindow());
     settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* rail = window->get("tbLeft1");
+    auto atWidth = [&](int width, int mode, bool expectCompact) {
+        window->setToolLabelMode(mode);
+        window->updateCompactLayout(width);
+        const std::string context = "width " + std::to_string(width) + ", mode " + std::to_string(mode);
+        EXPECT_EQ(window->isCompactLayout(), expectCompact) << context;
+        expectCaptions(rail, utn::layout::railLabelsVisible(mode, expectCompact), context);
+    };
+
+    // Automatic: wide -> compact -> wide -> compact
+    atWidth(1280, 0, false);
+    atWidth(1008, 0, true);   // what the 1024 px CI desktop allocates
+    atWidth(1280, 0, false);  // the wide behaviour is exercised even where no monitor can show it
+    atWidth(1024, 0, true);
+    atWidth(1920, 0, false);
+    // Hysteresis band: the state before the band is kept
+    atWidth(1100, 0, false);
+    atWidth(1079, 0, true);
+    atWidth(1100, 0, true);
+    atWidth(1121, 0, false);
+    // Show and Hide ignore the width
+    for (int width: {1008, 1280, 1920}) {
+        for (int mode: {1, 2}) {
+            atWidth(width, mode, utn::layout::nextCompactLayout(window->isCompactLayout(), width));
+        }
+    }
+    atWidth(1008, 1, true);
+    expectCaptions(rail, true, "Show at 1008");
+    atWidth(1280, 2, false);
+    expectCaptions(rail, false, "Hide at 1280");
+
+    // Tool state and the inspector workspace survive a layout change
+    window->setToolLabelMode(0);
+    control->selectTool(TOOL_ERASER);
+    window->updateCompactLayout(1008);
+    window->setTeacherWorkspace(1);
+    window->updateCompactLayout(1280);
+    window->setTeacherWorkspace(0);
+    window->updateCompactLayout(1008);
     EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+    EXPECT_EQ(window->getTeacherWorkspace(), 0);
     EXPECT_NE(railLabel(rail, "Pen"), nullptr);
 
+    window->updateCompactLayout(realWidth);
+    window->setToolLabelMode(0);
+}
+
+// The real Workspace menu buttons, which is how a teacher changes the mode
+TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    auto* rail = window->get("tbLeft1");
     auto* workspace = buttonNamed(window->getWindow(), "Workspace");
     ASSERT_TRUE(GTK_IS_MENU_BUTTON(workspace));
     auto* options = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(workspace)));
     auto chooseLabels = [&](const char* text) {
         auto* choice = buttonNamed(options, text);
-        ASSERT_NE(choice, nullptr);
+        ASSERT_NE(choice, nullptr) << text;
         gtk_button_clicked(GTK_BUTTON(choice));
-        settle();
     };
+    window->updateCompactLayout(1008);
     chooseLabels("Hide");
-    EXPECT_FALSE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    EXPECT_EQ(window->getToolLabelMode(), 2);
+    expectCaptions(rail, false, "Hide");
     chooseLabels("Show");
-    resize(1024, 768);
-    EXPECT_TRUE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    EXPECT_EQ(window->getToolLabelMode(), 1);
+    expectCaptions(rail, true, "Show while compact");
     chooseLabels("Automatic");
-    EXPECT_FALSE(gtk_widget_get_visible(railLabel(rail, "Pen")));
-    resize(1280, 720);
-    EXPECT_TRUE(gtk_widget_get_visible(railLabel(rail, "Pen")));
-    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+    EXPECT_EQ(window->getToolLabelMode(), 0);
+    expectCaptions(rail, false, "Automatic while compact");
+    window->updateCompactLayout(1280);
+    expectCaptions(rail, true, "Automatic while wide");
+    window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
 }
 
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {

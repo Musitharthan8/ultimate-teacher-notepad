@@ -23,6 +23,7 @@
 #include "gui/FloatingToolbox.h"                        // for FloatingToolbox
 #include "gui/GladeGui.h"                               // for GladeGui
 #include "gui/PdfFloatingToolbox.h"                     // for PdfFloatingToolbox
+#include "gui/ResponsiveLayout.h"                       // for nextCompactLayout, railLabelsVisible
 #include "gui/PageView.h"                               // for repaintPage
 #include "gui/SearchBar.h"                              // for SearchBar
 #include "gui/inputdevices/InputEvents.h"               // for INPUT_DEVICE_TOUC...
@@ -847,10 +848,7 @@ void MainWindow::appendWorkspaceMenu() {
         g_object_set_data(G_OBJECT(button), "utn-label-mode", GINT_TO_POINTER(mode));
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
-                             self->toolLabels = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-label-mode"));
-                             self->control->getSettings()->getCustomElement("utn").setInt("toolLabels", self->toolLabels);
-                             self->compactLayoutDirty = true;
-                             self->updateCompactLayout(gtk_widget_get_allocated_width(GTK_WIDGET(self->window)));
+                             self->setToolLabelMode(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-label-mode")));
                          }), this);
         utn::setAccessibleName(button, labelChoices[static_cast<size_t>(mode)]);
         gtk_box_append(GTK_BOX(panel), button);
@@ -1058,14 +1056,18 @@ void setRailLabelsVisible(GtkWidget* widget, bool visible) {
 }
 }  // namespace
 
+void MainWindow::setToolLabelMode(int mode) {
+    this->toolLabels = std::clamp(mode, 0, 2);
+    this->control->getSettings()->getCustomElement("utn").setInt("toolLabels", this->toolLabels);
+    this->compactLayoutDirty = true;
+    updateCompactLayout(this->layoutWidth);
+}
+
 void MainWindow::updateCompactLayout(int width) {
-    // Hysteresis: enter compact under 1080 px, leave above 1120 px, so dragging the edge does not flicker
+    // The decision itself (with hysteresis) lives in ResponsiveLayout.h so it is tested at any logical width
     const bool wasCompact = this->compactLayout;
-    if (!wasCompact && width >= 200 && width < 1080) {  // ignore the 1 px size before the window is shown
-        this->compactLayout = true;
-    } else if (wasCompact && width > 1120) {
-        this->compactLayout = false;
-    }
+    this->layoutWidth = width;
+    this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
     if (wasCompact == this->compactLayout && !this->compactLayoutDirty) {
         return;
     }
@@ -1079,7 +1081,7 @@ void MainWindow::updateCompactLayout(int width) {
     // Compact rail: icons only; names stay in tooltips and accessible names
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
-            setRailLabelsVisible(toolbar.get(), toolLabels == 1 || (toolLabels == 0 && !this->compactLayout));
+            setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));
         }
     }
 }
