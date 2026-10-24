@@ -43,7 +43,7 @@ public:
                   xoj::view::BackgroundFlags flags = xoj::view::BACKGROUND_SHOW_ALL);
 
     /**
-     * Only draws the prescribed layers of the given page, regardless of the layer's current visibility.
+     * Draws prescribed layers regardless of visibility, subject to an explicitly installed audience filter.
      * @param layerRange Range of layers to draw
      * @param page The page to draw
      * @param cr Draw to this context

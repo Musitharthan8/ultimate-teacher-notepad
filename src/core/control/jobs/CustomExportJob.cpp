@@ -80,6 +80,7 @@ void CustomExportJob::showDialogAndRun() {
                             job->progressiveMode = dialog.progressiveModeSelected();
                             job->exportBackground = dialog.getBackgroundType();
                             job->pdfExportBackend = dialog.getPdfExportBackend();
+                            job->exportAudience = dialog.getExportAudience();
 
                             if (job->format == EXPORT_GRAPHICS_PNG) {
                                 job->pngQualityParameter = dialog.getPngQualityParameter();
@@ -110,6 +111,7 @@ void CustomExportJob::showDialogAndRun() {
  */
 void CustomExportJob::exportGraphics() {
     ImageExport imgExport(control->getDocument(), filepath, format, exportBackground, exportRange);
+    imgExport.setExportAudience(exportAudience);
     if (format == EXPORT_GRAPHICS_PNG) {
         imgExport.setQualityParameter(pngQualityParameter);
     }
@@ -141,6 +143,7 @@ void CustomExportJob::run() {
         std::unique_ptr<XojPdfExport> pdfe = XojPdfExportFactory::createExport(doc, control, pdfExportBackend);
 
         pdfe->setExportBackground(exportBackground);
+        pdfe->setExportAudience(exportAudience);
 
         if (!pdfe->createPdf(this->filepath, exportRange, progressiveMode)) {
             this->errorMsg = pdfe->getLastError();

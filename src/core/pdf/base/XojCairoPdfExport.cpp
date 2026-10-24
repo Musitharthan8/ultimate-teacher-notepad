@@ -1,4 +1,5 @@
 #include "XojCairoPdfExport.h"
+#include "model/LayerAudience.h"
 
 #include <algorithm>  // for copy, min
 #include <map>        // for map
@@ -136,12 +137,15 @@ bool XojCairoPdfExport::endPdf() {
     return success;
 }
 
-void XojCairoPdfExport::exportPage(size_t page, bool exportPdfBackground) {
+void XojCairoPdfExport::exportPage(size_t page, bool exportPdfBackground, const LayerRangeVector* progressiveLayers) {
     PageRef p = doc->getPage(page);
 
     cairo_pdf_surface_set_size(this->surface, p->getWidth(), p->getHeight());
 
     DocumentView view;
+    if (exportAudience == ExportAudience::Student) {
+        view.setLayerFilter(utn::visibleToStudents);
+    }
 
     cairo_save(this->cr);
 
@@ -160,8 +164,9 @@ void XojCairoPdfExport::exportPage(size_t page, bool exportPdfBackground) {
     flags.showRuling = exportBackground <= EXPORT_BACKGROUND_UNRULED ? xoj::view::HIDE_RULING_BACKGROUND :
                                                                        xoj::view::SHOW_RULING_BACKGROUND;
 
-    if (layerRange) {
-        view.drawLayersOfPage(*layerRange, p, this->cr, true /* dont render eraseable */, flags);
+    const auto* selectedLayers = progressiveLayers ? progressiveLayers : layerRange.get();
+    if (selectedLayers) {
+        view.drawLayersOfPage(*selectedLayers, p, this->cr, true /* dont render eraseable */, flags);
     } else {
         view.drawPage(p, this->cr, true /* dont render eraseable */, flags);
     }
@@ -175,22 +180,22 @@ void XojCairoPdfExport::exportPage(size_t page, bool exportPdfBackground) {
 void XojCairoPdfExport::exportPageLayers(size_t page) {
     PageRef p = doc->getPage(page);
 
-    // We keep a copy of the layers initial Visible state
-    std::map<Layer*, bool> initialVisibility;
-    for (const auto& layer: p->getLayers()) {
-        initialVisibility[layer] = layer->isVisible();
-        layer->setVisible(false);
+    LayerRangeVector accumulated;
+    for (size_t i = 0; i < p->getLayerCount(); ++i) {
+        if (layerRange && std::none_of(layerRange->begin(), layerRange->end(), [i](const auto& range) {
+                return i >= range.first && i <= range.last;
+            })) {
+            continue;
+        }
+        if (exportAudience == ExportAudience::Student && !utn::visibleToStudents(*p->getLayers()[i])) {
+            continue;
+        }
+        accumulated.emplace_back(i, i);
+        exportPage(page, true, &accumulated);
     }
-
-    // We draw as many pages as there are layers. The first page has
-    // only Layer 1 visible, the last has all layers visible.
-    for (const auto& layer: p->getLayers()) {
-        layer->setVisible(true);
-        exportPage(page);
+    if (accumulated.empty()) {
+        exportPage(page, true, &accumulated);
     }
-
-    // We restore the initial visibilities
-    for (const auto& layer: p->getLayers()) layer->setVisible(initialVisibility[layer]);
 }
 
 auto XojCairoPdfExport::createPdf(fs::path const& file, const PageRangeVector& range, bool progressiveMode) -> bool {

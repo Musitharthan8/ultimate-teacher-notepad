@@ -10,6 +10,7 @@
  */
 
 #pragma once
+#include "model/ExportAudience.h"
 
 #include <cstddef>  // for size_t
 #include <string>   // for string
@@ -77,6 +78,7 @@ public:
      * @return The last error message to show to the user
      */
     std::string getLastErrorMsg() const;
+    void setExportAudience(ExportAudience audience) { exportAudience = audience; }
 
     /**
      * @brief Create one Graphics file per page
@@ -148,6 +150,7 @@ public:
      * Document to export
      */
     Document* doc = nullptr;
+    ExportAudience exportAudience = ExportAudience::Student;
 
     /**
      * Filename for export

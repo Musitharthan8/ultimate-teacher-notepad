@@ -151,6 +151,8 @@ void ExportDialog::selectQualityCriterion(GtkComboBox* comboBox, ExportDialog* s
 
 void ExportDialog::onSuccessCallback(ExportDialog* self) {
     self->confirmed = true;
+    self->exportAudience = gtk_check_button_get_active(GTK_CHECK_BUTTON(self->builder.get("cbTeacherCopy"))) ?
+                                  ExportAudience::Teacher : ExportAudience::Student;
     self->progressiveMode = gtk_check_button_get_active(GTK_CHECK_BUTTON(self->builder.get("cbProgressiveMode")));
     self->backgroundType = static_cast<ExportBackgroundType>(
             gtk_combo_box_get_active(GTK_COMBO_BOX(self->builder.get("cbBackgroundType"))));

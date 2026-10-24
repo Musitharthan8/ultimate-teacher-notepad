@@ -44,3 +44,11 @@ Audit started 2026-10-23 from `f4e54c4d9` (M2 plus approved M3 requirements). Th
 ## Acceptance gate
 
 No request for minor owner testing. No owner release candidate until functional, privacy, persistence, prolonged-input, native visual, packaging and independent review gates are complete. Only hardware-dependent stylus/projector and real teacher usability checks belong in final owner acceptance.
+
+## Resumed batch update — 2026-10-24
+
+Active Pen, Area, Eraser and Highlight controls now open their existing anchored options via primary click or keyboard; switching tools closes options. Highlighter preferences survive incidental resets. GTK tests cover matching release and action-state counts; native keyboard/focus/ATK and complete professional options content remain unverified or incomplete.
+
+Student exports now default to audience-filtered content for PDF, progressive/range exports and images; print installs the same predicate. Explicit Teacher copy is available in custom export. Native editable lessons retain private data. Six real-file unit regressions and one dialog regression pass; see m3-export-privacy.md for exact scope and limits. Full suite: 327 units / 41 GTK. Initial matrix rows above are superseded by these results, not by an assertion that M3 is complete.
+
+Top-level Classroom menu, Enter/Shift+Enter refinements, handwriting engine, remaining full options redesign, packaging and final independent review remain open. Hardware-stylus freeze remains release-blocking. Native GUI testing is paused by explicit user instruction.
