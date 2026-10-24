@@ -555,7 +555,35 @@ void TextEditor::iMCommitCallback(GtkIMContext* context, const gchar* str, TextE
                 gtk_text_iter_set_line_offset(&start, 0);
                 auto line = xoj::util::OwnedCString::assumeOwnership(
                         gtk_text_buffer_get_text(te->buffer.get(), &start, &cursor, false));
-                const auto continuation = utn::list::listContinuation(line.get());
+                auto continuation = utn::list::listContinuation(line.get());
+                // A soft break keeps the item on indented continuation lines. Find its marker without
+                // crossing an unindented blank paragraph or a line with different indentation.
+                const std::string_view currentLine(line.get());
+                const size_t indent = currentLine.find_first_not_of(' ');
+                const size_t spaces = indent == std::string_view::npos ? currentLine.size() : indent;
+                if (continuation.prefix.empty() && spaces > 0) {
+                    GtkTextIter previous = start;
+                    while (gtk_text_iter_backward_line(&previous)) {
+                        GtkTextIter end = previous;
+                        gtk_text_iter_forward_to_line_end(&end);
+                        auto preceding = xoj::util::OwnedCString::assumeOwnership(
+                                gtk_text_buffer_get_text(te->buffer.get(), &previous, &end, false));
+                        auto candidate = utn::list::listContinuation(preceding.get());
+                        if (!candidate.prefix.empty()) {
+                            if (utn::list::softBreakIndent(preceding.get()).size() == spaces) {
+                                continuation = std::move(candidate);
+                                continuation.emptyItem = spaces == currentLine.size();
+                            }
+                            break;
+                        }
+                        const std::string_view previousLine(preceding.get());
+                        const size_t firstText = previousLine.find_first_not_of(' ');
+                        const size_t previousSpaces = firstText == std::string_view::npos ? previousLine.size() : firstText;
+                        if (previousSpaces != spaces) {
+                            break;
+                        }
+                    }
+                }
                 prefix = continuation.prefix;
                 if (!prefix.empty() && continuation.emptyItem) {
                     emptyListItem = true;
@@ -1196,8 +1224,6 @@ void TextEditor::softLinebreak() {
     if (!gtk_text_buffer_insert_interactive_at_cursor(this->buffer.get(), inserted.c_str(),
                                                       static_cast<gint>(inserted.size()), true)) {
         gtk_widget_error_bell(this->xournalWidget);
-    } else {
-        contentsChanged(true);
     }
     gtk_text_buffer_end_user_action(this->buffer.get());
     contentsChanged();

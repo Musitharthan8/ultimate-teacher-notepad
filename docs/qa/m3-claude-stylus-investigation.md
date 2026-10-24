@@ -18,7 +18,7 @@
      (5 pages, 24-point strokes spread over the pages, undo/redo every 11th stroke, the real `AutosaveJob` on the scheduler every 20th
      stroke while worker threads render):
 
-| Strokes | Autosaves | p95 / p99 / max per stroke | Longest main-thread lock wait | Nested / slow |
+| Strokes | Autosaves | p95 / p99 / max per stroke | Longest process-wide lock wait | Nested / slow |
 | --- | --- | --- | --- | --- |
 | 600 | 30 | 23.9 / 37.2 / 56.5 ms | 0.03 ms | 0 / 0 |
 | 2000 | 100 | 13.9 / 18.3 / 25.0 ms | 0.17 ms | 0 / 0 |
@@ -37,8 +37,8 @@
 ## How to use the audit for the one final hardware procedure
 
 Build with `-DUTN_LOCK_AUDIT=ON` (Debug or RelWithDebInfo). Run the owner's real drawing session. The log (`g_warning`, domain `xopp`)
-then names, with a stack trace, the first 25 nested acquisitions and the first 25 waits over 50 ms. A hang with no audit line points away
-from the document lock (GTK event loop, input driver, GPU).
+then names the first 25 nested acquisitions with the requesting stack and the first 25 waits over 50 ms.
+Pending-wait watchdog warnings identify mutex/thread/mode, not a blocked-thread stack. Absence of an audit line does not rule out a document-lock wait or establish another root cause.
 
 ## Smallest safe remedy if a nesting is ever found
 

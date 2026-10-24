@@ -1,52 +1,38 @@
-/*
- * Ultimate Teacher Notepad
- *
- * Opt-in diagnostics for Document's reader/writer lock (CMake option UTN_LOCK_AUDIT, off by default).
- *
- * Why: std::shared_mutex in the MSYS2 mingw64 toolchain prefers waiting writers. A thread that takes a shared lock it
- * already holds, while another thread waits for the exclusive lock, blocks forever (measured: a 3-thread probe
- * deadlocks in under 200 ms). The UI thread then waits for the document and the window stops responding. This file finds
- * every place where that can happen without needing the rare timing: any nested acquisition on one thread is reported
- * with a stack trace, as is any acquisition that waits long enough to be felt.
- *
- * With the option off every function is empty and compiles away.
- *
- * Based on Xournal++ GPLv2+
- */
-
+﻿/* Ultimate Teacher Notepad - optional mutex diagnostics. Based on Xournal++ GPLv2+ */
 #pragma once
-
 #ifdef UTN_LOCK_AUDIT
-
-#include <atomic>
 #include <chrono>
-
+#include <cstdint>
 namespace utn::lockaudit {
-
-/// Nested acquisitions on one thread seen since start (shared inside shared/exclusive, exclusive inside either)
+using Clock = std::chrono::steady_clock;
 unsigned nestedViolations();
-/// Acquisitions that waited longer than SLOW_WAIT
+// Includes pending overdue waits, counted once per attempt.
 unsigned slowAcquisitions();
-/// Longest wait for the document lock seen since start, in milliseconds
+// Process-wide maximum across threads, including pending waits.
 double longestWaitMs();
+class Attempt {
+public:
+    Attempt(const void* mutex, bool exclusive, bool blocking);
+    ~Attempt();
+    Attempt(const Attempt&) = delete;
+    Attempt& operator=(const Attempt&) = delete;
 
-using Clock = std::chrono::steady_clock;
-
-Clock::time_point begin(bool exclusive, bool blocking);
-void acquired(bool exclusive, Clock::time_point start);
-void released(bool exclusive);
-
+private:
+    friend void acquired(Attempt&);
+    const void* mutex;
+    bool exclusive;
+    Clock::time_point start;
+    uint64_t pending = 0;
+};
+inline Attempt begin(const void* mutex, bool exclusive, bool blocking) { return Attempt(mutex, exclusive, blocking); }
+void acquired(Attempt& attempt);
+void released(const void* mutex, bool exclusive);
 }  // namespace utn::lockaudit
-
 #else
-
-#include <chrono>
-
 namespace utn::lockaudit {
-using Clock = std::chrono::steady_clock;
-inline Clock::time_point begin(bool, bool) { return {}; }
-inline void acquired(bool, Clock::time_point) {}
-inline void released(bool) {}
+struct Attempt {};
+inline Attempt begin(const void*, bool, bool) { return {}; }
+inline void acquired(Attempt&) {}
+inline void released(const void*, bool) {}
 }  // namespace utn::lockaudit
-
 #endif

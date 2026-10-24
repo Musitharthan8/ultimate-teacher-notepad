@@ -65,39 +65,38 @@ auto Document::freeTreeContentEntry(GtkTreeModel* treeModel, GtkTreePath* path, 
     return false;
 }
 
-// With UTN_LOCK_AUDIT the wrappers below record nested acquisitions and slow waits (see DocumentLockAudit.h). The
-// depth is per thread, not per Document, so holding the lock of one document while locking another is also reported.
+// Optional diagnostics identify this mutex; native locking operations remain unchanged.
 void Document::lock() {
-    const auto start = utn::lockaudit::begin(true, true);
+    auto attempt = utn::lockaudit::begin(&this->documentLock, true, true);
     this->documentLock.lock();
-    utn::lockaudit::acquired(true, start);
+    utn::lockaudit::acquired(attempt);
 }
 void Document::unlock() {
-    utn::lockaudit::released(true);
+    utn::lockaudit::released(&this->documentLock, true);
     this->documentLock.unlock();
 }
 auto Document::try_lock() -> bool {
-    const auto start = utn::lockaudit::begin(true, false);
+    auto attempt = utn::lockaudit::begin(&this->documentLock, true, false);
     const bool locked = this->documentLock.try_lock();
     if (locked) {
-        utn::lockaudit::acquired(true, start);
+        utn::lockaudit::acquired(attempt);
     }
     return locked;
 }
 void Document::lock_shared() {
-    const auto start = utn::lockaudit::begin(false, true);
+    auto attempt = utn::lockaudit::begin(&this->documentLock, false, true);
     this->documentLock.lock_shared();
-    utn::lockaudit::acquired(false, start);
+    utn::lockaudit::acquired(attempt);
 }
 void Document::unlock_shared() {
-    utn::lockaudit::released(false);
+    utn::lockaudit::released(&this->documentLock, false);
     this->documentLock.unlock_shared();
 }
 auto Document::try_lock_shared() -> bool {
-    const auto start = utn::lockaudit::begin(false, false);
+    auto attempt = utn::lockaudit::begin(&this->documentLock, false, false);
     const bool locked = this->documentLock.try_lock_shared();
     if (locked) {
-        utn::lockaudit::acquired(false, start);
+        utn::lockaudit::acquired(attempt);
     }
     return locked;
 }

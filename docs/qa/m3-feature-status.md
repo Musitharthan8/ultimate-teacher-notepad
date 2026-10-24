@@ -58,3 +58,22 @@ Top-level Classroom menu, Enter/Shift+Enter refinements, handwriting engine, rem
 Top-level native Classroom menu now provides Spotlight, Curtain, Exit, temporary ink/highlight/clear, Presentation mode and Full screen. All entries resolve to registered application actions; GTK tests verify overlay toggle/recovery. Existing toolbar quick controls remain. Other classroom workflows still use their existing launchers; this does not complete every menu/workflow requirement. No new native screenshots were taken under the GUI stop.
 
 Options accessible names now refresh when combo subtype tooltips change. Teacher-copy labelling discloses hidden-layer range/progressive semantics. Final fresh validation: 327 unit and 42 GTK tests passed. Text/IME refinements, full contextual formatting, Classic/profile highlighter preference consistency, physical print, packaging, native visual/scaling and final candidate review remain outstanding.
+
+### PR #21 independent integration review
+
+All four Claude commits were reviewed against the M3 base. Responsive caption tests retain real-allocation and fixed
+logical-width coverage. Shift+Enter has keyboard/Unicode/selection, plain text/Answer Box, single undo transaction and
+save/reopen regressions; Enter resumes a list after soft continuation and exits an empty continuation. Windows IME
+composition and physical keyboard behaviour remain unverified.
+
+Student .xoj export omits private/hidden layers, thumbnails, private names and recoverable erased-ink metadata.
+Actual source-asset tests reproduced disclosure of a removed PDF page and metadata. PDF/image backgrounds and
+included LaTeX now fail before output/sidecar creation; a rendered student PNG is suggested. This deliberate
+compatibility limitation is not general visual redaction or PDF sanitisation.
+
+The opt-in lock audit tracks each mutex and reports overdue pending acquisitions from an independent watchdog.
+Packaged builds retain audit OFF and unchanged native mutex semantics; a separate CI executable tests the enabled
+implementation. Diagnostic silence does not establish the stylus-freeze cause.
+
+See [independent review and validation](m3-pr21-independent-review.md). M3 remains draft, hardware-stylus freeze stays
+release-blocking, and no minor owner testing or native desktop control has been requested or resumed.
