@@ -59,6 +59,25 @@ GtkWidget* buttonNamed(GtkWidget* widget, const char* label) {
     return nullptr;
 }
 
+GtkWidget* menuButtonAccessibleNamed(GtkWidget* widget, const char* name) {
+    if (GTK_IS_MENU_BUTTON(widget)) {
+        if (AtkObject* accessible = gtk_widget_get_accessible(widget);
+            accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0) {
+            return widget;
+        }
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = menuButtonAccessibleNamed(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
 GtkWidget* studentWindow() {
     GList* windows = gtk_window_list_toplevels();
     GtkWidget* found = nullptr;
@@ -95,6 +114,22 @@ void settle() {
         }
         g_usleep(2000);
     }
+}
+
+/// A GTK3 popover fades out after popdown: `visible` and `mapped` stay true until the transition (about 150 to 200 ms,
+/// driven by the frame clock) has finished. Wait for that end state instead of sampling the transition.
+bool waitUntilHidden(GtkWidget* popover, gint64 timeoutUs = 3 * G_USEC_PER_SEC) {
+    const gint64 deadline = g_get_monotonic_time() + timeoutUs;
+    while (gtk_widget_get_visible(popover) || gtk_widget_get_mapped(popover)) {
+        if (g_get_monotonic_time() > deadline) {
+            return false;
+        }
+        for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        g_usleep(2000);
+    }
+    return true;
 }
 
 void captureWindow(GtkWidget* window, const char* path) {
@@ -387,6 +422,108 @@ TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->updateCompactLayout(1280);
     expectCaptions(rail, true, "Automatic while wide");
     window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
+}
+
+TEST_F(ClassroomWorkflow, shapesAndFeedbackCanPinInspectorWithoutReselectingTools) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTool(TOOL_PEN);
+    auto* rail = window->get("tbLeft1");
+
+    for (const char* name : {"Shapes", "Feedback"}) {
+        window->setTeacherWorkspace(1);
+        ASSERT_EQ(window->getTeacherWorkspace(), 1);
+
+        GtkWidget* menu = menuButtonAccessibleNamed(rail, name);
+        ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
+        auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
+        ASSERT_TRUE(GTK_IS_POPOVER(popover)) << name;
+        auto* pin = buttonNamed(GTK_WIDGET(popover), "Pin settings panel");
+        ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
+
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        gtk_button_clicked(GTK_BUTTON(pin));
+        settle();
+
+        EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_PEN) << name;
+        EXPECT_EQ(gtk_widget_get_parent(window->get("mainContentContainer")),
+                  window->get("utnInspectorPaned")) << name;
+        int storedMode = -1;
+        ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getInt("workspaceTools", storedMode));
+        EXPECT_EQ(storedMode, 0) << name;
+    }
+}
+
+// The Pin settings entry must be a plain action: it may not touch the pen, the colour, the drawing mode or the width
+// the teacher chose for the inspector, it must close its popover and it must work from the keyboard.
+TEST_F(ClassroomWorkflow, pinSettingsKeepsToolColourModeAndInspectorWidthAndClosesThePopover) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    control->selectTool(TOOL_HIGHLIGHTER);
+    tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+    const Color colour = tools->getColor();
+    const int width = window->getInspectorWidth();
+    auto* rail = window->get("tbLeft1");
+
+    for (const char* name : {"Shapes", "Feedback"}) {
+        window->setTeacherWorkspace(1);
+        GtkWidget* menu = menuButtonAccessibleNamed(rail, name);
+        ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
+        auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu)));
+        auto* pin = buttonNamed(popover, "Pin settings panel");
+        ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
+
+        AtkObject* accessible = gtk_widget_get_accessible(pin);
+        ASSERT_NE(accessible, nullptr) << name;
+        EXPECT_STREQ(atk_object_get_name(accessible), "Pin settings panel") << name;
+        EXPECT_TRUE(gtk_widget_get_can_focus(pin)) << name << ": reachable with Tab";
+        EXPECT_TRUE(gtk_widget_get_sensitive(pin)) << name;
+
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        ASSERT_TRUE(gtk_widget_get_visible(popover)) << name << ": the popover opens";
+        gtk_widget_grab_focus(pin);
+        gtk_button_clicked(GTK_BUTTON(pin));  // a focused GtkButton turns Enter and Space into this same signal
+        settle();
+
+        EXPECT_TRUE(waitUntilHidden(popover)) << name << ": the popover finishes closing (hidden and unmapped)";
+        EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
+        EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER) << name;
+        EXPECT_EQ(tools->getDrawingType(), DRAWING_TYPE_DEFAULT) << name;
+        EXPECT_EQ(tools->getColor(), colour) << name;
+        EXPECT_EQ(window->getInspectorWidth(), width) << name << ": saved width is kept";
+    }
+}
+
+// Pinning when the panel is already pinned must stay harmless, and layouts without these tools must not grow the entry.
+TEST_F(ClassroomWorkflow, pinSettingsIsHarmlessWhenAlreadyPinnedAndAbsentFromOtherLayouts) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->setTeacherWorkspace(0);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    GtkWidget* menu = menuButtonAccessibleNamed(rail, "Shapes");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu));
+    auto* pin = buttonNamed(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))), "Pin settings panel");
+    ASSERT_TRUE(GTK_IS_BUTTON(pin));
+    gtk_button_clicked(GTK_BUTTON(pin));
+    gtk_button_clicked(GTK_BUTTON(pin));
+    settle();
+    EXPECT_EQ(window->getTeacherWorkspace(), 0);
+    EXPECT_EQ(gtk_widget_get_parent(window->get("mainContentContainer")), window->get("utnInspectorPaned"));
+
+    window->toolbarSelected("Xournal++");
+    settle();
+    EXPECT_EQ(menuButtonAccessibleNamed(window->get("mainContainerBox"), "Shapes"), nullptr);
+    EXPECT_EQ(menuButtonAccessibleNamed(window->get("mainContainerBox"), "Feedback"), nullptr);
+    window->toolbarSelected("UTN Teacher");
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {
