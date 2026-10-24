@@ -11,12 +11,12 @@
 
 Run locally from `feature/utn-m3-text-contextual-settings` with the MSYS2 MinGW64 toolchain and the previously cached CMake dependencies:
 
-- `test-gtk-integration.exe --gtest_filter=TextContextualSettings.*`: 1 passed. Covers first activation, Return repeat activation, accessible formatting controls, mode changes and Answer Box Delete/Box style availability.
+- `test-gtk-integration.exe --gtest_filter=TextContextualSettings.*`: 1 passed. Covers first activation, Return repeat activation, font size and bold setting changes, colour selection, accessible controls, mode changes and Answer Box Delete/Box style availability.
 - Full `test-gtk-integration.exe`: 52 passed.
 - Full `test-units.exe`: 354 passed. This includes the existing list-continuation, text-reliability, lesson round-trip and undo-related unit coverage.
 - `git diff --check`: clean.
 
-The focused test drives GTK controls synthetically. Physical Windows IME composition and stylus input were not exercised. The stylus-freeze root cause remains unresolved as tracked in M3 status. Full hosted Windows CI on the feature branch is pending PR creation.
+The focused test drives GTK controls synthetically. Physical Windows IME composition and stylus input were not exercised. The stylus-freeze root cause remains unresolved as tracked in M3 status. The final hosted Windows CI result is recorded in the PR after it completes.
 
 ## Review notes
 

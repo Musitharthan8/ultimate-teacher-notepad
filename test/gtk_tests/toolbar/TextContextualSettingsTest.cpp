@@ -11,6 +11,7 @@
 #include "gui/MainWindow.h"
 #include "gui/toolbarMenubar/ToolTextMode.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
+#include "model/Font.h"
 #include "util/PathUtil.h"
 
 #include "config-test.h"
@@ -76,6 +77,18 @@ TEST(TextContextualSettings, exposesLiveFormattingAndModeSpecificAnswerBoxContro
         EXPECT_NE(findNamed(panel, name), nullptr) << name;
     }
     EXPECT_EQ(control.getToolHandler()->getToolType(), TOOL_PEN);  // constructing settings never selects Text
+
+    const double originalSize = control.getSettings()->getFont().getSize();
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(findNamed(panel, "Text size")), originalSize + 1.0);
+    EXPECT_DOUBLE_EQ(control.getSettings()->getFont().getSize(), originalSize + 1.0);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(findNamed(panel, "Bold")), true);
+    auto* boldDescription = pango_font_description_from_string(control.getSettings()->getFont().asString().c_str());
+    EXPECT_GE(pango_font_description_get_weight(boldDescription), PANGO_WEIGHT_SEMIBOLD);
+    pango_font_description_free(boldDescription);
+    gtk_button_clicked(GTK_BUTTON(findNamed(panel, "Red")));
+    EXPECT_EQ(control.getToolHandler()->getColor().red, 0xD3U);
+    EXPECT_EQ(control.getToolHandler()->getColor().green, 0x2FU);
+    EXPECT_EQ(control.getToolHandler()->getColor().blue, 0x2FU);
 
     ToolTextMode textMode("UTN_TEXT_CONTEXTUAL_TEST", &control, IconNameHelper(control.getSettings()), TextMode::Plain);
     auto toolGroup = textMode.createItem(true);
