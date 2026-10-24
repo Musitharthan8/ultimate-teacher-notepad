@@ -403,15 +403,19 @@ void ToolUtnContextBar::populateTextSettingsPanel(Control* control, GtkBox* pane
                 const int active = gtk_combo_box_get_active(combo);
                 if (active >= 0 && active <= 1) {
                     auto* ctrl = static_cast<Control*>(data);
+                    GtkWidget* popover = gtk_widget_get_ancestor(GTK_WIDGET(combo), GTK_TYPE_POPOVER);
+                    GtkWidget* focusTarget = popover == nullptr ? nullptr : gtk_popover_get_relative_to(GTK_POPOVER(popover));
                     ctrl->selectTextMode(active == 0 ? TextMode::Plain : TextMode::AnswerBox);
                     struct Rebuild {
                         Control* control;
                         GtkBox* panel;
+                        GtkWidget* focusTarget;
                     };
                     auto* rebuild = new Rebuild;
                     rebuild->control = ctrl;
                     rebuild->panel = GTK_BOX(g_object_get_data(G_OBJECT(combo), "utn-text-settings-panel"));
                     g_object_ref(rebuild->panel);
+                    rebuild->focusTarget = focusTarget == nullptr ? nullptr : GTK_WIDGET(g_object_ref(focusTarget));
                     g_idle_add_full(
                             G_PRIORITY_DEFAULT_IDLE,
                             +[](gpointer data) -> gboolean {
@@ -425,12 +429,19 @@ void ToolUtnContextBar::populateTextSettingsPanel(Control* control, GtkBox* pane
                                     ToolUtnContextBar::populateTextSettingsPanel(rebuild->control, rebuild->panel);
                                     gtk_widget_show_all(GTK_WIDGET(rebuild->panel));
                                 }
+                                if (rebuild->focusTarget != nullptr && gtk_widget_get_visible(rebuild->focusTarget) &&
+                                    gtk_widget_get_can_focus(rebuild->focusTarget)) {
+                                    gtk_widget_grab_focus(rebuild->focusTarget);
+                                }
                                 return G_SOURCE_REMOVE;
                             },
                             rebuild,
                             +[](gpointer data) {
                                 auto* rebuild = static_cast<Rebuild*>(data);
                                 g_object_unref(rebuild->panel);
+                                if (rebuild->focusTarget != nullptr) {
+                                    g_object_unref(rebuild->focusTarget);
+                                }
                                 delete rebuild;
                             });
                 }
