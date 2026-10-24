@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <memory>
 #include <set>
 #include <string>
@@ -30,6 +31,7 @@
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
+#include "gui/toolbarMenubar/ToolUtnContextBar.h"
 #include "model/Document.h"
 #include "model/DocumentLockAudit.h"
 #include "model/Layer.h"
@@ -52,6 +54,25 @@ GtkWidget* buttonNamed(GtkWidget* widget, const char* label) {
         GtkWidget* found = nullptr;
         for (GList* child = children; child && !found; child = child->next) {
             found = buttonNamed(GTK_WIDGET(child->data), label);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+GtkWidget* menuButtonAccessibleNamed(GtkWidget* widget, const char* name) {
+    if (GTK_IS_MENU_BUTTON(widget)) {
+        if (AtkObject* accessible = gtk_widget_get_accessible(widget);
+            accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0) {
+            return widget;
+        }
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = menuButtonAccessibleNamed(GTK_WIDGET(child->data), name);
         }
         g_list_free(children);
         return found;
@@ -95,6 +116,22 @@ void settle() {
         }
         g_usleep(2000);
     }
+}
+
+/// A GTK3 popover fades out after popdown: `visible` and `mapped` stay true until the transition (about 150 to 200 ms,
+/// driven by the frame clock) has finished. Wait for that end state instead of sampling the transition.
+bool waitUntilHidden(GtkWidget* popover, gint64 timeoutUs = 3 * G_USEC_PER_SEC) {
+    const gint64 deadline = g_get_monotonic_time() + timeoutUs;
+    while (gtk_widget_get_visible(popover) || gtk_widget_get_mapped(popover)) {
+        if (g_get_monotonic_time() > deadline) {
+            return false;
+        }
+        for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        g_usleep(2000);
+    }
+    return true;
 }
 
 void captureWindow(GtkWidget* window, const char* path) {
@@ -387,6 +424,108 @@ TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->updateCompactLayout(1280);
     expectCaptions(rail, true, "Automatic while wide");
     window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
+}
+
+TEST_F(ClassroomWorkflow, shapesAndFeedbackCanPinInspectorWithoutReselectingTools) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTool(TOOL_PEN);
+    auto* rail = window->get("tbLeft1");
+
+    for (const char* name : {"Shapes", "Feedback"}) {
+        window->setTeacherWorkspace(1);
+        ASSERT_EQ(window->getTeacherWorkspace(), 1);
+
+        GtkWidget* menu = menuButtonAccessibleNamed(rail, name);
+        ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
+        auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
+        ASSERT_TRUE(GTK_IS_POPOVER(popover)) << name;
+        auto* pin = buttonNamed(GTK_WIDGET(popover), "Pin settings panel");
+        ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
+
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        gtk_button_clicked(GTK_BUTTON(pin));
+        settle();
+
+        EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_PEN) << name;
+        EXPECT_EQ(gtk_widget_get_parent(window->get("mainContentContainer")),
+                  window->get("utnInspectorPaned")) << name;
+        int storedMode = -1;
+        ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getInt("workspaceTools", storedMode));
+        EXPECT_EQ(storedMode, 0) << name;
+    }
+}
+
+// The Pin settings entry must be a plain action: it may not touch the pen, the colour, the drawing mode or the width
+// the teacher chose for the inspector, it must close its popover and it must work from the keyboard.
+TEST_F(ClassroomWorkflow, pinSettingsKeepsToolColourModeAndInspectorWidthAndClosesThePopover) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    control->selectTool(TOOL_HIGHLIGHTER);
+    tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+    const Color colour = tools->getColor();
+    const int width = window->getInspectorWidth();
+    auto* rail = window->get("tbLeft1");
+
+    for (const char* name : {"Shapes", "Feedback"}) {
+        window->setTeacherWorkspace(1);
+        GtkWidget* menu = menuButtonAccessibleNamed(rail, name);
+        ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
+        auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu)));
+        auto* pin = buttonNamed(popover, "Pin settings panel");
+        ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
+
+        AtkObject* accessible = gtk_widget_get_accessible(pin);
+        ASSERT_NE(accessible, nullptr) << name;
+        EXPECT_STREQ(atk_object_get_name(accessible), "Pin settings panel") << name;
+        EXPECT_TRUE(gtk_widget_get_can_focus(pin)) << name << ": reachable with Tab";
+        EXPECT_TRUE(gtk_widget_get_sensitive(pin)) << name;
+
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        ASSERT_TRUE(gtk_widget_get_visible(popover)) << name << ": the popover opens";
+        gtk_widget_grab_focus(pin);
+        gtk_button_clicked(GTK_BUTTON(pin));  // a focused GtkButton turns Enter and Space into this same signal
+        settle();
+
+        EXPECT_TRUE(waitUntilHidden(popover)) << name << ": the popover finishes closing (hidden and unmapped)";
+        EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
+        EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER) << name;
+        EXPECT_EQ(tools->getDrawingType(), DRAWING_TYPE_DEFAULT) << name;
+        EXPECT_EQ(tools->getColor(), colour) << name;
+        EXPECT_EQ(window->getInspectorWidth(), width) << name << ": saved width is kept";
+    }
+}
+
+// Pinning when the panel is already pinned must stay harmless, and layouts without these tools must not grow the entry.
+TEST_F(ClassroomWorkflow, pinSettingsIsHarmlessWhenAlreadyPinnedAndAbsentFromOtherLayouts) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->setTeacherWorkspace(0);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    GtkWidget* menu = menuButtonAccessibleNamed(rail, "Shapes");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu));
+    auto* pin = buttonNamed(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))), "Pin settings panel");
+    ASSERT_TRUE(GTK_IS_BUTTON(pin));
+    gtk_button_clicked(GTK_BUTTON(pin));
+    gtk_button_clicked(GTK_BUTTON(pin));
+    settle();
+    EXPECT_EQ(window->getTeacherWorkspace(), 0);
+    EXPECT_EQ(gtk_widget_get_parent(window->get("mainContentContainer")), window->get("utnInspectorPaned"));
+
+    window->toolbarSelected("Xournal++");
+    settle();
+    EXPECT_EQ(menuButtonAccessibleNamed(window->get("mainContainerBox"), "Shapes"), nullptr);
+    EXPECT_EQ(menuButtonAccessibleNamed(window->get("mainContainerBox"), "Feedback"), nullptr);
+    window->toolbarSelected("UTN Teacher");
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {
@@ -1372,4 +1511,396 @@ TEST_F(ClassroomWorkflow, softBreakHasOneTextUndoTransactionAndSurvivesSaveReope
         EXPECT_EQ(saved->getText(), expected);
         EXPECT_EQ(saved->isBoxEnabled(), i == 1);
     }
+}
+
+namespace {
+GtkWidget* accessibleNamed(GtkWidget* widget, const char* name) {
+    if (AtkObject* accessible = gtk_widget_get_accessible(widget);
+        accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = accessibleNamed(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+GtkWidget* firstMenuButton(GtkWidget* widget) {
+    if (GTK_IS_MENU_BUTTON(widget)) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = firstMenuButton(GTK_WIDGET(child->data));
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+GtkWidget* firstToggleButton(GtkWidget* widget) {
+    if (GTK_IS_TOGGLE_BUTTON(widget)) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = firstToggleButton(GTK_WIDGET(child->data));
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+/// The "Text settings" popover of a rail item ("Text" or "Answer Box")
+GtkWidget* textSettingsPopover(GtkWidget* rail, const char* caption, GtkWidget** menuOut = nullptr) {
+    GtkWidget* found = nullptr;
+    GList* items = gtk_container_get_children(GTK_CONTAINER(rail));
+    for (GList* item = items; item && !found; item = item->next) {
+        AtkObject* accessible = gtk_widget_get_accessible(GTK_WIDGET(item->data));
+        if (accessible && g_strcmp0(atk_object_get_name(accessible), caption) == 0) {
+            found = GTK_WIDGET(item->data);
+        }
+    }
+    g_list_free(items);
+    GtkWidget* menu = found ? firstMenuButton(found) : nullptr;
+    if (menuOut) {
+        *menuOut = menu;
+    }
+    return menu ? GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))) : nullptr;
+}
+
+/// A GTK3 popover fades out after popdown: visible and mapped stay true until the transition has finished
+bool waitForHidden(GtkWidget* popover) {
+    const gint64 deadline = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+    while (gtk_widget_get_visible(popover) || gtk_widget_get_mapped(popover)) {
+        if (g_get_monotonic_time() > deadline) {
+            return false;
+        }
+        for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        g_usleep(2000);
+    }
+    return true;
+}
+}  // namespace
+
+// The panels are built when the toolbar is created. Opening one later must show what is true now, not what was true then.
+TEST_F(ClassroomWorkflow, textSettingsPopoversShowTheCurrentModeAndFontWhenOpened) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    GtkWidget* answerMenu = nullptr;
+    GtkWidget* answerPopover = textSettingsPopover(rail, "Answer Box", &answerMenu);
+    ASSERT_NE(answerPopover, nullptr);
+
+    control->selectTextMode(TextMode::AnswerBox);  // the first tap on the Answer Box rail button
+    settle();
+    gtk_button_clicked(GTK_BUTTON(answerMenu));  // the repeat tap opens the settings
+    settle();
+    ASSERT_TRUE(gtk_widget_get_visible(answerPopover));
+    auto* mode = GTK_COMBO_BOX(accessibleNamed(answerPopover, "Text and Answer Box mode"));
+    ASSERT_NE(mode, nullptr);
+    EXPECT_EQ(gtk_combo_box_get_active(mode), 1) << "the selector names the mode that is active";
+    EXPECT_NE(buttonNamed(answerPopover, "Delete Box"), nullptr) << "Answer Box controls are offered for an Answer Box";
+    gtk_popover_popdown(GTK_POPOVER(answerPopover));
+    settle();
+
+    // Same for the font: it was changed after the panel was built
+    GtkWidget* textMenu = nullptr;
+    GtkWidget* textPopover = textSettingsPopover(rail, "Text", &textMenu);
+    ASSERT_NE(textPopover, nullptr);
+    control->selectTextMode(TextMode::Plain);
+    XojFont font = control->getSettings()->getFont();
+    font.setSize(37);
+    control->fontChanged(font);
+    control->getActionDatabase()->setActionState(Action::FONT, font.asString().c_str());
+    settle();
+    gtk_button_clicked(GTK_BUTTON(textMenu));
+    settle();
+    auto* size = GTK_SPIN_BUTTON(accessibleNamed(textPopover, "Text size"));
+    ASSERT_NE(size, nullptr);
+    EXPECT_DOUBLE_EQ(gtk_spin_button_get_value(size), 37.0);
+    mode = GTK_COMBO_BOX(accessibleNamed(textPopover, "Text and Answer Box mode"));
+    ASSERT_NE(mode, nullptr);
+    EXPECT_EQ(gtk_combo_box_get_active(mode), 0);
+    EXPECT_EQ(buttonNamed(textPopover, "Delete Box"), nullptr);
+    gtk_popover_popdown(GTK_POPOVER(textPopover));
+    settle();
+}
+
+// Formatting from the floating panel must act on the box being edited without ending the edit or touching its text.
+TEST_F(ClassroomWorkflow, changingTextSettingsFromThePopoverKeepsTheEditAndTheText) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("hello world");
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_a, GDK_CONTROL_MASK));  // select all
+    const std::string before = editorText(editor);
+    ASSERT_EQ(before, "hello world");
+
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    auto* size = GTK_SPIN_BUTTON(accessibleNamed(popover, "Text size"));
+    ASSERT_NE(size, nullptr);
+    gtk_spin_button_set_value(size, 31.0);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(accessibleNamed(popover, "Bold")), true);
+    settle();
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    settle();
+
+    ASSERT_EQ(control->getTextEditor(), editor) << "the same edit is still open";
+    EXPECT_EQ(editorText(editor), before);
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_TEXT);
+    const XojFont font = editor->getTextElement()->getFont();
+    EXPECT_DOUBLE_EQ(font.getSize(), 31.0);
+    auto* description = pango_font_description_from_string(font.asString().c_str());
+    EXPECT_GE(pango_font_description_get_weight(description), PANGO_WEIGHT_SEMIBOLD);
+    pango_font_description_free(description);
+    // Editing continues in the same box after the panel closed (printable keys go through the IM context, so use a binding)
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_BackSpace));
+    EXPECT_EQ(editorText(editor), "hello worl");
+    control->clearSelectionEndText();
+    size_t texts = 0;
+    for (auto& element: page->getSelectedLayer()->getElements()) {
+        texts += element->getType() == ELEMENT_TEXT ? 1 : 0;
+    }
+    EXPECT_EQ(texts, 1U) << "formatting did not duplicate or drop the box";
+}
+
+// First tap selects, a repeat tap (pointer, Return or Space) opens the settings; none of them changes the tool.
+TEST_F(ClassroomWorkflow, textSettingsOpenOnRepeatActivationOnlyAndKeyboardWorks) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(rail, "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    GtkWidget* group = gtk_widget_get_parent(menu);
+    GList* children = gtk_container_get_children(GTK_CONTAINER(group));
+    auto* toggle = GTK_TOGGLE_BUTTON(children->data);
+    g_list_free(children);
+
+    control->selectTool(TOOL_PEN);
+    settle();
+    gtk_button_clicked(GTK_BUTTON(toggle));  // first tap
+    settle();
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_TEXT);
+    EXPECT_FALSE(gtk_widget_get_visible(popover)) << "the first tap only selects";
+
+    for (guint key: {GDK_KEY_Return, GDK_KEY_space, GDK_KEY_KP_Enter}) {
+        GdkEventKey event{};
+        event.keyval = key;
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(toggle, "key-press-event", &event, &handled);
+        settle();
+        EXPECT_TRUE(handled) << key;
+        EXPECT_TRUE(gtk_widget_get_visible(popover)) << "key " << key << " opens the settings";
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_TEXT) << key;
+        EXPECT_TRUE(gtk_toggle_button_get_active(toggle)) << key << ": the tool stays selected";
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        ASSERT_TRUE(waitForHidden(popover)) << key;
+    }
+    EXPECT_NE(gtk_widget_get_accessible(menu), nullptr);
+}
+
+// Delete Box from the panel removes only the box being edited, undo restores it into the same private layer, and
+// neither opening the panel nor deleting makes the answers visible to students.
+TEST_F(ClassroomWorkflow, deleteBoxFromThePopoverIsDeliberateUndoableAndKeepsAnswersHidden) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->startAnswersLayer();
+    auto page = control->getCurrentPage();
+    auto* answers = page->getSelectedLayer();
+    for (double y: {100.0, 300.0}) {
+        auto box = std::make_unique<Text>();
+        box->setText("answer");
+        box->setBoxEnabled(true);
+        box->move(100, y);
+        answers->addElement(std::move(box));
+    }
+    control->setAnswersRevealed(false, false);
+    control->setGhostHiddenAnswers(true);
+    control->getLayerController()->switchToLay(2);
+    control->selectTextMode(TextMode::AnswerBox);
+
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Answer Box", &menu);
+    ASSERT_NE(popover, nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    auto* remove = buttonNamed(popover, "Delete Box");
+    ASSERT_NE(remove, nullptr);
+    EXPECT_FALSE(answers->isVisible()) << "opening the panel does not reveal anything";
+
+    // Nothing is being edited: the button must not delete anything
+    ASSERT_EQ(control->getTextEditor(), nullptr);
+    gtk_button_clicked(GTK_BUTTON(remove));
+    settle();
+    EXPECT_EQ(answers->getElements().size(), 2U);
+
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    ASSERT_TRUE(waitForHidden(popover));
+    ASSERT_NE(editAt(101, 101), nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    remove = buttonNamed(popover, "Delete Box");
+    ASSERT_NE(remove, nullptr);
+    gtk_button_clicked(GTK_BUTTON(remove));
+    settle();
+    EXPECT_EQ(answers->getElements().size(), 1U) << "only the edited box goes";
+    EXPECT_FALSE(answers->isVisible());
+
+    control->getUndoRedoHandler()->undo();
+    EXPECT_EQ(answers->getElements().size(), 2U);
+    EXPECT_EQ(answers->getAudience(), LayerAudience::Answers);
+    EXPECT_FALSE(answers->isVisible());
+}
+
+// Switching mode several times before the main loop runs must leave one consistent panel and no stale callbacks.
+TEST_F(ClassroomWorkflow, rapidModeSwitchingInThePanelLeavesOneConsistentPanel) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    for (int round = 0; round < 3; ++round) {
+        control->selectTextMode(TextMode::Plain);
+        settle();
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        auto* mode = GTK_COMBO_BOX(accessibleNamed(popover, "Text and Answer Box mode"));
+        ASSERT_NE(mode, nullptr);
+        for (int flip = 0; flip < 7; ++flip) {
+            gtk_combo_box_set_active(mode, flip % 2 == 0 ? 1 : 0);  // 7 flips end on Answer Box, before any idle runs
+        }
+        settle();
+        EXPECT_EQ(control->getToolHandler()->getTextMode(), TextMode::AnswerBox) << round;
+        // The queued rebuilds destroyed the old selector: exactly one is left, and it agrees with the tool handler
+        int selectors = 0;
+        std::function<void(GtkWidget*)> count = [&](GtkWidget* widget) {
+            if (AtkObject* accessible = gtk_widget_get_accessible(widget);
+                accessible && g_strcmp0(atk_object_get_name(accessible), "Text and Answer Box mode") == 0) {
+                ++selectors;
+            }
+            if (GTK_IS_CONTAINER(widget)) {
+                GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+                for (GList* child = children; child; child = child->next) {
+                    count(GTK_WIDGET(child->data));
+                }
+                g_list_free(children);
+            }
+        };
+        count(popover);
+        EXPECT_EQ(selectors, 1) << round;
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        ASSERT_TRUE(waitForHidden(popover)) << round;
+    }
+    // A panel destroyed while a rebuild is queued must not be touched afterwards
+    GtkWidget* orphan = ToolUtnContextBar::createTextSettingsPanel(control.get());
+    g_object_ref_sink(orphan);
+    auto* orphanMode = GTK_COMBO_BOX(accessibleNamed(orphan, "Text and Answer Box mode"));
+    ASSERT_NE(orphanMode, nullptr);
+    gtk_combo_box_set_active(orphanMode, gtk_combo_box_get_active(orphanMode) == 0 ? 1 : 0);
+    gtk_widget_destroy(orphan);
+    g_object_unref(orphan);
+    settle();
+    control->selectTextMode(TextMode::Plain);
+}
+
+// Switching mode closes the old mode's popover; keyboard focus must land outside the panel being rebuilt.
+TEST_F(ClassroomWorkflow, switchingModeClosesPopoverWithoutLeavingFocusInDestroyedSettings) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(rail, "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    control->selectTextMode(TextMode::Plain);
+    settle();
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    auto* mode = GTK_COMBO_BOX(accessibleNamed(popover, "Text and Answer Box mode"));
+    ASSERT_NE(mode, nullptr);
+    gtk_widget_grab_focus(GTK_WIDGET(mode));
+    GtkWidget* selectorFocus = gtk_window_get_focus(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(mode))));
+    ASSERT_NE(selectorFocus, nullptr);
+    ASSERT_TRUE(selectorFocus == GTK_WIDGET(mode) || gtk_widget_is_ancestor(selectorFocus, GTK_WIDGET(mode)))
+            << "focus should be within the selector before switching modes";
+
+    gtk_combo_box_set_active(mode, 1);
+    settle();
+    ASSERT_TRUE(waitForHidden(popover));
+    GtkWidget* answerItem = accessibleNamed(rail, "Answer Box");
+    ASSERT_NE(answerItem, nullptr);
+    auto* answerButton = GTK_TOGGLE_BUTTON(firstToggleButton(answerItem));
+    ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(answerButton));
+    EXPECT_TRUE(gtk_toggle_button_get_active(answerButton));
+    GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(answerButton))));
+    ASSERT_NE(focus, nullptr) << "focus must return to the window when the old popover closes";
+    EXPECT_TRUE(gtk_widget_get_visible(focus));
+    EXPECT_FALSE(gtk_widget_is_ancestor(focus, popover)) << "focus must not remain inside the hidden settings panel";
+}
+
+// The Answer Box panel is about 615 px tall. On a small screen or a short window the popover must stay inside the
+// window and scroll, otherwise Delete Box and the box style controls sit off screen with no way to reach them.
+TEST_F(ClassroomWorkflow, answerBoxSettingsPopoverFitsAShortWindowAndKeepsEveryControlReachable) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1000, 560);
+    settle();
+    const int windowHeight = gtk_widget_get_allocated_height(window->getWindow());
+    ASSERT_LE(windowHeight, 600) << "the desktop must allow a short window for this check";
+    control->selectTextMode(TextMode::AnswerBox);
+    settle();
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Answer Box", &menu);
+    ASSERT_NE(popover, nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+
+
+    // Every control stays inside a scrolled area rather than being cut off
+    auto* remove = buttonNamed(popover, "Delete Box");
+    ASSERT_NE(remove, nullptr);
+    GtkWidget* ancestor = gtk_widget_get_ancestor(remove, GTK_TYPE_SCROLLED_WINDOW);
+    ASSERT_NE(ancestor, nullptr) << "Delete Box sits inside a scrolled area";
+    EXPECT_LE(gtk_widget_get_allocated_height(ancestor), windowHeight - 40)
+            << "the scrolled area fits inside the window, so the popover is not clipped";
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    ASSERT_TRUE(waitForHidden(popover));
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 800);
+    settle();
+    control->selectTextMode(TextMode::Plain);
 }

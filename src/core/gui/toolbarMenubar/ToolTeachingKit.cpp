@@ -152,6 +152,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             control);
     gtk_box_append(panel, image);
 
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    utn::appendPinSettingsButton(panel, popover, control);
+
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     // Make the picker discoverable even when the user's icon pack lacks the UTN glyph.
     // GTK toolbar overflow and scaling can hide a menu whose entire identity is an icon.
