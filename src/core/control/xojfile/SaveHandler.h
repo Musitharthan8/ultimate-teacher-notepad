@@ -56,7 +56,9 @@ public:
     /**
      * UTN: who the written file is for. Teacher (the default) writes the complete private lesson, which is what the
      * native save needs. Student writes only what students may see (see utn::visibleToStudents) and omits the page
-     * thumbnail, which is rendered from every visible layer.
+     * thumbnail, which is rendered from every visible layer, private names and editable erased-ink metadata.
+     * Student compatibility export rejects PDF/image backgrounds and LaTeX before writing any file or asset: the
+     * original payloads can contain undisplayed pages, source comments and metadata. Use rendered student PNG.
      */
     void setExportAudience(ExportAudience audience) { this->exportAudience = audience; }
 

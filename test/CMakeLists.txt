@@ -85,12 +85,27 @@ add_custom_target(test-gtk-resources
 )
 add_dependencies(test-gtk-integration test-gtk-resources)
 
+# Exercise opt-in diagnostics while the application and ordinary suites keep their configured locking path.
+add_executable(test-lock-audit EXCLUDE_FROM_ALL
+  lock_audit/DocumentLockAuditTest.cpp
+  "${PROJECT_SOURCE_DIR}/src/core/model/DocumentLockAudit.cpp"
+)
+target_compile_definitions(test-lock-audit PRIVATE UTN_LOCK_AUDIT)
+target_compile_features(test-lock-audit PRIVATE cxx_std_20)
+target_include_directories(test-lock-audit PRIVATE "${PROJECT_SOURCE_DIR}/src/core")
+target_link_libraries(test-lock-audit PRIVATE xoj::util xoj::external_modules gtest_main gtest)
+
 ###############################################################################
 # Discover and Register Tests
 ###############################################################################
 # MacOs needs a bit longer to find the tests on azure
 # Hence, set the timeout to 30s (default 5s)
 include(GoogleTest)
+
+gtest_discover_tests(test-lock-audit
+  DISCOVERY_TIMEOUT 30
+  PROPERTIES ENVIRONMENT "${TEST_ENV_VARS}"
+)
 gtest_discover_tests(test-units
   DISCOVERY_TIMEOUT 30
   PROPERTIES

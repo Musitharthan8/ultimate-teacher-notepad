@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <set>
 #include <string>
@@ -1233,4 +1234,142 @@ TEST_F(ClassroomWorkflow, enterContinuesAListAndShiftEnterBreaksInsideTheItem) {
     ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_KP_Enter, GDK_SHIFT_MASK));
     EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 two\n  \n  ");
     control->clearSelectionEndText();
+}
+
+TEST_F(ClassroomWorkflow, enterContinuesTheListAfterASoftBreakAndExitsAnEmptyContinuation) {
+    for (const auto& [source, continued, empty]: {
+                 std::array<std::string, 3>{"12. answer\n    more", "12. answer\n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"12. answer\n    first\n    more",
+                                            "12. answer\n    first\n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"12. answer\n    \n    more",
+                                            "12. answer\n    \n    more\n13. ", "12. answer\n"},
+                 std::array<std::string, 3>{"\xE2\x80\xA2 answer\n  more",
+                                            "\xE2\x80\xA2 answer\n  more\n\xE2\x80\xA2 ",
+                                            "\xE2\x80\xA2 answer\n"}}) {
+        auto* layer = control->getCurrentPage()->getSelectedLayer();
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        auto* editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), continued);
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        while (!layer->getElements().empty()) {
+            layer->removeElement(layer->getElements().front().get());
+        }
+
+        text = std::make_unique<Text>();
+        text->setText(source.substr(0, source.find('\n')));
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), empty);
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        while (!layer->getElements().empty()) {
+            layer->removeElement(layer->getElements().front().get());
+        }
+    }
+}
+
+TEST_F(ClassroomWorkflow, enterDoesNotContinueAcrossAParagraphOrDifferentIndentation) {
+    for (const char* source: {"12. answer\n\n    paragraph", "12. answer\n  paragraph",
+                             "12. answer\nplain\n    paragraph"}) {
+        auto* layer = control->getCurrentPage()->getSelectedLayer();
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->move(100, 100);
+        layer->addElement(std::move(text));
+        control->selectTextMode(TextMode::Plain);
+        auto* editor = editAt(101, 101);
+        ASSERT_NE(editor, nullptr);
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+        EXPECT_EQ(editorText(editor), std::string(source) + "\n");
+        control->clearSelectionEndText();
+        control->getUndoRedoHandler()->clearContents();
+        // Finalizing replaces the original Text object.
+        layer->removeElement(layer->getElements().back().get());
+    }
+}
+
+TEST_F(ClassroomWorkflow, softBreakSplitsUnicodeAndReplacesTheSelectedText) {
+    auto text = std::make_unique<Text>();
+    text->setText("alpha \xCE\xB2 tail");
+    text->move(100, 100);
+    control->getCurrentPage()->getSelectedLayer()->addElement(std::move(text));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Home, GDK_CONTROL_MASK));
+    for (int i = 0; i < 7; ++i) {
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Right));
+    }
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "alpha \xCE\xB2\n tail");
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_a, GDK_CONTROL_MASK));
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_ISO_Enter, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\n");
+    const auto controlShift = static_cast<GdkModifierType>(GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    EXPECT_FALSE(pressEditorKey(window.get(), editor, GDK_KEY_Return, controlShift));
+    EXPECT_EQ(editorText(editor), "\n");
+    control->clearSelectionEndText();
+}
+
+TEST_F(ClassroomWorkflow, softBreakHasOneTextUndoTransactionAndSurvivesSaveReopen) {
+    auto* layer = control->getCurrentPage()->getSelectedLayer();
+    const std::string source = "12. \xE7\xAD\x94\xE6\xA1\x88";
+    const auto expected = source + "\n    \n    \n    ";
+    for (bool answerBox: {false, true}) {
+        auto text = std::make_unique<Text>();
+        text->setText(source);
+        text->setBoxEnabled(answerBox);
+        const int y = answerBox ? 250 : 100;
+        text->move(100, y);
+        layer->addElement(std::move(text));
+        control->selectTextMode(answerBox ? TextMode::AnswerBox : TextMode::Plain);
+        auto* editor = editAt(101, y + 1);
+        ASSERT_NE(editor, nullptr);
+        auto* history = control->getUndoRedoHandler();
+        history->clearContents();
+        ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+        for (guint key: {GDK_KEY_Return, GDK_KEY_KP_Enter, GDK_KEY_ISO_Enter}) {
+            ASSERT_TRUE(pressEditorKey(window.get(), editor, key, GDK_SHIFT_MASK));
+        }
+        EXPECT_EQ(editorText(editor), expected);
+        EXPECT_FALSE(history->canUndo()) << "editing is committed as one text transaction on exit";
+        control->clearSelectionEndText();
+        ASSERT_TRUE(history->canUndo());
+        history->undo();
+        EXPECT_EQ(static_cast<Text*>(layer->getElements().back().get())->getText(), source);
+        EXPECT_FALSE(history->canUndo()) << "no duplicate transactions for the three soft breaks";
+        history->redo();
+        EXPECT_EQ(static_cast<Text*>(layer->getElements().back().get())->getText(), expected);
+        EXPECT_FALSE(history->canRedo());
+    }
+    const auto file = Util::getTmpDirSubfolder() / "m3-soft-break-text.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto reopened = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(reopened, nullptr);
+    const auto& elements = reopened->getPage(0)->getSelectedLayer()->getElements();
+    ASSERT_EQ(elements.size(), 2U);
+    for (size_t i = 0; i < elements.size(); ++i) {
+        auto* saved = dynamic_cast<Text*>(elements[i].get());
+        ASSERT_NE(saved, nullptr);
+        EXPECT_EQ(saved->getText(), expected);
+        EXPECT_EQ(saved->isBoxEnabled(), i == 1);
+    }
 }

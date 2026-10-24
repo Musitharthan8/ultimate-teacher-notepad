@@ -66,3 +66,22 @@ Claude independently discovered its skills and invoked its investigation, perfor
 - **Generated enum map:** PHP generator is absent from PATH/MSYS2. Applied its simple lower-case/underscore-to-hyphen mapping and independently compared all 123 ordered entries to Action.enum.h with PowerShell; exact match. No generator execution claimed.
 - **Independent Claude privacy review:** isolated build-m3-review-privacy at immutable 3ed0e6ea4; claude.exe -p using claude-privacy-prompt.txt, plan permission mode, text output. Independently invoked code-review, privacy and test-gap skills. Actual report and checked responses in m3-claude-privacy-review.md. It found no traced Student ink leak, but no runtime or final milestone approval. Known print/job wiring coverage gaps and broader highlighter entry consistency remain open. Clarified teacher-copy semantics in label/tooltip.
 - **Verification-before-completion:** fresh xournalpp, test-units and test-gtk-integration rebuild passed. Complete 327 unit / 42 GTK tests pass, zero disabled/skipped; strict XML checker passed. GTK fatal-critical mode enabled. Source diff whitespace gate passed. Native GUI control remains stopped; no screenshot or native interaction claim for this batch.
+
+## PR #21 review and safe integration - 2026-10-24
+
+- awesome-code-review: read installed SKILL.md and hazard/standards references under C:/Users/musit/.agents/skills.
+  Pinned base/head and reviewed all four commits using its three independent focused lenses for the 23-file diff.
+  Correctness, privacy and reliability findings plus parent adjudication are in m3-pr21-independent-review.md.
+- using-git-worktrees: reused linked Documents/utn-claude-m3 on separate feature/utn-m3-verified-review branch;
+  retained dedicated M3 integration checkout and unrelated untracked files. No stable/release merge authorised.
+- surgical-patch / test-driven-development: read installed instructions and good-test reference. Two real Document
+  lock regressions failed before changes; four real-file privacy regressions failed before serialization fixes;
+  list continuation failed four concrete assertions before the marker scan. Native mutex operations and private
+  save defaults are unchanged.
+- awesome-security-audit: passive export/CI-delta review using skill/checklists/verification. Added CI commands run
+  local tests with strict XML gates; no new actions/dependencies, permission expansion or event-input interpolation.
+  Existing action pins/token defaults were not redesigned. No scanner/live security probe invoked. Broader PDF
+  metadata sanitisation remains outside the claim.
+- verification-before-completion: final fresh builds/suites and strict XML completeness required before integration;
+  actual counts and remote Windows CI are recorded in the review. Synthetic Compose events could not enter the GTK
+  IME route, so no OS IME pass is claimed. Native control remains stopped; hardware-stylus root cause unresolved.
