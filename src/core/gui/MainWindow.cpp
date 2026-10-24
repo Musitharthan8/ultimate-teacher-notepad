@@ -194,11 +194,16 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
                     g_debug("Window moved to monitor \"%s\"", monitorName);
                     win->setDPI();
                 }
-                win->updateCompactLayout(gtk_widget_get_allocated_width(widget));
                 win->updateInspectorBounds();
                 return false;
             }),
             this);
+
+    g_signal_connect(this->window, "size-allocate",
+                     G_CALLBACK(+[](GtkWidget*, GtkAllocation* allocation, gpointer self) {
+                         auto* win = static_cast<MainWindow*>(self);
+                         win->updateCompactLayout(allocation->width);
+                     }), this);
 
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
     // Keep native GTK handling whenever no classroom overlay is active.
@@ -909,12 +914,12 @@ void MainWindow::updateTeacherWorkspace() {
         gtk_paned_pack2(GTK_PANED(inspectorPaned), boxContainerWidget.get(), true, true);
         gtk_box_pack_start(GTK_BOX(mainBox), inspectorPaned, true, true, 0);
         gtk_box_reorder_child(GTK_BOX(mainBox), inspectorPaned, 1);
+        inspectorAvailableWidth = 0;
+        gtk_paned_set_position(GTK_PANED(inspectorPaned), inspectorWidth);
         gtk_widget_show(inspectorPaned);
         gtk_widget_show(inspectorHost);
         gtk_widget_show(boxContainerWidget.get());
         inspectorAttached = true;
-        inspectorAvailableWidth = 0;
-        updateInspectorBounds();
     } else if (!shouldAttach && inspectorAttached) {
         gtk_container_remove(GTK_CONTAINER(inspectorPaned), boxContainerWidget.get());
         gtk_container_remove(GTK_CONTAINER(mainBox), inspectorPaned);
@@ -925,7 +930,7 @@ void MainWindow::updateTeacherWorkspace() {
     }
     if (shouldAttach) {
         gtk_widget_set_visible(inspectorHost, true);
-        updateInspectorBounds();
+        gtk_widget_queue_resize(inspectorPaned);
     }
     gtk_widget_set_visible(get("utnCollapseInspector"), teacher && mode == 0);
     gtk_widget_set_visible(get("utnExpandInspector"), teacher && mode == 1);

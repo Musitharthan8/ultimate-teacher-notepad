@@ -323,8 +323,52 @@ GtkWidget* firstImage(GtkWidget* widget) {
     return found;
 }
 
-// Teacher tools use a compact icon rail. Descriptive tooltips and accessible names
-// replace permanently visible labels, keeping every action reachable on small screens.
+// Captions belong inside the primary button so the icon and name share one hit target.
+bool appendTeacherCaption(GtkWidget* widget, const char* text) {
+    if (GTK_IS_BUTTON(widget)) {
+        GtkWidget* icon = gtk_bin_get_child(GTK_BIN(widget));
+        GtkBox* content = nullptr;
+        if (GTK_IS_IMAGE(icon)) {
+            g_object_ref(icon);
+            gtk_container_remove(GTK_CONTAINER(widget), icon);
+            content = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 2));
+            gtk_box_append(content, icon);
+            g_object_unref(icon);
+            gtk_button_set_child(GTK_BUTTON(widget), GTK_WIDGET(content));
+        } else if (GTK_IS_BOX(icon)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(icon));
+            if (g_list_length(children) == 1 && GTK_IS_IMAGE(children->data)) {
+                content = GTK_BOX(icon);
+                gtk_orientable_set_orientation(GTK_ORIENTABLE(content), GTK_ORIENTATION_VERTICAL);
+                gtk_box_set_spacing(content, 2);
+            }
+            g_list_free(children);
+        }
+        if (content) {
+            auto* label = gtk_label_new(text);
+            gtk_widget_set_name(label, "utnRailLabel");
+            gtk_label_set_width_chars(GTK_LABEL(label), 10);
+            gtk_label_set_max_width_chars(GTK_LABEL(label), 10);
+            gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            gtk_box_append(content, label);
+            gtk_widget_show_all(GTK_WIDGET(content));
+            gtk_widget_set_no_show_all(label, true);
+        }
+        utn::setAccessibleName(widget, text);
+        return true;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        bool found = false;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = appendTeacherCaption(GTK_WIDGET(child->data), text);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return false;
+}
+
 /// Visible name and one-line hover explanation for teacher-layout toolbar items.
 struct TeacherToolText {
     const char* id;
@@ -341,10 +385,11 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
         {"UTN_TEXT", nullptr, N_("Click the page to type")},
         {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
         {"TEACHER_STAMP", N_("Feedback"), N_("Place a comment from the Feedback Bank")},
-        {"TEACHING_KIT", N_("Shapes & Lines"), N_("Lines, rectangles, arrows and maths tools")},
-        {"PREPARE_REVEAL", nullptr, N_("Prepare answers in advance, hide them and reveal them during the lesson")},
-        {"SELECT", N_("Area Select"), N_("Drag around several objects to select them")},
-        {"HAND", N_("Move Page"), N_("Drag to move around the page")},
+        {"TEACHING_KIT", N_("Shapes"), N_("Lines, rectangles, arrows and maths tools")},
+        {"CLASSROOM_WORKFLOW", N_("Classroom"), N_("Lesson materials, pages, marking and reading tools")},
+        {"PREPARE_REVEAL", N_("Reveal"), N_("Prepare answers in advance, hide them and reveal them during the lesson")},
+        {"SELECT", N_("Area"), N_("Drag around several objects to select them")},
+        {"HAND", N_("Move"), N_("Drag to move around the page")},
 };
 
 /// GTK shows the tooltip of the deepest widget under the pointer, so composite items (a tool toggle plus a mode
@@ -447,6 +492,7 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                             }
                             if (!horizontal) {
                                 utn::setAccessibleName(it.get(), label.c_str());
+                                appendTeacherCaption(it.get(), label.c_str());
                                 if (GtkWidget* child = gtk_bin_get_child(GTK_BIN(it.get()))) {
                                     utn::setAccessibleName(child, label.c_str());
                                 }

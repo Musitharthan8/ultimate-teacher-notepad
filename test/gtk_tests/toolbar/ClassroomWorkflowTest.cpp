@@ -62,6 +62,23 @@ GtkWidget* studentWindow() {
     return found;
 }
 
+GtkWidget* railLabel(GtkWidget* widget, const char* text) {
+    if (GTK_IS_LABEL(widget) && g_strcmp0(gtk_widget_get_name(widget), "utnRailLabel") == 0 &&
+        g_strcmp0(gtk_label_get_text(GTK_LABEL(widget)), text) == 0) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = railLabel(GTK_WIDGET(child->data), text);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
 void settle() {
     for (int i = 0; i < 30; ++i) {
         for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
@@ -196,6 +213,65 @@ protected:
 };
 }  // namespace
 
+TEST_F(ClassroomWorkflow, teacherRailShowsCaptionsBeneathIconsAndPreservesTool) {
+    window->toolbarSelected("UTN Teacher");
+    control->selectTool(TOOL_PEN);
+    gtk_widget_show(window->getWindow());
+    settle();
+    gtk_window_unmaximize(GTK_WINDOW(window->getWindow()));
+    settle();
+    auto resize = [&](int width, int height) {
+        gtk_window_resize(GTK_WINDOW(window->getWindow()), width, height);
+        for (int attempt = 0; attempt < 30; ++attempt) {
+            settle();
+            if (gtk_widget_get_allocated_width(window->getWindow()) == width) {
+                break;
+            }
+        }
+        EXPECT_EQ(gtk_widget_get_allocated_width(window->getWindow()), width);
+    };
+    resize(1280, 720);
+    auto* rail = window->get("tbLeft1");
+    for (const char* text: {"Select", "Area", "Pen", "Shapes", "Highlight", "Colours", "Eraser", "Text",
+                           "Answer Box", "Feedback", "Classroom", "Reveal", "Move"}) {
+        auto* label = railLabel(rail, text);
+        ASSERT_NE(label, nullptr) << text;
+        EXPECT_TRUE(gtk_widget_get_visible(label)) << text;
+        auto* box = gtk_widget_get_parent(label);
+        ASSERT_TRUE(GTK_IS_BOX(box));
+        EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(box)), GTK_ORIENTATION_VERTICAL);
+        auto* button = gtk_widget_get_parent(box);
+        ASSERT_TRUE(GTK_IS_BUTTON(button));
+        EXPECT_NE(atk_object_get_name(gtk_widget_get_accessible(button)), nullptr);
+    }
+    control->selectTool(TOOL_ERASER);
+    window->setTeacherWorkspace(1);
+    window->setTeacherWorkspace(0);
+    settle();
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+    EXPECT_NE(railLabel(rail, "Pen"), nullptr);
+
+    auto* workspace = buttonNamed(window->getWindow(), "Workspace");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(workspace));
+    auto* options = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(workspace)));
+    auto chooseLabels = [&](const char* text) {
+        auto* choice = buttonNamed(options, text);
+        ASSERT_NE(choice, nullptr);
+        gtk_button_clicked(GTK_BUTTON(choice));
+        settle();
+    };
+    chooseLabels("Hide");
+    EXPECT_FALSE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    chooseLabels("Show");
+    resize(1024, 768);
+    EXPECT_TRUE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    chooseLabels("Automatic");
+    EXPECT_FALSE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    resize(1280, 720);
+    EXPECT_TRUE(gtk_widget_get_visible(railLabel(rail, "Pen")));
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_ERASER);
+}
+
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {
     auto page = control->getCurrentPage();
     std::set<std::string> names;
@@ -210,6 +286,69 @@ TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers)
     EXPECT_EQ(control->countHiddenAnswersOnCurrentPage(), 10);
     EXPECT_EQ(control->setAnswersRevealed(true, false), 10);
     EXPECT_EQ(control->setAnswersRevealed(false, false), 10);
+}
+
+TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
+    const char* requested = g_getenv("UTN_STRESS_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 32;
+    const int strokes = static_cast<int>(std::clamp<gint64>(parsed, 1, 20000));
+    window->show(nullptr);
+    settle();
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+    auto page = control->getCurrentPage();
+    auto* layer = page->getSelectedLayer();
+    for (bool highlight: {false, true}) {
+        if (highlight) {
+            control->selectHighlighter(false);
+        } else {
+            control->selectTool(TOOL_PEN);
+        }
+        control->getToolHandler()->setDrawingType(DRAWING_TYPE_DEFAULT);
+        std::vector<gint64> latencies;
+        latencies.reserve(static_cast<size_t>(strokes));
+        for (int stroke = 0; stroke < strokes; ++stroke) {
+            PositionInputData pos{};
+            pos.pressure = 0.7;
+            pos.x = (80 + stroke % 20) * view->getZoom();
+            pos.y = (100 + stroke % 240) * view->getZoom();
+            const auto begin = g_get_monotonic_time();
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int point = 1; point <= 16; ++point) {
+                pos.x += 3 * view->getZoom();
+                pos.y += (point % 2 ? 1 : -1) * view->getZoom();
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            view->onButtonReleaseEvent(pos);
+            for (int event = 0; event < 8 && gtk_events_pending(); ++event) {
+                gtk_main_iteration_do(false);
+            }
+            latencies.push_back(g_get_monotonic_time() - begin);
+            if (requested && ((stroke + 1) % 100 == 0 || stroke + 1 == strokes)) {
+                auto sorted = latencies;
+                std::sort(sorted.begin(), sorted.end());
+                const auto prefix = std::string(highlight ? "highlight_" : "pen_") + std::to_string(stroke + 1);
+                RecordProperty(prefix + "_p95_us", std::to_string(sorted[(sorted.size() - 1) * 95 / 100]));
+                RecordProperty(prefix + "_p99_us", std::to_string(sorted[(sorted.size() - 1) * 99 / 100]));
+                RecordProperty(prefix + "_max_us", std::to_string(sorted.back()));
+            }
+        }
+        EXPECT_EQ(layer->getElements().size(), static_cast<size_t>(strokes * (highlight ? 2 : 1)));
+    }
+    const auto count = layer->getElements().size();
+    control->getUndoRedoHandler()->undo();
+    EXPECT_EQ(layer->getElements().size(), count - 1);
+    control->getUndoRedoHandler()->redo();
+    EXPECT_EQ(layer->getElements().size(), count);
+    const auto file = Util::getTmpDirSubfolder() / "m3-repeated-ink.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto restored = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(restored->getPage(0)->getSelectedLayer()->getElements().size(), count);
 }
 
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
