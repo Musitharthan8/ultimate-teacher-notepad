@@ -1180,6 +1180,32 @@ void TextEditor::linebreak() {
     control->getCursor()->setInvisible(true);
 }
 
+void TextEditor::softLinebreak() {
+    // UTN: Shift+Enter breaks the line inside the current list item. No new marker; the text lines up under the item.
+    this->resetImContext();
+    gtk_text_buffer_begin_user_action(this->buffer.get());
+    if (gtk_text_buffer_get_has_selection(this->buffer.get())) {
+        gtk_text_buffer_delete_selection(this->buffer.get(), true, true);
+        control->setCopyCutEnabled(false);
+    }
+    GtkTextIter cursor = getIteratorAtCursor(this->buffer.get());
+    GtkTextIter start = cursor;
+    gtk_text_iter_set_line_offset(&start, 0);
+    auto line = xoj::util::OwnedCString::assumeOwnership(gtk_text_buffer_get_text(this->buffer.get(), &start, &cursor, false));
+    const std::string inserted = std::string("\n") + utn::list::softBreakIndent(line.get());
+    if (!gtk_text_buffer_insert_interactive_at_cursor(this->buffer.get(), inserted.c_str(),
+                                                      static_cast<gint>(inserted.size()), true)) {
+        gtk_widget_error_bell(this->xournalWidget);
+    } else {
+        contentsChanged(true);
+    }
+    gtk_text_buffer_end_user_action(this->buffer.get());
+    contentsChanged();
+    repaintEditor();
+
+    control->getCursor()->setInvisible(true);
+}
+
 void TextEditor::tabulation() {
     resetImContext();
     Settings* settings = control->getSettings();

@@ -55,4 +55,31 @@ inline Continuation listContinuation(std::string_view line) {
     return result;
 }
 
+/**
+ * What Shift+Enter inserts after the newline: a line break inside the current list item, without a new marker.
+ * The next line lines up under the item's text. A line that is already indented (an earlier Shift+Enter, or text
+ * the teacher indented) keeps its indentation. Plain text adds nothing.
+ */
+inline std::string softBreakIndent(std::string_view line) {
+    constexpr std::string_view BULLET = "• ";
+    if (line.starts_with(BULLET)) {
+        return "  ";  // the bullet is one column wide
+    }
+
+    size_t digits = 0;
+    while (digits < line.size() && std::isdigit(static_cast<unsigned char>(line[digits]))) {
+        ++digits;
+    }
+    if (digits > 0 && digits <= MAX_LIST_NUMBER_DIGITS && digits + 1 < line.size() && line[digits] == '.' &&
+        line[digits + 1] == ' ') {
+        return std::string(digits + 2, ' ');
+    }
+
+    size_t spaces = 0;
+    while (spaces < line.size() && line[spaces] == ' ') {
+        ++spaces;
+    }
+    return std::string(spaces, ' ');
+}
+
 }  // namespace utn::list

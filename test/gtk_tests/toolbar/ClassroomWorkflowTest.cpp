@@ -1179,3 +1179,58 @@ TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocument
     std::error_code ec;
     fs::remove(fs::path(lesson).replace_filename(".soak-lesson.autosave.xopp"), ec);
 }
+
+namespace {
+/// Deliver a key press to the text editor the way the canvas does, through its key bindings
+bool pressEditorKey(MainWindow* window, TextEditor* editor, guint keyval, GdkModifierType state = GdkModifierType(0)) {
+    GdkEvent* event = gdk_event_new(GDK_KEY_PRESS);
+    if (auto* gdkWindow = gtk_widget_get_window(window->getWindow())) {
+        event->key.window = GDK_WINDOW(g_object_ref(gdkWindow));
+    }
+    event->key.keyval = keyval;
+    event->key.state = state;
+    const bool handled = editor->onKeyPressEvent(KeyEvent{keyval, state, event});
+    gdk_event_free(event);
+    return handled;
+}
+
+std::string editorText(TextEditor* editor) {
+    return pango_layout_get_text(editor->getUpToDateLayout());
+}
+
+}  // namespace
+
+TEST_F(ClassroomWorkflow, enterContinuesAListAndShiftEnterBreaksInsideTheItem) {
+    auto page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("\xE2\x80\xA2 one");  // "• one"
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+
+    // Enter starts the next item
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 one\n\xE2\x80\xA2 ");
+    // Enter on the empty item ends the list
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 one\n");
+
+    // Shift+Enter in a bullet item: a new line without a marker, lined up under the text. Repeating keeps the line up.
+    control->clearSelectionEndText();
+    auto second = std::make_unique<Text>();
+    second->setText("\xE2\x80\xA2 two");
+    second->move(100, 200);
+    page->getSelectedLayer()->addElement(std::move(second));
+    control->selectTextMode(TextMode::Plain);
+    editor = editAt(101, 201);
+    ASSERT_NE(editor, nullptr);
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_End, GDK_CONTROL_MASK));
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_Return, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 two\n  ");
+    ASSERT_TRUE(pressEditorKey(window.get(), editor, GDK_KEY_KP_Enter, GDK_SHIFT_MASK));
+    EXPECT_EQ(editorText(editor), "\xE2\x80\xA2 two\n  \n  ");
+    control->clearSelectionEndText();
+}

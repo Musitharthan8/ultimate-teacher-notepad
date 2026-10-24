@@ -141,6 +141,10 @@ const TextEditor::KeyBindings TextEditor::keyBindings(
          {KeyBindings::hash(NONE, GDK_KEY_ISO_Enter), wrap<&TextEditor::linebreak>},
          {KeyBindings::hash(NONE, GDK_KEY_KP_Enter), wrap<&TextEditor::linebreak>},
 
+         {KeyBindings::hash(SHIFT, GDK_KEY_Return), wrap<&TextEditor::softLinebreak>},
+         {KeyBindings::hash(SHIFT, GDK_KEY_ISO_Enter), wrap<&TextEditor::softLinebreak>},
+         {KeyBindings::hash(SHIFT, GDK_KEY_KP_Enter), wrap<&TextEditor::softLinebreak>},
+
          {KeyBindings::hash(NONE, GDK_KEY_Tab), wrap<&TextEditor::tabulation>},
          {KeyBindings::hash(NONE, GDK_KEY_KP_Tab), wrap<&TextEditor::tabulation>},
          {KeyBindings::hash(NONE, GDK_KEY_ISO_Left_Tab), wrap<&TextEditor::tabulation>},

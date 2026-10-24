@@ -43,3 +43,14 @@ Runs `40047688538`, `40052366074` and `40054801746` failed the step "Run GTK int
 * `PrintHandler` always filters to students (read, safe), but its page rendering function is file-local, so print is not unit tested.
 * Teacher PDF copies include only *visible* layers; hidden Answers are omitted from Teacher copies too. The dialog text says "private content
   permitted" but does not say hidden layers stay hidden.
+
+## 3. Text: Shift+Enter in lists (batch 2)
+
+Before: Enter continued bullets and numbers and ended the list on an empty item (already correct), but Shift+Enter was not bound in
+`TextEditorKeyBindings.h`, so it did nothing in the text editor.
+Red test: `ClassroomWorkflow.enterContinuesAListAndShiftEnterBreaksInsideTheItem` failed at the first Shift+Enter (`handled == false`);
+pure unit tests `SoftBreakIndentTest.*` failed to compile before `softBreakIndent` existed.
+Now: Shift+Enter (and Shift+KP_Enter / ISO_Enter) inserts a newline plus an indent that lines the text up under the item
+(`• ` = 2 spaces, `12. ` = 4 spaces), keeps an existing indent when repeated, and adds nothing for plain text. Enter behaviour is unchanged.
+Local: unit 349/349, GTK 47/47 (Debug mingw64). Not verified: IME composition, real keyboards, CI for this commit.
+Not done: Enter in the middle of an item does not repeat the marker; backward Tab (de-indent) is still not implemented.
