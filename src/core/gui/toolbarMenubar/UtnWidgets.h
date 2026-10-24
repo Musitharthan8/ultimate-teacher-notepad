@@ -12,6 +12,8 @@
 
 #include "util/Color.h"
 
+class Control;
+
 namespace utn {
 
 /// A popover with the standard UTN menu panel inside it
@@ -26,6 +28,9 @@ void appendPopoverHeading(GtkBox* panel, const char* text);
 
 /// A menu entry: left-aligned label, optional explanation as tooltip. Closes the popover when clicked.
 GtkWidget* appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* label, const char* hint = nullptr);
+
+/// Pin the full settings inspector beside the worksheet from a tool popover; never changes the active tool.
+GtkWidget* appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* control);
 
 /// Name read by screen readers, for buttons whose visible content is an icon, a colour or a single letter
 void setAccessibleName(GtkWidget* widget, const char* name);
