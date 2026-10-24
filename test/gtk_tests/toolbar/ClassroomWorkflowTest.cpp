@@ -423,7 +423,7 @@ TEST_F(ClassroomWorkflow, shapesAndFeedbackCanPinInspectorWithoutReselectingTool
         ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
         auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
         ASSERT_TRUE(GTK_IS_POPOVER(popover)) << name;
-        auto* pin = buttonNamed(popover, "Pin settings panel");
+        auto* pin = buttonNamed(GTK_WIDGET(popover), "Pin settings panel");
         ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
 
         gtk_button_clicked(GTK_BUTTON(menu));
