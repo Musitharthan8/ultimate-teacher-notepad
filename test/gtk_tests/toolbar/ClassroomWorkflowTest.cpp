@@ -59,6 +59,25 @@ GtkWidget* buttonNamed(GtkWidget* widget, const char* label) {
     return nullptr;
 }
 
+GtkWidget* menuButtonAccessibleNamed(GtkWidget* widget, const char* name) {
+    if (GTK_IS_MENU_BUTTON(widget)) {
+        if (AtkObject* accessible = gtk_widget_get_accessible(widget);
+            accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0) {
+            return widget;
+        }
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = menuButtonAccessibleNamed(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
 GtkWidget* studentWindow() {
     GList* windows = gtk_window_list_toplevels();
     GtkWidget* found = nullptr;
@@ -387,6 +406,39 @@ TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->updateCompactLayout(1280);
     expectCaptions(rail, true, "Automatic while wide");
     window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
+}
+
+TEST_F(ClassroomWorkflow, shapesAndFeedbackCanPinInspectorWithoutReselectingTools) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTool(TOOL_PEN);
+    auto* rail = window->get("tbLeft1");
+
+    for (const char* name : {"Shapes & Lines", "Feedback Bank"}) {
+        window->setTeacherWorkspace(1);
+        ASSERT_EQ(window->getTeacherWorkspace(), 1);
+
+        GtkWidget* menu = menuButtonAccessibleNamed(rail, name);
+        ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu)) << name;
+        auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
+        ASSERT_TRUE(GTK_IS_POPOVER(popover)) << name;
+        auto* pin = buttonNamed(popover, "Pin settings panel");
+        ASSERT_TRUE(GTK_IS_BUTTON(pin)) << name;
+
+        gtk_button_clicked(GTK_BUTTON(menu));
+        settle();
+        gtk_button_clicked(GTK_BUTTON(pin));
+        settle();
+
+        EXPECT_EQ(window->getTeacherWorkspace(), 0) << name;
+        EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_PEN) << name;
+        EXPECT_EQ(gtk_widget_get_parent(window->get("mainContentContainer")),
+                  window->get("utnInspectorPaned")) << name;
+        int storedMode = -1;
+        ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getInt("workspaceTools", storedMode));
+        EXPECT_EQ(storedMode, 0) << name;
+    }
 }
 
 TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers) {
