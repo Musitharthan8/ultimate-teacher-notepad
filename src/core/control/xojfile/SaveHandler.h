@@ -50,11 +50,20 @@ public:
      */
     void saveTo(OutputStream* out, const fs::path& filepath, ProgressListener* listener = nullptr);
     /**
-     * Writes to `<filepath>.utn-tmp` and moves it over `filepath` only when the whole file was written. A failure
-     * (including an annotation that cannot be rendered for a student copy) leaves an existing `filepath` untouched and
-     * removes the temporary file. Does not access the Document instance.
+     * Writes the whole file to a uniquely named temporary file next to `filepath` (created exclusively, so concurrent
+     * saves never share one) and then replaces `filepath` with it using Util::replaceFileKeepingOld, which never removes
+     * the destination first. A failure (including an annotation that cannot be rendered for a student copy, a locked
+     * destination, a missing folder or any exception) leaves an existing `filepath` untouched, removes only this save's
+     * temporary file and sets the error message. Does not access the Document instance.
+     * If a save to the same destination that started later has already replaced it, this one does not overwrite that
+     * newer file: it succeeds without replacing and wasSupersededByNewerSave() is true.
      */
     void saveAtomically(const fs::path& filepath, ProgressListener* listener = nullptr);
+    bool wasSupersededByNewerSave() const { return superseded; }
+
+    using ReplaceStep = bool (*)(const fs::path& from, const fs::path& to, std::string& error);
+    /// Replaces the final replacement step of saveAtomically (nullptr restores the default). For tests.
+    static void setReplaceStepForTesting(ReplaceStep step);
     /// Update document information. Requires write access to the Document.
     void updateDocumentInfo(Document* doc);
 
@@ -106,6 +115,7 @@ protected:
     int attachBgId;
 
     std::string errorMessage;
+    bool superseded = false;
     std::vector<std::string> warnings;
 
     /// Partially erased strokes still waiting for their raster fallback. Owned by the tree below `root`.

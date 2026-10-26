@@ -1,7 +1,11 @@
 #include "util/PathUtil.h"
 
 #include <algorithm>
-#include <cstdlib>      // for system
+#include <atomic>
+#include <cerrno>
+#include <random>
+#include <system_error>
+#include <cstdlib>     // for system
 #include <fstream>      // for ifstream, char_traits, basic_ist...
 #include <iterator>     // for begin
 #include <sstream>      // for stringstream
@@ -27,6 +31,7 @@
 #ifdef _WIN32
 #include <Windows.h>
 #else
+#include <fcntl.h>   // for open
 #include <unistd.h>  // for readlink, ssize_t
 #ifdef __APPLE__
 #include <glib.h>
@@ -477,6 +482,118 @@ bool Util::safeRenameFile(fs::path const& from, fs::path const& to) {
         fs::remove(from);
     }
     return true;
+}
+
+namespace {
+std::string uniqueTag() {
+    static std::atomic<unsigned> counter{0};
+    static const std::string process = [] {
+        std::random_device rd;
+        std::ostringstream s;
+        s << std::hex << Util::getPid() << '-' << rd() << rd();
+        return s.str();
+    }();
+    std::ostringstream s;
+    s << process << '-' << std::hex << counter.fetch_add(1);
+    return s.str();
+}
+
+std::string describeError(int code) { return std::error_code(code, std::system_category()).message(); }
+}  // namespace
+
+fs::path Util::createExclusiveSiblingFile(const fs::path& destination, const char* suffix, std::string& error) {
+    try {
+        for (int attempt = 0; attempt < 16; ++attempt) {
+            fs::path candidate = destination;
+            candidate += std::string(".") + uniqueTag() + suffix;
+#ifdef _WIN32
+            HANDLE h = CreateFileW(candidate.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                   FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h != INVALID_HANDLE_VALUE) {
+                CloseHandle(h);
+                return candidate;
+            }
+            const DWORD code = GetLastError();
+            if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS) {
+                error = FS(_F("Could not create a temporary file next to \"{1}\": {2}") % destination.u8string() %
+                           describeError(static_cast<int>(code)));
+                return {};
+            }
+#else
+            int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+            if (fd >= 0) {
+                ::close(fd);
+                return candidate;
+            }
+            if (errno != EEXIST) {
+                error = FS(_F("Could not create a temporary file next to \"{1}\": {2}") % destination.u8string() %
+                           describeError(errno));
+                return {};
+            }
+#endif
+        }
+        error = FS(_F("Could not find an unused temporary file name next to \"{1}\"") % destination.u8string());
+    } catch (const std::exception& e) {
+        error = FS(_F("Could not create a temporary file next to \"{1}\": {2}") % destination.u8string() % e.what());
+    }
+    return {};
+}
+
+bool Util::replaceFileKeepingOld(const fs::path& from, const fs::path& to, std::string& error) {
+    try {
+#ifdef _WIN32
+        const std::wstring src = from.wstring();
+        const std::wstring dst = to.wstring();
+        const DWORD flags = MOVEFILE_WRITE_THROUGH;
+        auto fail = [&](DWORD code) {
+            error = FS(_F("Could not replace \"{1}\": {2}") % to.u8string() % describeError(static_cast<int>(code)));
+            return false;
+        };
+        if (GetFileAttributesW(dst.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            const DWORD code = GetLastError();
+            if (code != ERROR_FILE_NOT_FOUND) {
+                return fail(code);  // includes a missing folder
+            }
+            // No destination. MOVEFILE_REPLACE_EXISTING is left out on purpose: a file that appeared in the meantime
+            // must make this fail, not be overwritten without ReplaceFileW's protections.
+            if (MoveFileExW(src.c_str(), dst.c_str(), flags)) {
+                return true;
+            }
+            if (GetLastError() != ERROR_ALREADY_EXISTS && GetLastError() != ERROR_FILE_EXISTS) {
+                return fail(GetLastError());
+            }
+        }
+        fs::path backup = to;
+        backup += std::string(".") + uniqueTag() + ".utn-old";
+        const std::wstring bak = backup.wstring();
+        if (ReplaceFileW(dst.c_str(), src.c_str(), bak.c_str(), REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
+            if (!DeleteFileW(bak.c_str())) {
+                g_warning("Could not delete the backup of the replaced file %s", char_cast(backup.u8string().c_str()));
+            }
+            return true;
+        }
+        const DWORD code = GetLastError();
+        // Some failures leave the replaced file under the backup name only. Put it back, but never over a file.
+        if (GetFileAttributesW(dst.c_str()) == INVALID_FILE_ATTRIBUTES &&
+            GetFileAttributesW(bak.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            MoveFileExW(bak.c_str(), dst.c_str(), flags);
+        }
+        return fail(code);
+#else
+        std::error_code ec;
+        fs::rename(from, to, ec);
+        if (ec) {
+            error = FS(_F("Could not replace \"{1}\": {2}") % to.u8string() % ec.message());
+            return false;
+        }
+        return true;
+#endif
+    } catch (const std::exception& e) {
+        error = FS(_F("Could not replace \"{1}\": {2}") % to.u8string() % e.what());
+    } catch (...) {
+        error = FS(_F("Could not replace \"{1}\": {2}") % to.u8string() % "unknown error");
+    }
+    return false;
 }
 
 void Util::safeReplaceExtension(fs::path& p, const char* newExtension) {

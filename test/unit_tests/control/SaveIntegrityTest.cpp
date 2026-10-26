@@ -6,20 +6,30 @@
  *
  * Based on Xournal++ GPLv2+
  */
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <thread>
 #include <memory>
+#include <mutex>
+#include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "control/UtnPerf.h"
+#include "control/jobs/ProgressListener.h"
 #include "control/xojfile/LoadHandler.h"
 #include "control/xojfile/SaveHandler.h"
 #include "control/xojfile/XojExportHandler.h"
@@ -309,6 +319,356 @@ TEST(SaveIntegrity, editingIsNotBlockedWhileADenseDocumentIsSaved) {
     fs::remove(file);
     ASSERT_TRUE(reopened);
     EXPECT_EQ(reopened->getPage(0)->getSelectedLayer()->getElements().size(), 150U) << "the save is the state at prepare time";
+}
+
+// --- replacing the destination ------------------------------------------------------------------------------------
+// A failed save must never destroy the last valid copy. These tests exercise the real replacement path.
+
+namespace {
+struct ReplaceFolder {
+    fs::path dir;
+    explicit ReplaceFolder(const char8_t* name) {
+        dir = Util::getTmpDirSubfolder() / fs::path(std::u8string(u8"utn-replace-") + name);
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir);
+    }
+    ~ReplaceFolder() {
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+    }
+    std::vector<std::string> names() const {
+        std::vector<std::string> out;
+        for (const auto& e: fs::directory_iterator(dir)) out.push_back(e.path().filename().string());
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+};
+
+void writeFile(const fs::path& file, const std::string& content) {
+    std::ofstream out(file, std::ios::binary);
+    out << content;
+}
+
+std::unique_ptr<Document> makeOneBarDocument() {
+    auto doc = std::make_unique<Document>(nullptr);
+    auto page = std::make_shared<SavePage>();
+    page->getSelectedLayer()->addElement(erasedBar());
+    doc->addPage(page);
+    return doc;
+}
+
+bool failingReplaceStep(const fs::path&, const fs::path&, std::string& error) {
+    error = "simulated replace failure";
+    return false;
+}
+bool throwingReplaceStep(const fs::path&, const fs::path&, std::string&) {
+    throw std::runtime_error("simulated unexpected filesystem exception");
+}
+
+struct ReplaceStepGuard {
+    explicit ReplaceStepGuard(SaveHandler::ReplaceStep step) { SaveHandler::setReplaceStepForTesting(step); }
+    ~ReplaceStepGuard() { SaveHandler::setReplaceStepForTesting(nullptr); }
+};
+}  // namespace
+
+TEST(SaveReplace, existingValidDestinationIsReplacedAndNothingIsLeftBehind) {
+    ReplaceFolder folder(u8"existing");
+    const auto file = folder.dir / "lesson.xoj";
+    writeFile(file, "previous");
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    EXPECT_NE(slurp(file), "previous");
+    ASSERT_TRUE(LoadHandler{}.loadDocument(file));
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"lesson.xoj"}) << "no temporary or backup file may remain";
+}
+
+TEST(SaveReplace, newDestinationIsCreated) {
+    ReplaceFolder folder(u8"new");
+    const auto file = folder.dir / "fresh.xoj";
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    ASSERT_TRUE(LoadHandler{}.loadDocument(file));
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"fresh.xoj"});
+}
+
+TEST(SaveReplace, unicodePathsWork) {
+    ReplaceFolder folder(u8"unicode-教室-ü");
+    const auto file = folder.dir / fs::path(u8"レッスン é.xoj");
+    writeFile(file, "previous");
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    ASSERT_TRUE(LoadHandler{}.loadDocument(file));
+    EXPECT_EQ(std::distance(fs::directory_iterator(folder.dir), fs::directory_iterator()), 1);
+}
+
+#ifdef _WIN32
+// A destination another program holds open cannot be replaced. The teacher's old file must be exactly as it was.
+TEST(SaveReplace, lockedDestinationFailsWithoutDataLoss) {
+    ReplaceFolder folder(u8"locked");
+    const auto file = folder.dir / "locked.xoj";
+    const std::string previous = std::string("previous\0good\xff\x01 copy", 20);
+    writeFile(file, previous);
+    HANDLE lock = CreateFileW(file.wstring().c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                              nullptr);
+    ASSERT_NE(lock, INVALID_HANDLE_VALUE);
+
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    EXPECT_FALSE(saver.getErrorMessage().empty());
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"locked.xoj"}) << "the failed save left a file behind";
+    CloseHandle(lock);
+    EXPECT_EQ(slurp(file), previous) << "the old copy changed";
+
+    // Once the lock is gone the same save succeeds
+    SaveHandler again;
+    again.prepareSave(&doc, file);
+    again.saveAtomically(file);
+    EXPECT_TRUE(again.getErrorMessage().empty()) << again.getErrorMessage();
+    EXPECT_TRUE(LoadHandler{}.loadDocument(file));
+}
+#endif
+
+TEST(SaveReplace, replacementFailureKeepsTheOldFileByteForByte) {
+    ReplaceFolder folder(u8"failure");
+    const auto file = folder.dir / "keep.xoj";
+    const std::string previous("old\0bytes\r\n\xfe", 12);
+    writeFile(file, previous);
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    ReplaceStepGuard guard(&failingReplaceStep);
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    EXPECT_EQ(saver.getErrorMessage(), "simulated replace failure");
+    EXPECT_EQ(slurp(file), previous);
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"keep.xoj"}) << "own temporary file was not removed";
+}
+
+TEST(SaveReplace, unexpectedExceptionIsReportedNotThrown) {
+    ReplaceFolder folder(u8"exception");
+    const auto file = folder.dir / "keep.xoj";
+    writeFile(file, "previous");
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    ReplaceStepGuard guard(&throwingReplaceStep);
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    EXPECT_NO_THROW(saver.saveAtomically(file));
+    EXPECT_NE(saver.getErrorMessage().find("simulated unexpected filesystem exception"), std::string::npos)
+            << saver.getErrorMessage();
+    EXPECT_EQ(slurp(file), "previous");
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"keep.xoj"});
+}
+
+TEST(SaveReplace, missingFolderFailsSafely) {
+    ReplaceFolder folder(u8"missing");
+    const auto file = folder.dir / "nope" / "out.xoj";
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    EXPECT_NO_THROW(saver.saveAtomically(file));
+    EXPECT_FALSE(saver.getErrorMessage().empty());
+    EXPECT_TRUE(folder.names().empty());
+}
+
+// Only this save's own temporary file may be removed, and one left by an interrupted earlier save is neither used nor
+// removed nor in the way.
+TEST(SaveReplace, otherTemporaryFilesAreNeitherUsedNorRemoved) {
+    ReplaceFolder folder(u8"foreign");
+    const auto file = folder.dir / "lesson.xoj";
+    writeFile(file, "previous");
+    writeFile(folder.dir / "lesson.xoj.utn-tmp", "half written by an old build");
+    writeFile(folder.dir / "lesson.xoj.1234-abcd-0.utn-tmp", "half written by an interrupted save");
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+
+    {
+        ReplaceStepGuard guard(&failingReplaceStep);
+        SaveHandler failing;
+        failing.prepareSave(&doc, file);
+        failing.saveAtomically(file);
+        EXPECT_FALSE(failing.getErrorMessage().empty());
+    }
+    EXPECT_EQ(slurp(folder.dir / "lesson.xoj.utn-tmp"), "half written by an old build");
+    EXPECT_EQ(slurp(folder.dir / "lesson.xoj.1234-abcd-0.utn-tmp"), "half written by an interrupted save");
+    EXPECT_EQ(slurp(file), "previous");
+
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    EXPECT_TRUE(LoadHandler{}.loadDocument(file));
+    EXPECT_EQ(slurp(folder.dir / "lesson.xoj.utn-tmp"), "half written by an old build");
+    EXPECT_EQ(slurp(folder.dir / "lesson.xoj.1234-abcd-0.utn-tmp"), "half written by an interrupted save");
+    EXPECT_EQ(folder.names().size(), 3U);
+}
+
+TEST(SaveReplace, temporaryNamesNeverCollideAcrossThreads) {
+    ReplaceFolder folder(u8"names");
+    const auto file = folder.dir / "same.xoj";
+    std::mutex m;
+    std::set<fs::path> seen;
+    std::atomic<bool> duplicate{false};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 8; ++t) {
+        threads.emplace_back([&] {
+            for (int i = 0; i < 200; ++i) {
+                std::string error;
+                fs::path p = Util::createExclusiveSiblingFile(file, ".utn-tmp", error);
+                if (p.empty()) {
+                    duplicate = true;
+                    continue;
+                }
+                std::lock_guard lock(m);
+                if (!seen.insert(p).second) duplicate = true;
+            }
+        });
+    }
+    for (auto& t: threads) t.join();
+    EXPECT_FALSE(duplicate);
+    EXPECT_EQ(seen.size(), 1600U);
+}
+
+TEST(SaveReplace, createExclusiveSiblingFileNeverReusesAnExistingName) {
+    ReplaceFolder folder(u8"exclusive");
+    const auto file = folder.dir / "same.xoj";
+    std::string error;
+    fs::path a = Util::createExclusiveSiblingFile(file, ".utn-tmp", error);
+    fs::path b = Util::createExclusiveSiblingFile(file, ".utn-tmp", error);
+    ASSERT_FALSE(a.empty());
+    ASSERT_FALSE(b.empty());
+    EXPECT_NE(a, b);
+    EXPECT_TRUE(fs::exists(a));
+    EXPECT_TRUE(fs::exists(b));
+}
+
+// Many saves to the same file at once: every temp file is private, the result is always one whole, loadable file and
+// nothing is left over.
+TEST(SaveReplace, concurrentSavesToOneDestinationLeaveOneWholeFile) {
+    ReplaceFolder folder(u8"concurrent");
+    const auto file = folder.dir / "shared.xoj";
+    writeFile(file, "previous");
+    auto docOwner = makeOneBarDocument();
+    Document& doc = *docOwner;
+    constexpr int N = 8;
+    std::vector<std::unique_ptr<SaveHandler>> savers;
+    for (int i = 0; i < N; ++i) {
+        savers.push_back(std::make_unique<SaveHandler>());
+        savers.back()->prepareSave(&doc, file);
+    }
+    std::vector<std::thread> threads;
+    for (int i = 0; i < N; ++i) {
+        threads.emplace_back([&, i] { savers[i]->saveAtomically(file); });
+    }
+    for (auto& t: threads) t.join();
+    int replaced = 0;
+    for (auto& s: savers) {
+        EXPECT_TRUE(s->getErrorMessage().empty()) << s->getErrorMessage();
+        if (!s->wasSupersededByNewerSave()) ++replaced;
+    }
+    EXPECT_GE(replaced, 1);
+    EXPECT_TRUE(LoadHandler{}.loadDocument(file));
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"shared.xoj"});
+}
+
+namespace {
+/// Blocks the saving thread inside the write until released
+struct HoldingListener: ProgressListener {
+    std::mutex m;
+    std::condition_variable cv;
+    bool reached = false;
+    bool released = false;
+    void setMaximumState(size_t) override {
+        std::unique_lock lock(m);
+        if (reached) return;
+        reached = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return released; });
+    }
+    void setCurrentState(size_t) override {}
+    void waitUntilReached() {
+        std::unique_lock lock(m);
+        cv.wait(lock, [&] { return reached; });
+    }
+    void release() {
+        std::lock_guard lock(m);
+        released = true;
+        cv.notify_all();
+    }
+};
+}  // namespace
+
+// An older, slower save must not silently overwrite a newer one that already finished.
+TEST(SaveReplace, olderSlowSaveDoesNotOverwriteNewerCompletedSave) {
+    ReplaceFolder folder(u8"ordering");
+    const auto file = folder.dir / "ordered.xoj";
+    auto olderOwner = makeOneBarDocument();
+    Document& older = *olderOwner;
+    Document newer(nullptr);
+    {
+        auto page = std::make_shared<SavePage>();
+        for (int i = 0; i < 3; ++i) page->getSelectedLayer()->addElement(erasedBar(30 + 40 * i));
+        newer.addPage(page);
+    }
+
+    SaveHandler slow;
+    slow.prepareSave(&older, file);
+    HoldingListener hold;
+    std::thread first([&] { slow.saveAtomically(file, &hold); });
+    hold.waitUntilReached();  // the older save has started and is part way through writing
+
+    SaveHandler fast;
+    fast.prepareSave(&newer, file);
+    fast.saveAtomically(file);
+    ASSERT_TRUE(fast.getErrorMessage().empty()) << fast.getErrorMessage();
+    EXPECT_FALSE(fast.wasSupersededByNewerSave());
+    const std::string newestBytes = slurp(file);
+
+    hold.release();
+    first.join();
+    EXPECT_TRUE(slow.getErrorMessage().empty()) << slow.getErrorMessage();
+    EXPECT_TRUE(slow.wasSupersededByNewerSave());
+    EXPECT_EQ(slurp(file), newestBytes) << "the older save overwrote the newer completed one";
+    auto reopened = LoadHandler{}.loadDocument(file);
+    ASSERT_TRUE(reopened);
+    EXPECT_EQ(reopened->getPage(0)->getSelectedLayer()->getElements().size(), 3U);
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"ordered.xoj"});
+}
+
+TEST(SaveReplace, replaceFileKeepingOldHandlesBothCases) {
+    ReplaceFolder folder(u8"direct");
+    const auto from = folder.dir / "from.bin";
+    const auto to = folder.dir / "to.bin";
+    std::string error;
+    writeFile(from, "one");
+    ASSERT_TRUE(Util::replaceFileKeepingOld(from, to, error)) << error;
+    EXPECT_EQ(slurp(to), "one");
+    EXPECT_FALSE(fs::exists(from));
+    writeFile(from, "two");
+    ASSERT_TRUE(Util::replaceFileKeepingOld(from, to, error)) << error;
+    EXPECT_EQ(slurp(to), "two");
+    EXPECT_EQ(folder.names(), std::vector<std::string>{"to.bin"});
+    // A missing source cannot replace anything
+    EXPECT_FALSE(Util::replaceFileKeepingOld(folder.dir / "absent", to, error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(slurp(to), "two");
 }
 
 TEST(SaveIntegrity, rasterFallbackStillWorksForOrdinaryStrokes) {

@@ -115,6 +115,23 @@ private:
 [[maybe_unused]] [[nodiscard]] bool isChildOrEquivalent(fs::path const& path, fs::path const& base);
 
 [[maybe_unused]] bool safeRenameFile(fs::path const& from, fs::path const& to);
+
+/**
+ * Creates, exclusively, a new empty file next to `destination` whose name nobody else can be using: it contains the
+ * process id, a counter and random bits, and the creation fails if the name exists. Returns an empty path and sets
+ * `error` on failure (for example a missing folder). The caller owns the file and removes it.
+ */
+[[nodiscard]] fs::path createExclusiveSiblingFile(const fs::path& destination, const char* suffix, std::string& error);
+
+/**
+ * Replaces `to` with the complete file `from` (same folder) without ever removing `to` first.
+ *  - Windows: ReplaceFileW with a private backup name when `to` exists, MoveFileExW when it does not. If ReplaceFileW
+ *    fails, `to` is put back from the backup if the failure left it missing. The backup is deleted after success.
+ *  - elsewhere: rename(2), which replaces the destination in one step.
+ * On failure `to` is as it was, `from` is left for the caller to remove, and `error` says why. Never throws.
+ * Unlike safeRenameFile this never deletes `to` before the new file is in place.
+ */
+[[nodiscard]] bool replaceFileKeepingOld(const fs::path& from, const fs::path& to, std::string& error);
 [[maybe_unused]] void safeReplaceExtension(fs::path& p, const char* nexExtension);
 
 [[maybe_unused]] fs::path ensureFolderExists(const fs::path& p);

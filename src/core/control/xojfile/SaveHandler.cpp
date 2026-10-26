@@ -4,7 +4,10 @@
 #include <cmath>       // for isfinite
 #include <cstdint>     // for uint32_t
 #include <cstdio>      // for sprintf, size_t
+#include <atomic>
 #include <iomanip>
+#include <map>
+#include <mutex>
 #include <limits>
 #include <locale>
 #include <sstream>
@@ -606,34 +609,95 @@ void SaveHandler::saveTo(OutputStream* out, const fs::path& filepath, ProgressLi
     }
 }
 
-void SaveHandler::saveAtomically(const fs::path& filepath, ProgressListener* listener) {
-    // Everything that can fail without touching a file comes first: the destination is then exactly as it was
-    resolveDeferredStrokes();
-    if (!errorMessage.empty()) return;
+namespace {
+/// Per destination: how many saves started, and the newest one that finished and replaced the file
+struct DestinationState {
+    uint64_t issued = 0;
+    uint64_t committed = 0;
+};
+std::mutex destinationsMutex;
+std::map<std::string, DestinationState> destinations;
+std::atomic<SaveHandler::ReplaceStep> replaceStep{&Util::replaceFileKeepingOld};
 
-    fs::path temp = filepath;
-    temp += u8".utn-tmp";
-    std::error_code ignored;
-    {
-        GzOutputStream out(temp);
-        if (!out.getLastError().empty()) {
-            errorMessage = out.getLastError();
-            out.close();
-            fs::remove(temp, ignored);
-            return;
-        }
-        saveTo(&out, filepath, listener);
-        out.close();
-        if (!out.getLastError().empty()) {
-            // A broken stream means an incomplete file. Never let it replace a good one.
-            errorMessage = out.getLastError();
-            fs::remove(temp, ignored);
-            return;
-        }
+std::string destinationKey(const fs::path& path) {
+    std::error_code ec;
+    fs::path absolute = fs::absolute(path, ec);
+    const auto utf8 = (ec ? path : absolute).lexically_normal().u8string();
+    std::string key(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+#ifdef _WIN32
+    for (char& c: key) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');  // paths are not case sensitive here
     }
-    if (!Util::safeRenameFile(temp, filepath)) {
-        errorMessage = FS(_F("Could not replace \"{1}\". The new copy is at \"{2}\".") % filepath.u8string() %
-                          temp.u8string());
+#endif
+    return key;
+}
+}  // namespace
+
+void SaveHandler::setReplaceStepForTesting(ReplaceStep step) {
+    replaceStep.store(step ? step : &Util::replaceFileKeepingOld);
+}
+
+void SaveHandler::saveAtomically(const fs::path& filepath, ProgressListener* listener) {
+    superseded = false;
+    fs::path temp;
+    uint64_t ticket = 0;
+    try {
+        const std::string key = destinationKey(filepath);
+        // Everything that can fail without touching a file comes first: the destination is then exactly as it was
+        resolveDeferredStrokes();
+        if (!errorMessage.empty()) return;
+
+        {
+            std::lock_guard lock(destinationsMutex);
+            ticket = ++destinations[key].issued;
+        }
+
+        std::string error;
+        temp = Util::createExclusiveSiblingFile(filepath, ".utn-tmp", error);
+        if (temp.empty()) {
+            errorMessage = error;
+            return;
+        }
+        bool wholeFile = false;
+        {
+            GzOutputStream out(temp);
+            if (!out.getLastError().empty()) {
+                errorMessage = out.getLastError();
+                out.close();
+            } else {
+                saveTo(&out, filepath, listener);
+                out.close();
+                // A broken stream means an incomplete file. Never let it replace a good one. (A background image that
+                // could not be written is reported in errorMessage but does not make the file itself incomplete.)
+                wholeFile = out.getLastError().empty();
+                if (!wholeFile && errorMessage.empty()) {
+                    errorMessage = out.getLastError();
+                }
+            }
+        }
+        if (wholeFile) {
+            // Replacing is serialised per process, so a save that started earlier but finishes later than a newer
+            // completed one cannot overwrite it. Saves from other processes to the same file are not coordinated.
+            std::lock_guard lock(destinationsMutex);
+            DestinationState& state = destinations[key];
+            if (ticket < state.committed) {
+                superseded = true;
+            } else if (replaceStep.load()(temp, filepath, error)) {
+                state.committed = ticket;
+                temp.clear();  // moved onto the destination, nothing left to remove
+            } else {
+                errorMessage = error;
+            }
+        }
+    } catch (const std::exception& e) {
+        errorMessage = FS(_F("Save file error: {1}") % e.what());
+    } catch (...) {
+        errorMessage = FS(_F("Save file error: {1}") % "unknown error");
+    }
+    // Only this save's own temporary file is ever removed
+    if (!temp.empty()) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
     }
 }
 
