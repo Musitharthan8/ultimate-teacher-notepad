@@ -3,6 +3,7 @@
 #include <glib.h>  // for g_message, g_warning
 
 #include "control/Control.h"              // for Control
+#include "control/UtnPerf.h"              // for utn::perf
 #include "control/jobs/Job.h"             // for JOB_TYPE_AUTOSAVE, JobType
 #include "control/xojfile/SaveHandler.h"  // for SaveHandler
 #include "model/Document.h"               // for Document
@@ -23,25 +24,32 @@ void AutosaveJob::afterRun() {
 }
 
 void AutosaveJob::run() {
+    utn::perf::ScopedTimer autosaveTimer(utn::perf::Metric::Autosave);
     SaveHandler handler;
 
     control->getUndoRedoHandler()->documentAutosaved();
 
     Document* doc = control->getDocument();
 
-    doc->lock_shared();
-    auto filepath = doc->getFilepath();
+    fs::path filepath;
+    {
+        // Keep the shared lock as short as possible: it blocks the exclusive lock that pen-up needs.
+        // (the metric covers the wait for the lock as well as the time it is held)
+        utn::perf::ScopedTimer lockHoldTimer(utn::perf::Metric::AutosaveLockHold);
+        doc->lock_shared();
+        filepath = doc->getFilepath();
 
-    if (filepath.empty()) {
-        filepath = Util::getAutosaveFilepath();
-    } else {
-        filepath.replace_filename(fs::path(".") += filepath.filename());
+        if (filepath.empty()) {
+            filepath = Util::getAutosaveFilepath();
+        } else {
+            filepath.replace_filename(fs::path(".") += filepath.filename());
+        }
+        Util::clearExtensions(filepath);
+        filepath += ".autosave.xopp";
+
+        handler.prepareSave(doc, filepath);
+        doc->unlock_shared();
     }
-    Util::clearExtensions(filepath);
-    filepath += ".autosave.xopp";
-
-    handler.prepareSave(doc, filepath);
-    doc->unlock_shared();
 
     g_message("%s", FS(_F("Autosaving to {1}") % filepath.string()).c_str());
 
