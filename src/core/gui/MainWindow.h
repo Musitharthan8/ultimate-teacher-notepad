@@ -197,6 +197,8 @@ private:
     std::unique_ptr<UtnToast> toast;
     GtkWidget* presentationBanner = nullptr;
     GtkWidget* presentationBannerLabel = nullptr;
+    /// 0 = off, 1 = Spotlight, 2 = Curtain; lets Student View be told only when this really changes
+    int presentationOverlayState = 0;
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     bool compactLayout = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt

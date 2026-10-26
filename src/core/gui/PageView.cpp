@@ -82,6 +82,7 @@
 #include "util/safe_casts.h"                        // for ceil_cast, floor_cast, round_cast
 #include "util/serdesstream.h"                      // for serdes_stream
 #include "view/DebugShowRepaintBounds.h"            // for IF_DEBUG_REPAINT
+#include "view/PresentationOverlay.h"               // for paintPresentationOverlay
 #include "view/overlays/OverlayView.h"              // for OverlayView, Tool...
 #include "view/overlays/PdfElementSelectionView.h"  // for PdfElementSelecti...
 #include "view/overlays/SearchResultView.h"         // for SearchResultView
@@ -234,6 +235,11 @@ void XojPageView::deleteLaserPointerHandler() {
     laserPointer.reset();
 }
 
+void XojPageView::getPresentationPointer(double& x, double& y) const {
+    x = presentationPointerInitialized ? presentationPointerX : page->getWidth() / 2.0;
+    y = presentationPointerInitialized ? presentationPointerY : page->getHeight() / 2.0;
+}
+
 void XojPageView::clearTemporaryPresentationInk() {
     if (!laserPointer) {
         return;
@@ -281,6 +287,8 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         this->presentationPointerY = y;
         this->presentationPointerInitialized = true;
         this->repaintPage();
+        // Student View shows the same overlay (throttled there), so tell it the pointer moved
+        this->xournal->getControl()->notifyCanvasChanged(this->page.get());
         return true;
     }
 
@@ -609,6 +617,8 @@ auto XojPageView::onMotionNotifyEvent(const PositionInputData& pos) -> bool {
         this->presentationPointerY = y;
         this->presentationPointerInitialized = true;
         this->repaintPage();
+        // Student View shows the same overlay (throttled there), so tell it the pointer moved
+        this->xournal->getControl()->notifyCanvasChanged(this->page.get());
         return true;
     }
 
@@ -1198,35 +1208,9 @@ auto XojPageView::paintPage(cairo_t* cr, GdkRectangle* rect) -> bool {
         const double pointerX = this->presentationPointerInitialized ? this->presentationPointerX : page->getWidth() / 2.0;
         const double pointerY = this->presentationPointerInitialized ? this->presentationPointerY : page->getHeight() / 2.0;
 
-        xoj::util::CairoSaveGuard overlayGuard(cr);
-
-        if (tools->isSpotlightEnabled()) {
-            const double radius = 115.0 / zoom;
-
-            cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
-            cairo_rectangle(cr, 0.0, 0.0, page->getWidth(), page->getHeight());
-            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
-
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.62);
-            cairo_fill(cr);
-
-            cairo_arc(cr, pointerX, pointerY, radius, 0.0, 2.0 * 3.14159265358979323846);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.65);
-            cairo_set_line_width(cr, 2.0 / zoom);
-            cairo_stroke(cr);
-        } else {
-            const double curtainY = std::clamp(pointerY, 0.0, page->getHeight());
-
-            cairo_rectangle(cr, 0.0, curtainY, page->getWidth(), page->getHeight() - curtainY);
-            cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.88);
-            cairo_fill(cr);
-
-            cairo_move_to(cr, 0.0, curtainY);
-            cairo_line_to(cr, page->getWidth(), curtainY);
-            cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.75);
-            cairo_set_line_width(cr, 2.0 / zoom);
-            cairo_stroke(cr);
-        }
+        // The Student View frame uses the same painter, so the two cannot disagree about what is covered
+        xoj::view::paintPresentationOverlay(cr, tools->isSpotlightEnabled(), page->getWidth(), page->getHeight(),
+                                            pointerX, pointerY, zoom, xoj::view::CURTAIN_TEACHER_ALPHA);
     }
 
     return true;

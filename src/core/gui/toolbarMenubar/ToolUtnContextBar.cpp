@@ -38,6 +38,7 @@
 #include "EraserModes.h"     // for ERASER_MODES
 #include "ShapePicker.h"     // for createShapePicker
 #include "util/GVariantTemplate.h"  // for getGVariantValue
+#include "RevealActions.h"
 #include "UtnWidgets.h"
 
 namespace {
@@ -1207,22 +1208,13 @@ void ToolUtnContextBar::appendAnswersVisibility() {
 
     GtkWidget* hide = appendButton(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"));
     g_signal_connect(hide, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                         auto* ctrl = static_cast<Control*>(data);
-                         const size_t changed = ctrl->setAnswersRevealed(false, true);
-                         if (auto* win = ctrl->getWindow()) {
-                             win->showToast(changed ? _("Answers are hidden from students") :
-                                                      _("No answers are showing"));
-                         }
+                         utn::hideAnswersFromUi(static_cast<Control*>(data));
                      }),
                      control);
+    // One press, with "Hide again" on the toast that follows. Revealing everything is in the Hide & Reveal menu.
     GtkWidget* reveal = appendButton(_("Reveal on this page"), _("Show this page's hidden answers to the class"));
     g_signal_connect(reveal, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
-                         auto* ctrl = static_cast<Control*>(data);
-                         const size_t changed = ctrl->setAnswersRevealed(true, false);
-                         if (auto* win = ctrl->getWindow()) {
-                             win->showToast(changed ? _("Answers on this page are now showing") :
-                                                      _("No hidden answers on this page"));
-                         }
+                         utn::revealAnswersFromUi(static_cast<Control*>(data), false);
                      }),
                      control);
 }

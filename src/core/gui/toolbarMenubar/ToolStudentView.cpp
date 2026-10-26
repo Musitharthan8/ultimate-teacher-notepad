@@ -9,13 +9,19 @@
 #include "ToolStudentView.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <shared_mutex>
 #include <string>
 #include <utility>
 
 #include "control/Control.h"
+#include "control/ToolHandler.h"
+#include "control/UtnPerf.h"
+#include "control/settings/Settings.h"
 #include "gui/MainWindow.h"
+#include "gui/PageView.h"
 #include "gui/XournalView.h"
 #include "model/Document.h"
 #include "model/Layer.h"
@@ -24,12 +30,17 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 #include "view/DocumentView.h"
+#include "view/PresentationOverlay.h"
 
 #include "UtnWidgets.h"
 
 namespace {
 /// Coalesce bursts of page changes (live erasing, typing) into at most one student redraw per interval
 constexpr guint REDRAW_INTERVAL_MS = 40;
+/// A frame renders on the UI thread, the same thread that handles the stylus. The next frame waits this many times
+/// the last frame's render time, so Student View never takes more than about one seventh of the UI thread.
+constexpr double REDRAW_COST_FACTOR = 6.0;
+constexpr guint REDRAW_INTERVAL_MAX_MS = 1000;
 
 constexpr const char* STATE_CLASSES[] = {"utn-sv-off", "utn-sv-same", "utn-sv-live", "utn-sv-frozen", "utn-sv-blank"};
 
@@ -72,14 +83,49 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
     // Teacher-only layers and unrevealed answers never reach the projector
     view.setLayerFilter([](const Layer& layer) { return utn::visibleToStudents(layer); });
     view.drawPage(page, cr, true);
+
+    // Spotlight and Curtain must cover the projected page too, not only the teacher's canvas
+    auto* tools = control->getToolHandler();
+    if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
+        double pointerX = 0.5 * pageWidth;
+        double pointerY = 0.5 * pageHeight;
+        double teacherZoom = 1.0;
+        if (auto* mainWindow = control->getWindow()) {
+            if (auto* xournal = mainWindow->getXournal()) {
+                if (auto* pageView = xournal->getViewFor(control->getCurrentPageNo())) {
+                    pageView->getPresentationPointer(pointerX, pointerY);
+                    teacherZoom = pageView->getZoom();
+                }
+            }
+        }
+        xoj::view::paintPresentationOverlay(cr, tools->isSpotlightEnabled(), pageWidth, pageHeight, pointerX, pointerY,
+                                            teacherZoom, xoj::view::CURTAIN_STUDENT_ALPHA);
+    }
     cairo_restore(cr);
+}
+
+/// A surface for one student frame that keeps the screen's device scale, so a HiDPI projector stays sharp
+cairo_surface_t* createFrameSurface(GtkWidget* widget, int width, int height) {
+    const int scale = std::max(1, gtk_widget_get_scale_factor(widget));
+    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width * scale, height * scale);
+    cairo_surface_set_device_scale(surface, scale, scale);
+    return surface;
+}
+
+/// Logical size of a frame made by createFrameSurface
+void frameSize(cairo_surface_t* surface, double& width, double& height) {
+    double sx = 1.0, sy = 1.0;
+    cairo_surface_get_device_scale(surface, &sx, &sy);
+    width = cairo_image_surface_get_width(surface) / sx;
+    height = cairo_image_surface_get_height(surface) / sy;
 }
 }  // namespace
 
 ToolStudentView::ToolStudentView(std::string id, Control* control):
         AbstractToolItem(std::move(id), Category::NAVIGATION), control(control) {
     registerListener(control);
-    canvasListenerId = control->addCanvasChangedListener([this](const XojPage*) { requestRedraw(); });
+    // A null page means the audience changed (answers hidden or revealed): show it without waiting
+    canvasListenerId = control->addCanvasChangedListener([this](const XojPage* page) { requestRedraw(page == nullptr); });
 
     if (GdkDisplay* display = gdk_display_get_default()) {
         auto onMonitorsChanged = +[](GdkDisplay*, GdkMonitor*, gpointer data) {
@@ -125,6 +171,9 @@ ToolStudentView::~ToolStudentView() {
     }
     if (frozenFrame) {
         cairo_surface_destroy(frozenFrame);
+    }
+    if (liveFrame) {
+        cairo_surface_destroy(liveFrame);
     }
 }
 
@@ -178,10 +227,18 @@ auto ToolStudentView::stateLabel(State state) -> const char* {
 }
 
 void ToolStudentView::updateState() {
-    // Hidden answers may be shown faintly to the teacher only while students watch another screen
-    control->setGhostHiddenAnswers(isOnSeparateMonitor());
+    // Hidden answers may be shown faintly to the teacher only if the teacher asked for it AND students watch another
+    // screen. It is off by default: a teacher window that is screen-shared or recorded must never show hidden answers.
+    bool ghostWanted = false;
+    control->getSettings()->getCustomElement("utn").getBool("ghostHiddenAnswers", ghostWanted);
+    control->setGhostHiddenAnswers(ghostWanted && isOnSeparateMonitor());
+    if (ghostToggle) {
+        utn::syncToggle(GTK_TOGGLE_BUTTON(ghostToggle), ghostWanted);
+    }
 
     const State state = getState();
+    // Revealing everything asks for a second press while the class may be looking
+    control->setStudentsMayWatch(state == State::Live || state == State::SameScreen);
     if (pill) {
         for (const char* cls: STATE_CLASSES) {
             gtk_widget_remove_css_class(pill, cls);
@@ -258,25 +315,98 @@ void ToolStudentView::updateTeacherOutline(State state) {
     gtk_widget_queue_draw(teacherOutline);
 }
 
-void ToolStudentView::requestRedraw() {
+void ToolStudentView::requestRedraw(bool urgent) {
+    frameDirty = true;
     if (redrawPending.exchange(true)) {
-        return;
+        if (!urgent) {
+            return;
+        }
+        // A slower redraw is already waiting; replace it with an immediate one
+        if (guint pending = redrawSource.exchange(0)) {
+            g_source_remove(pending);
+        }
     }
-    redrawSource = g_timeout_add(REDRAW_INTERVAL_MS, +[](gpointer data) -> gboolean {
+    // Leading edge: after a quiet spell the first change is shown at once. Only the follow-ups of a burst are held
+    // back. Changes of who may see what (hiding answers) are always urgent, so students never keep seeing them.
+    const gint64 sinceLastFrameMs = (g_get_monotonic_time() - lastFrameEnd) / 1000;
+    const gint64 wait = urgent ? 1 : std::max<gint64>(1, static_cast<gint64>(nextRedrawDelayMs) - sinceLastFrameMs);
+    redrawSource = g_timeout_add(static_cast<guint>(wait), +[](gpointer data) -> gboolean {
         auto* self = static_cast<ToolStudentView*>(data);
         self->redrawSource = 0;
         self->redrawPending = false;
         if (self->drawingArea && !self->frozen && !self->blanked) {
+            // Render here, once, and let the draw handler only copy the result. Window exposure, moves and resizes
+            // then no longer re-render the whole page.
+            self->refreshLiveFrame();
             gtk_widget_queue_draw(self->drawingArea);
         }
         return G_SOURCE_REMOVE;
     }, this);
 }
 
-void ToolStudentView::pageSelected(size_t) { requestRedraw(); }
-void ToolStudentView::pageChanged(size_t) { requestRedraw(); }
+bool ToolStudentView::frameNeedsResize(int width, int height) const {
+    if (!liveFrame || !drawingArea) {
+        return true;
+    }
+    const int scale = std::max(1, gtk_widget_get_scale_factor(drawingArea));
+    return cairo_image_surface_get_width(liveFrame) != width * scale ||
+           cairo_image_surface_get_height(liveFrame) != height * scale;
+}
+
+void ToolStudentView::refreshLiveFrame() {
+    if (!drawingArea) {
+        return;
+    }
+    const int width = std::max(1, gtk_widget_get_allocated_width(drawingArea));
+    const int height = std::max(1, gtk_widget_get_allocated_height(drawingArea));
+
+    const auto start = std::chrono::steady_clock::now();
+    if (liveFrame && frameNeedsResize(width, height)) {
+        cairo_surface_destroy(liveFrame);
+        liveFrame = nullptr;
+    }
+    if (!liveFrame) {
+        liveFrame = createFrameSurface(drawingArea, width, height);
+    }
+    cairo_t* cr = cairo_create(liveFrame);
+    renderStudentFrame(control, cr, width, height);
+    cairo_destroy(cr);
+    frameDirty = false;
+
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    lastFrameEnd = g_get_monotonic_time();
+    utn::perf::record(utn::perf::Metric::StudentFrame, ms);
+    // The slower a frame is, the longer the stylus gets to itself before the next one
+    nextRedrawDelayMs = static_cast<guint>(std::clamp(ms * REDRAW_COST_FACTOR, static_cast<double>(REDRAW_INTERVAL_MS),
+                                                      static_cast<double>(REDRAW_INTERVAL_MAX_MS)));
+}
+
+bool ToolStudentView::studentAudienceChanged() {
+    // Never block here: this runs from document notifications, some of which are sent while the Document is locked
+    auto* doc = control->getDocument();
+    if (!doc->try_lock_shared()) {
+        return true;  // cannot tell, so treat it as urgent
+    }
+    uint64_t signature = 1469598103934665603ULL;
+    // doc->getPage, not Control::getCurrentPage(): that takes the Document lock again, and the lock is not recursive
+    if (PageRef page = doc->getPage(control->getCurrentPageNo())) {
+        size_t index = 0;
+        for (const Layer* layer: page->getLayersView()) {
+            signature = (signature ^ (utn::visibleToStudents(*layer) ? 2U : 1U)) * 1099511628211ULL;
+            signature = (signature ^ ++index) * 1099511628211ULL;
+        }
+        signature = (signature ^ reinterpret_cast<uintptr_t>(page.get())) * 1099511628211ULL;
+    }
+    doc->unlock_shared();
+    const bool changed = signature != lastAudienceSignature;
+    lastAudienceSignature = signature;
+    return changed;
+}
+
+void ToolStudentView::pageSelected(size_t) { requestRedraw(studentAudienceChanged()); }
+void ToolStudentView::pageChanged(size_t) { requestRedraw(studentAudienceChanged()); }
 void ToolStudentView::pageSizeChanged(size_t) { requestRedraw(); }
-void ToolStudentView::documentChanged(DocumentChangeType) { requestRedraw(); }
+void ToolStudentView::documentChanged(DocumentChangeType) { requestRedraw(studentAudienceChanged()); }
 
 auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     auto [popover, panel] = utn::createPopoverPanel(4);
@@ -312,6 +442,22 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                      this);
     g_object_set_data(G_OBJECT(blankToggle), "utn-popover", popover);
     gtk_box_append(panel, blankToggle);
+
+    ghostToggle = gtk_toggle_button_new_with_label(_("Show hidden answers faintly to me"));
+    gtk_widget_set_tooltip_text(ghostToggle, _("Only on your screen, and only while the class watches a second screen. "
+                                               "Turn this off before you share your screen or record."));
+    g_signal_connect(ghostToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                         if (utn::isSyncing(GTK_WIDGET(button))) {
+                             return;
+                         }
+                         auto* self = static_cast<ToolStudentView*>(data);
+                         self->control->getSettings()->getCustomElement("utn").setBool(
+                                 "ghostHiddenAnswers", gtk_toggle_button_get_active(button));
+                         self->control->getSettings()->customSettingsChanged();
+                         self->updateState();
+                     }),
+                     this);
+    gtk_box_append(panel, ghostToggle);
 
     fullButton = utn::appendMenuButton(panel, popover, _("Full screen"),
                                        _("Fill the projector with the student window. F11 or Esc in that window "
@@ -351,6 +497,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                              self->pillLabel = nullptr;
                              self->freezeToggle = nullptr;
                              self->blankToggle = nullptr;
+                             self->ghostToggle = nullptr;
                              self->openButton = nullptr;
                              self->fullButton = nullptr;
                              self->closeButton = nullptr;
@@ -416,23 +563,33 @@ void ToolStudentView::setFrozen(bool enabled) {
         return;
     }
     if (enabled && !frozen && drawingArea) {
-        // Keep the exact frame students are seeing now
+        // Keep the frame students are seeing now: the cached one, brought up to date if a change is still pending
         const int width = std::max(1, gtk_widget_get_allocated_width(drawingArea));
         const int height = std::max(1, gtk_widget_get_allocated_height(drawingArea));
         if (frozenFrame) {
             cairo_surface_destroy(frozenFrame);
+            frozenFrame = nullptr;
         }
-        frozenFrame = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
-        cairo_t* cr = cairo_create(frozenFrame);
-        renderStudentFrame(control, cr, width, height);
-        cairo_destroy(cr);
-        frozen = true;
+        if (frameDirty || frameNeedsResize(width, height)) {
+            refreshLiveFrame();
+        }
+        if (liveFrame) {
+            // A copy, so refreshing the live frame after "Resume" can never alter what is frozen
+            frozenFrame = createFrameSurface(drawingArea, width, height);
+            cairo_t* cr = cairo_create(frozenFrame);
+            cairo_set_source_surface(cr, liveFrame, 0, 0);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+        }
+        frozen = frozenFrame != nullptr;
     } else if (!enabled) {
         frozen = false;
         if (frozenFrame) {
             cairo_surface_destroy(frozenFrame);
             frozenFrame = nullptr;
         }
+        // The page may have changed while students saw the frozen frame; never show a stale live frame on resume
+        refreshLiveFrame();
     }
     if (drawingArea) {
         gtk_widget_queue_draw(drawingArea);
@@ -442,6 +599,9 @@ void ToolStudentView::setFrozen(bool enabled) {
 
 void ToolStudentView::setBlanked(bool enabled) {
     blanked = enabled;
+    if (!enabled && drawingArea && !frozen) {
+        refreshLiveFrame();  // never show a stale frame when the screen comes back
+    }
     if (!window && monitorCount() < 2) {
         // Students see this screen, so cover the teacher's canvas instead
         showTeacherBlankCover(enabled);
@@ -521,8 +681,8 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
     if (self->frozen && self->frozenFrame) {
         cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
         cairo_paint(cr);
-        const double frameWidth = cairo_image_surface_get_width(self->frozenFrame);
-        const double frameHeight = cairo_image_surface_get_height(self->frozenFrame);
+        double frameWidth = 0, frameHeight = 0;
+        frameSize(self->frozenFrame, frameWidth, frameHeight);
         const double scale = std::min(width / frameWidth, height / frameHeight);
         cairo_translate(cr, 0.5 * (width - frameWidth * scale), 0.5 * (height - frameHeight * scale));
         cairo_scale(cr, scale, scale);
@@ -530,7 +690,15 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
         cairo_paint(cr);
         return FALSE;
     }
-    renderStudentFrame(self->control, cr, width, height);
+    // Normally the throttled timer has produced the frame. Render here only when there is none yet or the window
+    // changed size.
+    if (self->liveFrame == nullptr || self->frameNeedsResize(static_cast<int>(width), static_cast<int>(height))) {
+        self->refreshLiveFrame();
+    }
+    if (self->liveFrame) {
+        cairo_set_source_surface(cr, self->liveFrame, 0, 0);
+        cairo_paint(cr);
+    }
     return FALSE;
 }
 
@@ -558,6 +726,10 @@ void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
     if (self->frozenFrame) {
         cairo_surface_destroy(self->frozenFrame);
         self->frozenFrame = nullptr;
+    }
+    if (self->liveFrame) {
+        cairo_surface_destroy(self->liveFrame);
+        self->liveFrame = nullptr;
     }
     self->updateState();
 }

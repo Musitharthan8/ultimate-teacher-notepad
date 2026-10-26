@@ -1022,6 +1022,12 @@ void MainWindow::updatePresentationBanner() {
     auto* tools = control->getToolHandler();
     const bool spotlight = tools->isSpotlightEnabled();
     const bool curtain = tools->isCurtainEnabled();
+    const int overlayState = spotlight ? 1 : (curtain ? 2 : 0);
+    if (overlayState != presentationOverlayState) {
+        presentationOverlayState = overlayState;
+        // Student View draws the same overlay; a null page asks it to redraw at once
+        control->notifyCanvasChanged(nullptr);
+    }
     if (spotlight || curtain) {
         gtk_label_set_text(GTK_LABEL(presentationBannerLabel),
                            spotlight ? _("Spotlight is ON: the page is darkened") :

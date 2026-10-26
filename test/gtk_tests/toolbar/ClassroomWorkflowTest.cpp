@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <set>
@@ -11,6 +12,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/UtnPerf.h"
 #include "control/actions/ActionDatabase.h"
 #include "control/jobs/AutosaveJob.h"
 #include "control/jobs/XournalScheduler.h"
@@ -28,8 +30,10 @@
 #include "gui/FloatingToolbox.h"
 #include "gui/PdfFloatingToolbox.h"
 #include "gui/PageView.h"
+#include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
+#include "gui/toolbarMenubar/RevealActions.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
 #include "model/Document.h"
@@ -39,6 +43,7 @@
 #include "model/Text.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
+#include "model/eraser/MaskedStrokeCodec.h"
 #include "util/PathUtil.h"
 #include "util/PopupWindowWrapper.h"
 #include "util/XojMsgBox.h"
@@ -1235,6 +1240,107 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) 
     }
 }
 
+namespace {
+bool answersShowing(Control* control) {
+    auto page = control->getCurrentPage();
+    for (const Layer* layer: page->getLayersView()) {
+        if (layer->getAudience() == LayerAudience::Answers && layer->isVisible()) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+// Revealing everything to a class that may be watching must not be one accidental tap, and every reveal can be undone.
+TEST_F(ClassroomWorkflow, revealAllNeedsASecondPressOnlyWhileTheClassMayWatchAndCanBeHiddenAgain) {
+    window->show(nullptr);
+    auto page = control->getCurrentPage();
+    control->startAnswersLayer();
+    addMarker(page->getSelectedLayer(), 200);
+    control->setAnswersRevealed(false, true);
+    ASSERT_FALSE(answersShowing(control.get()));
+
+    constexpr int64_t second = 1000 * 1000;
+    // Nobody watching: one press does it, and the toast offers the way back
+    control->setStudentsMayWatch(false);
+    utn::cancelRevealAllConfirmation();
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 10 * second), utn::RevealOutcome::Revealed);
+    EXPECT_TRUE(answersShowing(control.get()));
+    EXPECT_NE(window->getToast()->currentMessage().find("All answers"), std::string::npos);
+    utn::hideAnswersFromUi(control.get());
+    EXPECT_FALSE(answersShowing(control.get()));
+
+    // The class may be watching: the first press only arms
+    control->setStudentsMayWatch(true);
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 20 * second), utn::RevealOutcome::NeedsConfirmation);
+    EXPECT_FALSE(answersShowing(control.get())) << "the first press must not show anything";
+    EXPECT_NE(window->getToast()->currentMessage().find("again"), std::string::npos);
+    // A confirmation that comes too late is just another first press
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 20 * second + utn::REVEAL_ALL_CONFIRM_MICROSECONDS + 1),
+              utn::RevealOutcome::NeedsConfirmation);
+    EXPECT_FALSE(answersShowing(control.get()));
+    // In time, it goes ahead
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 20 * second + utn::REVEAL_ALL_CONFIRM_MICROSECONDS + 2 * second),
+              utn::RevealOutcome::Revealed);
+    EXPECT_TRUE(answersShowing(control.get()));
+
+    // Hide again, then the single page reveal is never gated
+    utn::hideAnswersFromUi(control.get());
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), false, 100 * second), utn::RevealOutcome::Revealed);
+    EXPECT_TRUE(answersShowing(control.get()));
+
+    // Any other action disarms nothing by itself, but cancelling forgets a pending first press
+    utn::hideAnswersFromUi(control.get());
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 200 * second), utn::RevealOutcome::NeedsConfirmation);
+    utn::cancelRevealAllConfirmation();
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true, 201 * second), utn::RevealOutcome::NeedsConfirmation);
+    EXPECT_FALSE(answersShowing(control.get()));
+    control->setStudentsMayWatch(false);
+}
+
+// Spotlight and Curtain were drawn on the teacher's canvas only, so a teacher who covered the page still projected it.
+TEST_F(ClassroomWorkflow, spotlightAndCurtainAlsoCoverTheStudentViewFrame) {
+    window->show(nullptr);
+    auto page = control->getCurrentPage();
+    addMarker(page->getSelectedLayer(), 100);
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    ASSERT_NE(buttonNamed(menu, "Open on the projector"), nullptr);
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open on the projector")));
+    settle();
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+
+    EXPECT_EQ(studentPixel(student, 300, 700), 0xFFFFFFU) << "the empty lower page is white without an overlay";
+
+    // Curtain: with no pointer position yet it covers the lower half, and the cover is opaque for the class
+    turnOnOverlay(control.get(), false);
+    settle();
+    EXPECT_EQ(studentPixel(student, 300, 700), 0U) << "Curtain must hide the page from students";
+    EXPECT_EQ(studentPixel(student, 300, 100), 0xFFFFFFU) << "the part above the curtain line stays visible";
+    EXPECT_TRUE(pressEscape(window.get()));
+    settle();
+    EXPECT_EQ(studentPixel(student, 300, 700), 0xFFFFFFU) << "Escape shows the whole page to students again";
+
+    // Spotlight: the corner is darkened, the middle is clear
+    turnOnOverlay(control.get(), true);
+    settle();
+    EXPECT_NE(studentPixel(student, 20, 20), 0xFFFFFFU);
+    EXPECT_EQ(studentPixel(student, 300, 400), 0xFFFFFFU);
+    window->exitPresentationOverlay();
+    settle();
+    EXPECT_EQ(studentPixel(student, 20, 20), 0xFFFFFFU);
+
+    gtk_widget_destroy(student);
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
 // Closer to a teaching session than the single-page stress test: strokes spread over several pages, undo/redo
 // churn, and the real AutosaveJob running on the scheduler while worker threads render. UTN_SOAK_STROKES raises the
 // size (default is small enough for the normal suite). When built with -DUTN_LOCK_AUDIT=ON it also fails on any nested
@@ -1318,6 +1424,160 @@ TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocument
 #endif
     std::error_code ec;
     fs::remove(fs::path(lesson).replace_filename(".soak-lesson.autosave.xopp"), ec);
+}
+
+// What the first soak does not do: erase, highlight, vary the pressure, keep Student View open on the dense pages and
+// autosave while erased strokes exist. The failure it looks for is the field one, a session that gets slower the longer
+// it runs, so besides the usual tripwires it compares the last third of the session with the first.
+// UTN_SOAK_STROKES scales it (default is small enough for the normal suite).
+TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutosaveDoesNotSlowDown) {
+    const char* requested = g_getenv("UTN_SOAK_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 120;
+    const int iterations = static_cast<int>(std::clamp<gint64>(parsed, 12, 20000));
+    constexpr size_t PAGES = 3;
+
+    Document* doc = control->getDocument();
+    const auto lesson = Util::getTmpDirSubfolder() / "soak-heavy-lesson.xopp";
+    doc->lock();
+    doc->setFilepath(lesson);
+    doc->unlock();
+    while (doc->getPageCount() < PAGES) {
+        control->insertNewPage(doc->getPageCount(), true);
+    }
+    window->show(nullptr);
+    settle();
+
+    utn::perf::setEnabled(true);
+    utn::perf::reset();
+#ifdef UTN_LOCK_AUDIT
+    const unsigned nestedBefore = utn::lockaudit::nestedViolations();
+#endif
+
+    // The class is watching: Student View is open and redraws while the teacher writes
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    ASSERT_NE(buttonNamed(menu, "Open on the projector"), nullptr);
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open on the projector")));
+    settle();
+    ASSERT_NE(studentWindow(), nullptr);
+
+    auto* tools = control->getToolHandler();
+    tools->setEraserType(ERASER_TYPE_DEFAULT);
+
+    std::vector<gint64> latencies;
+    latencies.reserve(static_cast<size_t>(iterations));
+    size_t penStrokes = 0;
+    for (int i = 0; i < iterations; ++i) {
+        const size_t pageNo = static_cast<size_t>(i) % PAGES;
+        auto* view = window->getXournal()->getViewFor(pageNo);
+        ASSERT_NE(view, nullptr);
+        const double zoom = view->getZoom();
+        PositionInputData pos{};
+        pos.pressure = 0.5;
+        const auto begin = g_get_monotonic_time();
+
+        if (i % 7 == 6) {
+            // A curved eraser sweep through the ink the earlier strokes left
+            control->selectTool(TOOL_ERASER);
+            tools->setEraserType(ERASER_TYPE_DEFAULT);
+            pos.x = 80 * zoom;
+            pos.y = 120 * zoom;
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int step = 1; step <= 90; ++step) {
+                const double a = step * 0.07;
+                pos.x = (80 + step * 3.0) * zoom;
+                pos.y = (120 + 60 * std::sin(a) + step * 2.0) * zoom;
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            view->onButtonReleaseEvent(pos);
+        } else {
+            const bool highlight = i % 5 == 4;
+            control->selectTool(highlight ? TOOL_HIGHLIGHTER : TOOL_PEN);
+            tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+            pos.x = (60 + (i * 37) % 200) * zoom;
+            pos.y = (80 + (i * 53) % 300) * zoom;
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int point = 1; point <= 60; ++point) {
+                pos.x += (highlight ? 3.0 : 2.0) * zoom;
+                pos.y += (point % 5 - 2) * 1.5 * zoom;
+                pos.pressure = 0.3 + 0.5 * std::abs(std::sin(point * 0.2));
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            view->onButtonReleaseEvent(pos);
+            ++penStrokes;
+        }
+        if (i % 11 == 10) {
+            control->getUndoRedoHandler()->undo();
+            control->getUndoRedoHandler()->redo();
+        }
+        if (i % 15 == 14) {
+            auto* job = new AutosaveJob(control.get());
+            control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
+            job->unref();
+        }
+        for (int event = 0; event < 40 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        latencies.push_back(g_get_monotonic_time() - begin);
+    }
+    settle();
+
+    // Compare the end of the session with its beginning, in the order it happened
+    const size_t third = latencies.size() / 3;
+    auto p95 = [](std::vector<gint64> part) {
+        std::sort(part.begin(), part.end());
+        return part[(part.size() - 1) * 95 / 100];
+    };
+    const gint64 early = p95({latencies.begin(), latencies.begin() + static_cast<std::ptrdiff_t>(third)});
+    const gint64 late = p95({latencies.end() - static_cast<std::ptrdiff_t>(third), latencies.end()});
+    RecordProperty("heavy_iterations", iterations);
+    RecordProperty("heavy_early_p95_us", std::to_string(early));
+    RecordProperty("heavy_late_p95_us", std::to_string(late));
+    const gint64 slowest = *std::max_element(latencies.begin(), latencies.end());
+    RecordProperty("heavy_max_us", std::to_string(slowest));
+    EXPECT_LT(slowest, 5 * G_USEC_PER_SEC);
+    // Generous on purpose (a noisy CI machine), but a session that keeps getting slower fails it
+    EXPECT_LE(late, 4 * early + 50 * 1000) << "the session got slower the longer it ran";
+
+    for (auto metric: {utn::perf::Metric::PenUp, utn::perf::Metric::PenUpLockWait, utn::perf::Metric::RenderJob,
+                       utn::perf::Metric::Autosave, utn::perf::Metric::AutosaveLockHold,
+                       utn::perf::Metric::StudentFrame, utn::perf::Metric::EraseEvent,
+                       utn::perf::Metric::ErasuresPerStroke, utn::perf::Metric::DocLockWaitExclusive}) {
+        const auto stats = utn::perf::stats(metric);
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_n", static_cast<int>(stats.count));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_mean", std::to_string(stats.mean()));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_p95", std::to_string(stats.p95));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_max", std::to_string(stats.max));
+    }
+    // Merged eraser capsules keep a stroke that was swept many times cheap to draw and still saveable with its data
+    EXPECT_LE(utn::perf::stats(utn::perf::Metric::ErasuresPerStroke).max,
+              static_cast<double>(utn::eraser::MASKED_STROKE_MAX_ERASURES));
+    // The student window is throttled by its own cost: it may not take most of the session's UI time
+    const auto frames = utn::perf::stats(utn::perf::Metric::StudentFrame);
+    double sessionMs = 0;
+    for (gint64 latency: latencies) {
+        sessionMs += static_cast<double>(latency) / 1000.0;
+    }
+    RecordProperty("heavy_student_frame_share", std::to_string(frames.total / sessionMs));
+    EXPECT_LT(frames.total, 0.5 * sessionMs) << "Student View took most of the UI thread";
+    EXPECT_GT(penStrokes, 0U);
+#ifdef UTN_LOCK_AUDIT
+    EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore) << "nested Document lock acquisition on one thread";
+    RecordProperty("heavy_longest_lock_wait_ms", std::to_string(utn::lockaudit::longestWaitMs()));
+    RecordProperty("heavy_slow_lock_waits", static_cast<int>(utn::lockaudit::slowAcquisitions()));
+#endif
+
+    gtk_widget_destroy(studentWindow());
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+    utn::perf::setEnabled(false);
+    std::error_code ec;
+    fs::remove(fs::path(lesson).replace_filename(".soak-heavy-lesson.autosave.xopp"), ec);
 }
 
 namespace {

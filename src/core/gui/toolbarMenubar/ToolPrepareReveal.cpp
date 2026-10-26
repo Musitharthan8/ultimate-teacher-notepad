@@ -16,6 +16,7 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "RevealActions.h"
 #include "UtnWidgets.h"
 
 
@@ -45,24 +46,13 @@ auto ToolPrepareReveal::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 win->showToast(_("Writing on the answers layer. Choose Hide answers before students arrive."));
             }
         });
-    add(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"), [](Control* c) {
-        const size_t changed = c->setAnswersRevealed(false, true);
-        if (auto* win = c->getWindow()) {
-            win->showToast(changed ? _("Answers are hidden from students") : _("No answers are showing"));
-        }
-    });
-    add(_("Reveal answers on this page"), _("Show this page's hidden answers to the class"), [](Control* c) {
-        const size_t changed = c->setAnswersRevealed(true, false);
-        if (auto* win = c->getWindow()) {
-            win->showToast(changed ? _("Answers on this page are now showing") : _("No hidden answers on this page"));
-        }
-    });
-    add(_("Reveal all answers"), _("Show every hidden answer in the lesson"), [](Control* c) {
-        const size_t changed = c->setAnswersRevealed(true, true);
-        if (auto* win = c->getWindow()) {
-            win->showToast(changed ? _("All answers are now showing") : _("No hidden answers in this lesson"));
-        }
-    });
+    add(_("Hide answers"), _("Hide every answers layer in the whole lesson from students"),
+        [](Control* c) { utn::hideAnswersFromUi(c); });
+    add(_("Reveal answers on this page"), _("Show this page's hidden answers to the class"),
+        [](Control* c) { utn::revealAnswersFromUi(c, false); });
+    add(_("Reveal all answers"),
+        _("Show every hidden answer in the lesson. While the class is watching, press twice to confirm."),
+        [](Control* c) { utn::revealAnswersFromUi(c, true); });
 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it

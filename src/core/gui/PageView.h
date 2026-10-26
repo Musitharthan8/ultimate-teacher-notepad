@@ -182,6 +182,9 @@ public:  // event handler
     /// Remove temporary presentation strokes without changing document annotations.
     void clearTemporaryPresentationInk();
 
+    /// Where Spotlight/Curtain currently point on this page, in page coordinates (the page centre until first used)
+    void getPresentationPointer(double& x, double& y) const;
+
     void setGridCoordinates(xoj::util::Point<int> pos);
     xoj::util::Point<int> getGridCoordinates() const;
 

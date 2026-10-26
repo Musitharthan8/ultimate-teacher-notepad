@@ -15,6 +15,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 
 #include <cairo.h>
@@ -63,8 +64,17 @@ private:
 
     /// Recompute ghosting, the pill and menu sensitivity after any state change
     void updateState();
-    /// Schedule one redraw of the student window; safe from any thread
-    void requestRedraw();
+    /**
+     * Schedule one redraw of the student window; safe from any thread. Redraws are rate limited by their own cost,
+     * because a frame renders on the UI thread that also handles the stylus. @p urgent skips the wait: use it
+     * whenever what students may see has shrunk (answers hidden, Curtain on).
+     */
+    void requestRedraw(bool urgent = false);
+    /// Render the frame students see into liveFrame
+    void refreshLiveFrame();
+    bool frameNeedsResize(int width, int height) const;
+    /// True if which layers students can see on the current page differs from the last call. Never blocks.
+    bool studentAudienceChanged();
 
     void showTeacherBlankCover(bool show);
 
@@ -82,12 +92,19 @@ private:
 
     /// Last frame shown to students, kept while frozen
     cairo_surface_t* frozenFrame = nullptr;
+    /// The current live frame. The draw handler only copies it; refreshLiveFrame() is the only place that renders.
+    cairo_surface_t* liveFrame = nullptr;
+    std::atomic_bool frameDirty{true};
+    std::atomic<guint> nextRedrawDelayMs{40};
+    gint64 lastFrameEnd = 0;
+    uint64_t lastAudienceSignature = 0;
 
     // App-bar pill and its menu entries (the latest toolbar instance)
     GtkWidget* pill = nullptr;
     GtkWidget* pillLabel = nullptr;
     GtkWidget* freezeToggle = nullptr;
     GtkWidget* blankToggle = nullptr;
+    GtkWidget* ghostToggle = nullptr;
     GtkWidget* openButton = nullptr;
     GtkWidget* fullButton = nullptr;
     GtkWidget* closeButton = nullptr;

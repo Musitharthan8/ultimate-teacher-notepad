@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>     // for atomic_bool
 #include <cstddef>   // for size_t
 #include <memory>    // for unique_ptr
 #include <optional>  // for optional
@@ -236,6 +237,14 @@ public:
      */
     void setGhostHiddenAnswers(bool ghost);
     bool isGhostHiddenAnswers() const;
+
+    /**
+     * @brief Whether the class may be looking at what the teacher does right now (Student View live, or students
+     * watching a duplicated screen). Student View keeps it up to date; revealing every answer asks for a second press
+     * while it is true.
+     */
+    void setStudentsMayWatch(bool watching) { studentsMayWatch.store(watching); }
+    bool getStudentsMayWatch() const { return studentsMayWatch.load(); }
 
     /**
      * @brief UTN: listeners told whenever a page's drawing changes (anything that makes the teacher canvas redraw).
@@ -605,8 +614,10 @@ private:
 
     LayerController* layerController;
 
-    /// UTN: see setGhostHiddenAnswers
-    bool ghostHiddenAnswers = false;
+    /// UTN: see setGhostHiddenAnswers. Read by render worker threads, so atomic.
+    std::atomic_bool ghostHiddenAnswers{false};
+    /// UTN: see setStudentsMayWatch
+    std::atomic_bool studentsMayWatch{false};
 
     /// UTN: see addCanvasChangedListener
     std::mutex canvasListenersMutex;
