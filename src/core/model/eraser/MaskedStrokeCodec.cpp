@@ -107,16 +107,9 @@ bool matchesFallbackMatrix(const xoj::util::Matrix& a, const xoj::util::Matrix& 
            std::abs(a.yy-b.yy)<=epsilon && std::abs(a.shift.x-b.shift.x)<=epsilon && std::abs(a.shift.y-b.shift.y)<=epsilon;
 }
 
-std::optional<MaskedStrokeFallback> rasterizeMaskedStroke(const Stroke& stroke) {
-    const auto b = stroke.getBoundingBox();
-    if (!std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.width) || !std::isfinite(b.height) ||
-        b.width <= 0 || b.height <= 0) return std::nullopt;
-    constexpr double maxEdge = 8192, maxPixels = 16 * 1024 * 1024;
-    double scale = 4;
-    // Reserve enough room for rounding both dimensions up to whole pixels.
-    scale = std::min(scale, (maxEdge - 2) / b.width); scale = std::min(scale, (maxEdge - 2) / b.height);
-    scale = std::min(scale, std::sqrt((maxPixels - 4 * maxEdge) / (b.width * b.height)));
-    if (!std::isfinite(scale) || scale <= 0) return std::nullopt;
+namespace {
+std::optional<MaskedStrokeFallback> rasterizeAtScale(const Stroke& stroke, const xoj::util::Rectangle<double>& b,
+                                                     double scale) {
     const int width = std::max(1, static_cast<int>(std::ceil(b.width * scale)));
     const int height = std::max(1, static_cast<int>(std::ceil(b.height * scale)));
     auto* raw = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
@@ -127,5 +120,26 @@ std::optional<MaskedStrokeFallback> rasterizeMaskedStroke(const Stroke& stroke) 
     xoj::view::StrokeView(&stroke).draw(xoj::view::Context::createDefault(cr));
     cairo_destroy(cr); cairo_surface_flush(raw);
     return MaskedStrokeFallback{std::move(surface), {1/scale, 0, 0, 1/scale, {b.x, b.y}}};
+}
+}  // namespace
+
+std::optional<MaskedStrokeFallback> rasterizeMaskedStroke(const Stroke& stroke) {
+    const auto b = stroke.getBoundingBox();
+    if (!std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.width) || !std::isfinite(b.height) ||
+        b.width <= 0 || b.height <= 0) return std::nullopt;
+    constexpr double maxEdge = 8192, maxPixels = 16 * 1024 * 1024;
+    double scale = 4;
+    // Reserve enough room for rounding both dimensions up to whole pixels.
+    scale = std::min(scale, (maxEdge - 2) / b.width); scale = std::min(scale, (maxEdge - 2) / b.height);
+    scale = std::min(scale, std::sqrt((maxPixels - 4 * maxEdge) / (b.width * b.height)));
+    if (!std::isfinite(scale) || scale <= 0) return std::nullopt;
+    // A surface that cannot be allocated (memory pressure, huge stroke) is retried at a coarser resolution before the
+    // caller has to give up; a slightly softer fallback is far better than a failed save.
+    for (int attempt = 0; attempt < 4; ++attempt, scale /= 2) {
+        if (auto fallback = rasterizeAtScale(stroke, b, scale)) {
+            return fallback;
+        }
+    }
+    return std::nullopt;
 }
 }  // namespace utn::eraser

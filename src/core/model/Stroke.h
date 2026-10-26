@@ -214,8 +214,16 @@ public:
     void setErasable(ErasableStroke* erasable);
 
     const std::vector<utn::eraser::StrokeErasure>& getErasures() const { return erasures; }
-    void setErasures(std::vector<utn::eraser::StrokeErasure> value) { erasures = std::move(value); }
+    void setErasures(std::vector<utn::eraser::StrokeErasure> value) {
+        erasures = std::move(value);
+        erasureChain.clear();
+    }
     void addErasure(const utn::eraser::StrokeErasure& value);
+
+    /// How far, as a fraction of the eraser radius, a merged erasure capsule may stray from the pointer samples
+    static constexpr double ERASURE_MERGE_TOLERANCE = 0.02;
+    /// Samples merged into one capsule, bounding the cost of the merge test
+    static constexpr size_t ERASURE_MERGE_MAX_VERTICES = 256;
 
     StrokeCapStyle getStrokeCapStyle() const;
     void setStrokeCapStyle(const StrokeCapStyle capStyle);
@@ -245,6 +253,8 @@ private:
 
     ErasableStroke* erasable = nullptr;
     std::vector<utn::eraser::StrokeErasure> erasures;
+    /// Pointer samples the last erasure capsule stands for. Working state of addErasure; not saved, not copied.
+    std::vector<xoj::util::Point<double>> erasureChain;
 
     /**
      * Option to fill the shape:

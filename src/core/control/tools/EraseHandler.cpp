@@ -13,6 +13,7 @@
 #include "control/ToolEnums.h"            // for ERASER_TYPE_DELETE_STROKE
 #include "model/eraser/CircularEraser.h"  // for utn::eraser::circleHitsStroke
 #include "control/ToolHandler.h"          // for ToolHandler
+#include "control/UtnPerf.h"              // for utn::perf
 #include "gui/LegacyRedrawable.h"         // for Redrawable
 #include "model/Document.h"               // for Document
 #include "model/Element.h"                // for Element, ELEMENT_STROKE
@@ -183,6 +184,7 @@ EraseHandler::~EraseHandler() {
  * Handle eraser event: "Delete Stroke" and "Standard", Whiteout is not handled here
  */
 void EraseHandler::erase(double x, double y) {
+    utn::perf::ScopedTimer eraseTimer(utn::perf::Metric::EraseEvent);
     if (!std::isfinite(x) || !std::isfinite(y)) {
         previousPoint.reset();
         return;
@@ -350,7 +352,11 @@ void EraseHandler::eraseWithMask(Layer* layer, double startX, double startY, dou
         const auto original = originalDeletePositions.find(stroke);
         const auto originalPos = original == originalDeletePositions.end() ? layer->indexOf(stroke) : original->second;
         const auto box = stroke->getBoundingBox();
-        dirty = dirty.unite(Range(box));
+        // Only the part of the stroke inside this event's capsule can change. Repainting the whole bounding box made
+        // every pointer event rerender (and Student View redraw) the entire page-wide underline or circle it touched.
+        if (const auto touched = box.intersects(bounds)) {
+            dirty = dirty.unite(Range(*touched));
+        }
         {
             std::unique_lock<Document> lock(*doc);
             stroke = eraseUndoAction->beginMaskedEdit(layer, stroke, originalPos);
@@ -362,9 +368,12 @@ void EraseHandler::eraseWithMask(Layer* layer, double startX, double startY, dou
             for (double cx: {box.x, box.x + box.width}) for (double cy: {box.y, box.y + box.height}) {
                 covers = covers && utn::eraser::distancePointSegment({cx, cy}, a, b) <= radius;
             }
+            // Read before the stroke can be removed below
+            utn::perf::record(utn::perf::Metric::ErasuresPerStroke, static_cast<double>(stroke->getErasures().size()));
             if (covers) {
                 eraseUndoAction->removeEdited(stroke);
                 auto removed = layer->removeElement(stroke);
+                dirty = dirty.unite(Range(box));  // the whole stroke disappears
             }
         }
     }

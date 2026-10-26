@@ -25,6 +25,7 @@
 #include "filesystem.h"  // for path
 
 class XmlPointNode;
+class XmlDeferredStrokeNode;
 class ProgressListener;
 class AudioContent;
 class Document;
@@ -51,7 +52,17 @@ public:
     /// Update document information. Requires write access to the Document.
     void updateDocumentInfo(Document* doc);
 
+    /**
+     * Draws the raster fallbacks of partially erased strokes. prepareSave only snapshots those strokes so that the
+     * shared Document lock is not held for the drawing. saveTo calls this before it touches any output file, so it
+     * never needs the Document. Safe to call more than once.
+     */
+    void resolveDeferredStrokes();
+
     const std::string& getErrorMessage();
+
+    /// Problems that did not stop the save but changed what was written (see resolveDeferredStrokes)
+    const std::vector<std::string>& getWarnings() const { return warnings; }
 
     /**
      * UTN: who the written file is for. Teacher (the default) writes the complete private lesson, which is what the
@@ -89,6 +100,10 @@ protected:
     int attachBgId;
 
     std::string errorMessage;
+    std::vector<std::string> warnings;
+
+    /// Partially erased strokes still waiting for their raster fallback. Owned by the tree below `root`.
+    std::vector<XmlDeferredStrokeNode*> deferredStrokes;
 
     struct ImageInfo {
         BackgroundImage image;  ///< This is a wrapped shared pointer

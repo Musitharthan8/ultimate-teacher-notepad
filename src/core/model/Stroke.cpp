@@ -393,23 +393,47 @@ void Stroke::scale(double x0, double y0, double fx, double fy, double rotation, 
 }
 
 void Stroke::addErasure(const utn::eraser::StrokeErasure& value) {
-    // Merge contiguous collinear pointer samples, keeping long straight sweeps
-    // compact without changing the swept region or storing zoom-dependent pixels.
+    // Merge contiguous pointer samples into one capsule while every sample stays within ERASURE_MERGE_TOLERANCE of
+    // the eraser radius of the merged capsule's axis. A hand sweep is a curve, so exact collinearity (the old rule)
+    // almost never held and every pointer event added a capsule. Each capsule costs a fill on every redraw of the
+    // stroke and counts towards the saved-file limit (MASKED_STROKE_MAX_ERASURES), so a long scribble used to make
+    // the stroke ever slower to draw and finally uneditable after saving. The erased region changes by at most
+    // ERASURE_MERGE_TOLERANCE * radius, which is far below a pixel for a usable eraser.
     if (!erasures.empty()) {
         auto& last = erasures.back();
         const auto& m = last.transform;
         const auto& n = value.transform;
         const bool identity = m.xx == 1 && m.yy == 1 && m.xy == 0 && m.yx == 0 && m.shift.x == 0 && m.shift.y == 0 &&
                               n.xx == 1 && n.yy == 1 && n.xy == 0 && n.yx == 0 && n.shift.x == 0 && n.shift.y == 0;
-        const double ax = last.end.x - last.start.x, ay = last.end.y - last.start.y;
-        const double bx = value.end.x - value.start.x, by = value.end.y - value.start.y;
-        if (identity && last.radius == value.radius && last.end == value.start &&
-            std::abs(ax * by - ay * bx) <= 1e-12 && ax * bx + ay * by >= 0) {
-            last.end = value.end;
-            return;
+        if (identity && last.radius == value.radius && last.end == value.start) {
+            // The vertices of the polyline that the last capsule replaced. Rebuilt when it does not belong to it.
+            if (erasureChain.size() < 2 || erasureChain.front() != last.start || erasureChain.back() != last.end) {
+                erasureChain = {last.start, last.end};
+            }
+            if (erasureChain.size() < ERASURE_MERGE_MAX_VERTICES) {
+                const double tolerance = ERASURE_MERGE_TOLERANCE * last.radius;
+                const utn::eraser::Vec a{last.start.x, last.start.y};
+                const utn::eraser::Vec c{value.end.x, value.end.y};
+                bool withinTolerance = true;
+                for (const auto& vertex: erasureChain) {
+                    if (utn::eraser::distancePointSegment({vertex.x, vertex.y}, a, c) > tolerance) {
+                        withinTolerance = false;
+                        break;
+                    }
+                }
+                // Not a reversal either: the capsule would still cover it, but a U-turn is never "straight on"
+                const double ax = last.end.x - last.start.x, ay = last.end.y - last.start.y;
+                const double bx = value.end.x - value.start.x, by = value.end.y - value.start.y;
+                if (withinTolerance && ax * bx + ay * by >= 0) {
+                    last.end = value.end;
+                    erasureChain.push_back(value.end);
+                    return;
+                }
+            }
         }
     }
     erasures.push_back(value);
+    erasureChain = {value.start, value.end};
 }
 
 auto Stroke::hasPressure() const -> bool {

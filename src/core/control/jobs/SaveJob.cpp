@@ -111,6 +111,15 @@ auto SaveJob::save() -> bool {
     h.prepareSave(doc, target);
     doc->unlock_shared();
 
+    if (!h.getErrorMessage().empty()) {
+        // Nothing has been written yet. Stop before the backup step moves the previous good file out of the way.
+        this->lastError = FS(_F("Save file error: {1}") % h.getErrorMessage());
+        if (!control->getWindow()) {
+            g_error("%s", this->lastError.c_str());
+        }
+        return false;
+    }
+
     auto const createBackup = doc->shouldCreateBackupOnSave();
 
     if (createBackup) {

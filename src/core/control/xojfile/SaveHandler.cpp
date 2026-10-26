@@ -1,6 +1,7 @@
 #include "SaveHandler.h"
 
 #include <cinttypes>   // for PRIx32
+#include <cmath>       // for isfinite
 #include <cstdint>     // for uint32_t
 #include <cstdio>      // for sprintf, size_t
 #include <iomanip>
@@ -13,6 +14,7 @@
 #include <glib.h>                   // for g_free, g_strdup_printf
 
 #include "control/pagetype/PageTypeHandler.h"  // for PageTypeHandler
+#include "control/xml/XmlDeferredStrokeNode.h"  // for XmlDeferredStrokeNode
 #include "control/xml/XmlImageNode.h"          // for XmlImageNode
 #include "control/xml/XmlNode.h"               // for XmlNode
 #include "control/xml/XmlPointNode.h"          // for XmlPointNode
@@ -57,8 +59,89 @@ SaveHandler::SaveHandler() {
     this->attachBgId = 1;
 }
 
+namespace {
+/// The image that stands in for a partially erased stroke: its clipped raster and, for native saves, the editable data
+std::unique_ptr<XmlImageNode> buildMaskedImageNode(const Stroke& s, const utn::eraser::MaskedStrokeFallback& fallback,
+                                                   ExportAudience audience) {
+    // Editable metadata contains the original unerased ink and its audio path. Only native/private saves may preserve
+    // it; a student copy receives the clipped raster pixels alone.
+    const auto metadata = audience == ExportAudience::Teacher ? utn::eraser::encodeMaskedStroke(s, fallback.matrix) :
+                                                                std::string{};
+    // new, not make_unique: the tag name is a consteval StaticStringView and cannot be forwarded through make_unique
+    auto image = std::unique_ptr<XmlImageNode>(new XmlImageNode(TAG_NAMES[TagType::IMAGE]));
+    image->setImage(fallback.surface.get());
+    const auto& m = fallback.matrix;
+    const int width = cairo_image_surface_get_width(fallback.surface.get());
+    const int height = cairo_image_surface_get_height(fallback.surface.get());
+    const auto precise = [](double value) {
+        std::ostringstream out;
+        out.imbue(std::locale::classic());
+        out << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+        return out.str();
+    };
+    image->setAttrib(xoj::xml_attrs::LEFT_POS_STR, precise(m.shift.x));
+    image->setAttrib(xoj::xml_attrs::TOP_POS_STR, precise(m.shift.y));
+    image->setAttrib(xoj::xml_attrs::RIGHT_POS_STR, precise(m.shift.x + width * m.xx));
+    image->setAttrib(xoj::xml_attrs::BOTTOM_POS_STR, precise(m.shift.y + height * m.yy));
+    image->setAttrib(xoj::xml_attrs::NATURAL_SIZE_STR, std::to_string(width) + " " + std::to_string(height));
+    // Oversized editable metadata must never prevent saving the lesson. Keep the clipped image when codec limits are
+    // exceeded.
+    if (!metadata.empty()) {
+        image->setAttrib(u8"utn-stroke-v1", metadata);
+    } else if (audience == ExportAudience::Teacher) {
+        g_warning("Saving complex erased stroke as a clipped image (editable metadata limit exceeded)");
+    }
+    return image;
+}
+}  // namespace
+
+void SaveHandler::resolveDeferredStrokes() {
+    for (XmlDeferredStrokeNode* node: deferredStrokes) {
+        if (node->hasBeenResolved()) {
+            continue;
+        }
+        const Stroke& s = node->getSnapshot();
+        if (auto fallback = utn::eraser::rasterizeMaskedStroke(s)) {
+            node->setResolved(buildMaskedImageNode(s, *fallback, exportAudience));
+            continue;
+        }
+        // A save must never silently drop an annotation, and one stroke that cannot be drawn must not make every
+        // later save and autosave fail either.
+        if (exportAudience == ExportAudience::Student) {
+            // The erased part may have been private, so it is never written back.
+            warnings.emplace_back("A partially erased stroke could not be rendered and was left out of the student copy.");
+            g_warning("%s", warnings.back().c_str());
+            node->setResolved(nullptr, true);
+            continue;
+        }
+        // Rendering fails for non-finite coordinates (damaged data) or when no surface can be allocated at all. Keep
+        // every usable point; "nan" in the file would make the whole lesson unreadable.
+        auto restored = std::make_unique<Stroke>();
+        restored->applyStyleFrom(&s);
+        for (const Point& p: s.getPointVector()) {
+            if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) {
+                restored->addPoint(p);
+            }
+        }
+        if (restored->getPointCount() < 2) {
+            warnings.emplace_back("A damaged partially erased stroke had no usable points and was left out.");
+            g_warning("%s", warnings.back().c_str());
+            node->setResolved(nullptr, true);
+            continue;
+        }
+        warnings.emplace_back("A partially erased stroke could not be rendered. It was saved with its erased part restored.");
+        g_warning("%s", warnings.back().c_str());
+        auto* point = new XmlPointNode(TAG_NAMES[TagType::STROKE]);
+        visitStroke(point, restored.get());
+        node->setResolved(std::unique_ptr<XmlNode>(point));
+    }
+    deferredStrokes.clear();
+}
+
 void SaveHandler::prepareSave(const Document* doc, const fs::path& target) {
     errorMessage.clear();
+    warnings.clear();
+    deferredStrokes.clear();
     if (this->root) {
         // cleanup old data
         backgroundImages.clear();
@@ -225,37 +308,11 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
         if (e->getType() == ELEMENT_STROKE) {
             auto* s = dynamic_cast<const Stroke*>(e);
             if (!s->getErasures().empty()) {
-                auto fallback = utn::eraser::rasterizeMaskedStroke(*s);
-                // Editable metadata contains the original unerased ink and its audio path. Only native/private saves
-                // may preserve it; a student copy receives the clipped raster pixels alone.
-                const auto metadata = fallback && this->exportAudience == ExportAudience::Teacher ?
-                                              utn::eraser::encodeMaskedStroke(*s, fallback->matrix) : std::string{};
-                if (!fallback) {
-                    errorMessage = "Could not safely save a partially erased stroke.";
-                    continue;
-                }
-                auto* image = new XmlImageNode(TAG_NAMES[TagType::IMAGE]);
-                image->setImage(fallback->surface.get());
-                const auto& m = fallback->matrix;
-                const int width = cairo_image_surface_get_width(fallback->surface.get());
-                const int height = cairo_image_surface_get_height(fallback->surface.get());
-                const auto precise = [](double value) {
-                    std::ostringstream out;
-                    out.imbue(std::locale::classic());
-                    out << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
-                    return out.str();
-                };
-                image->setAttrib(xoj::xml_attrs::LEFT_POS_STR, precise(m.shift.x));
-                image->setAttrib(xoj::xml_attrs::TOP_POS_STR, precise(m.shift.y));
-                image->setAttrib(xoj::xml_attrs::RIGHT_POS_STR, precise(m.shift.x + width * m.xx));
-                image->setAttrib(xoj::xml_attrs::BOTTOM_POS_STR, precise(m.shift.y + height * m.yy));
-                image->setAttrib(xoj::xml_attrs::NATURAL_SIZE_STR, std::to_string(width) + " " + std::to_string(height));
-                // Oversized editable metadata must never prevent saving the
-                // lesson. Keep the clipped image when codec limits are exceeded.
-                if (!metadata.empty()) image->setAttrib(u8"utn-stroke-v1", metadata);
-                else if (this->exportAudience == ExportAudience::Teacher)
-                    g_warning("Saving complex erased stroke as a clipped image (editable metadata limit exceeded)");
-                layer->addChild(image);
+                // This runs under the shared Document lock, which blocks pen-up. Only snapshot the stroke here; the
+                // raster fallback is drawn by resolveDeferredStrokes() after the lock has been released.
+                auto* deferred = new XmlDeferredStrokeNode(TAG_NAMES[TagType::IMAGE], s->cloneStroke());
+                layer->addChild(deferred);
+                deferredStrokes.push_back(deferred);
                 continue;
             }
             auto* stroke = new XmlPointNode(TAG_NAMES[TagType::STROKE]);
@@ -506,6 +563,7 @@ void SaveHandler::writeBackgroundName(XmlNode* background, ConstPageRef p) {
 
 void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
     if (!errorMessage.empty()) return;
+    resolveDeferredStrokes();  // before the output file is created
     GzOutputStream out(filepath);
 
     if (!out.getLastError().empty()) {
@@ -524,6 +582,7 @@ void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
 
 void SaveHandler::saveTo(OutputStream* out, const fs::path& filepath, ProgressListener* listener) {
     if (!errorMessage.empty()) return;
+    resolveDeferredStrokes();
     out->write("<?xml version=\"1.0\" standalone=\"no\"?>\n");
     root->writeOut(out, listener);
 
