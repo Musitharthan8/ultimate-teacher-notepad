@@ -174,6 +174,19 @@ unsigned studentPixel(GtkWidget* student, double pageX, double pageY) {
     return pixel;
 }
 
+/**
+ * The fixture builds Control and MainWindow without starting the job thread (XournalMain does that in the real
+ * application), so queued render and autosave jobs never ran in these tests. The soak tests start it, once: Scheduler
+ * cannot be restarted and its destructor stops it.
+ */
+void ensureSchedulerRunning(Control* control) {
+    static bool started = false;
+    if (!started) {
+        control->getScheduler()->start();
+        started = true;
+    }
+}
+
 void addMarker(Layer* layer, double y) {
     auto ink = std::make_unique<Stroke>();
     ink->setWidth(12);
@@ -1299,6 +1312,22 @@ TEST_F(ClassroomWorkflow, revealAllNeedsASecondPressOnlyWhileTheClassMayWatchAnd
     control->setStudentsMayWatch(false);
 }
 
+// The M2 field test: a "Drag the divider to resize settings" tooltip covered the worksheet while annotating. The
+// divider must stay draggable (and keyboard operable) without any tooltip on the panes around the worksheet.
+TEST_F(ClassroomWorkflow, noPaneAroundTheWorksheetCarriesATooltip) {
+    window->show(nullptr);
+    settle();
+    for (const char* name: {"utnInspectorPaned", "mainContentContainer", "panelMainContents"}) {
+        GtkWidget* pane = window->get(name);
+        ASSERT_NE(pane, nullptr) << name;
+        EXPECT_FALSE(gtk_widget_get_has_tooltip(pane)) << name << " would show a tooltip over the worksheet";
+        EXPECT_EQ(gtk_widget_get_tooltip_text(pane), nullptr) << name;
+    }
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    EXPECT_FALSE(gtk_widget_get_has_tooltip(canvas)) << "the drawing area must never show a tooltip";
+    EXPECT_TRUE(gtk_widget_get_can_focus(window->get("utnInspectorPaned"))) << "the divider stays keyboard operable";
+}
+
 // Spotlight and Curtain were drawn on the teacher's canvas only, so a teacher who covered the page still projected it.
 TEST_F(ClassroomWorkflow, spotlightAndCurtainAlsoCoverTheStudentViewFrame) {
     window->show(nullptr);
@@ -1362,6 +1391,7 @@ TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocument
     }
     window->show(nullptr);
     settle();
+    ensureSchedulerRunning(control.get());
 #ifdef UTN_LOCK_AUDIT
     const unsigned nestedBefore = utn::lockaudit::nestedViolations();
 #endif
@@ -1446,6 +1476,7 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     }
     window->show(nullptr);
     settle();
+    ensureSchedulerRunning(control.get());
 
     utn::perf::setEnabled(true);
     utn::perf::reset();
@@ -1523,7 +1554,10 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
         }
         latencies.push_back(g_get_monotonic_time() - begin);
     }
-    settle();
+    // Let the queued renders and the last autosave finish before the numbers are read
+    for (int i = 0; i < 80; ++i) {
+        settle();
+    }
 
     // Compare the end of the session with its beginning, in the order it happened
     const size_t third = latencies.size() / 3;
@@ -1540,11 +1574,12 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     RecordProperty("heavy_max_us", std::to_string(slowest));
     EXPECT_LT(slowest, 5 * G_USEC_PER_SEC);
     // Generous on purpose (a noisy CI machine), but a session that keeps getting slower fails it
-    EXPECT_LE(late, 4 * early + 50 * 1000) << "the session got slower the longer it ran";
+    EXPECT_LE(late, 2 * early + 50 * 1000) << "the session got slower the longer it ran";
 
     for (auto metric: {utn::perf::Metric::PenUp, utn::perf::Metric::PenUpLockWait, utn::perf::Metric::RenderJob,
                        utn::perf::Metric::Autosave, utn::perf::Metric::AutosaveLockHold,
-                       utn::perf::Metric::StudentFrame, utn::perf::Metric::EraseEvent,
+                       utn::perf::Metric::StudentFrame, utn::perf::Metric::StudentRedrawRequests,
+                       utn::perf::Metric::StudentRedrawUrgent, utn::perf::Metric::EraseEvent,
                        utn::perf::Metric::ErasuresPerStroke, utn::perf::Metric::DocLockWaitExclusive}) {
         const auto stats = utn::perf::stats(metric);
         RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_n", static_cast<int>(stats.count));
@@ -1562,7 +1597,7 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
         sessionMs += static_cast<double>(latency) / 1000.0;
     }
     RecordProperty("heavy_student_frame_share", std::to_string(frames.total / sessionMs));
-    EXPECT_LT(frames.total, 0.5 * sessionMs) << "Student View took most of the UI thread";
+    EXPECT_LT(frames.total, 0.2 * sessionMs) << "Student View took a large share of the UI thread";
     EXPECT_GT(penStrokes, 0U);
 #ifdef UTN_LOCK_AUDIT
     EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore) << "nested Document lock acquisition on one thread";

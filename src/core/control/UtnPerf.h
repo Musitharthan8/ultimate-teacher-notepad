@@ -25,6 +25,8 @@ enum class Metric : unsigned {
     Autosave,            ///< AutosaveJob::run, whole job (ms)
     AutosaveLockHold,    ///< time AutosaveJob held the shared Document lock (ms)
     StudentFrame,        ///< one Student View frame render on the UI thread (ms)
+    StudentRedrawRequests,  ///< value 1 per ToolStudentView::requestRedraw call
+    StudentRedrawUrgent,    ///< value 1 per request that skipped the throttle
     EraseEvent,          ///< EraseHandler::erase for one pointer sample (ms)
     ErasuresPerStroke,   ///< value, not ms: erasure capsules on a stroke after an erase event
     Recognizer,          ///< ShapeRecognizer::recognizePatterns at pen-up (ms)

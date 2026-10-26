@@ -61,6 +61,8 @@ bool isPageSized(const xoj::util::Rectangle<double>& box, double pageWidth, doub
 
 /// Pointer samples per eraser radius along a swept path (see EraseHandler::erase)
 constexpr double SAMPLES_PER_RADIUS = 4.0;
+/// How far, as a fraction of the radius, a new sweep may stick out of earlier erasures and still count as erased already
+constexpr double REDUNDANT_PASS_TOLERANCE = 0.05;
 bool alreadyErased(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b, double radius);
 
 bool maskedInkTouchesDisc(const Stroke& stroke, utn::eraser::Vec centre, double radius) {
@@ -155,9 +157,14 @@ bool alreadyErased(const Stroke& stroke, utn::eraser::Vec a, utn::eraser::Vec b,
         const double sum = inverse.xx * inverse.xx + inverse.xy * inverse.xy + inverse.yx * inverse.yx + inverse.yy * inverse.yy;
         const double inverseDet = 1 / det;
         const double localRadius = radius * std::sqrt((sum + std::sqrt(std::max(0.0, sum * sum - 4 * inverseDet * inverseDet))) / 2);
-        if (e.radius >= localRadius &&
-            utn::eraser::distancePointSegment({localA.x, localA.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius &&
-            utn::eraser::distancePointSegment({localB.x, localB.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius) return true;
+        // Merged capsules (Stroke::addErasure) follow the pointer samples only to within ERASURE_MERGE_TOLERANCE of the
+        // radius, and a second pass over the same ink is never pixel exact either, so it lands near, not on, an old
+        // capsule's axis. Without slack here a repeated pass is never recognised as already erased and every scrub back
+        // and forth adds capsules that cost a fill on each redraw. 5% of the radius is under a pixel for any usable eraser.
+        const double slack = REDUNDANT_PASS_TOLERANCE * localRadius;
+        if (e.radius + slack >= localRadius &&
+            utn::eraser::distancePointSegment({localA.x, localA.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius + slack &&
+            utn::eraser::distancePointSegment({localB.x, localB.y}, {e.start.x, e.start.y}, {e.end.x, e.end.y}) <= e.radius - localRadius + slack) return true;
     }
     return false;
 }

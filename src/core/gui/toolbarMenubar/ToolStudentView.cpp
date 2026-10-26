@@ -316,6 +316,10 @@ void ToolStudentView::updateTeacherOutline(State state) {
 }
 
 void ToolStudentView::requestRedraw(bool urgent) {
+    utn::perf::record(utn::perf::Metric::StudentRedrawRequests, 1);
+    if (urgent) {
+        utn::perf::record(utn::perf::Metric::StudentRedrawUrgent, 1);
+    }
     frameDirty = true;
     if (redrawPending.exchange(true)) {
         if (!urgent) {
@@ -385,7 +389,9 @@ bool ToolStudentView::studentAudienceChanged() {
     // Never block here: this runs from document notifications, some of which are sent while the Document is locked
     auto* doc = control->getDocument();
     if (!doc->try_lock_shared()) {
-        return true;  // cannot tell, so treat it as urgent
+        // Cannot tell right now. Not urgent: while the teacher writes, the lock is often busy, and every busy moment
+        // used to bypass the redraw throttle. Operations that shrink the audience notify after releasing the lock.
+        return false;
     }
     uint64_t signature = 1469598103934665603ULL;
     // doc->getPage, not Control::getCurrentPage(): that takes the Document lock again, and the lock is not recursive
@@ -395,7 +401,8 @@ bool ToolStudentView::studentAudienceChanged() {
             signature = (signature ^ (utn::visibleToStudents(*layer) ? 2U : 1U)) * 1099511628211ULL;
             signature = (signature ^ ++index) * 1099511628211ULL;
         }
-        signature = (signature ^ reinterpret_cast<uintptr_t>(page.get())) * 1099511628211ULL;
+        // Not the page itself: moving to another page is announced like any change (shown at once after a quiet
+        // spell, rate limited in a burst), only a change in who may see what skips the wait.
     }
     doc->unlock_shared();
     const bool changed = signature != lastAudienceSignature;

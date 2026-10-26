@@ -100,6 +100,8 @@ const char* name(Metric metric) {
         case Metric::Autosave: return "autosave_ms";
         case Metric::AutosaveLockHold: return "autosave_lock_hold_ms";
         case Metric::StudentFrame: return "student_frame_ms";
+        case Metric::StudentRedrawRequests: return "student_redraw_requests";
+        case Metric::StudentRedrawUrgent: return "student_redraw_urgent";
         case Metric::EraseEvent: return "erase_event_ms";
         case Metric::ErasuresPerStroke: return "erasures_per_stroke";
         case Metric::Recognizer: return "recognizer_ms";
