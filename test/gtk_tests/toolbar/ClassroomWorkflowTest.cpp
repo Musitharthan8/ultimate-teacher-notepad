@@ -1312,6 +1312,37 @@ TEST_F(ClassroomWorkflow, revealAllNeedsASecondPressOnlyWhileTheClassMayWatchAnd
     control->setStudentsMayWatch(false);
 }
 
+// Hidden answers shown faintly on the teacher canvas are a leak when that window is screen-shared or recorded, so the
+// teacher has to ask for them. Off by default; the choice is remembered; with one display it never applies.
+TEST_F(ClassroomWorkflow, ghostedHiddenAnswersAreOptInAndRememberedAndNeverShownOnASingleDisplay) {
+    window->show(nullptr);
+    control->getSettings()->getCustomElement("utn").setBool("ghostHiddenAnswers", false);
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto* toggle = buttonNamed(menu, "Show hidden answers faintly to me");
+    ASSERT_NE(toggle, nullptr);
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle))) << "off until the teacher asks";
+    EXPECT_FALSE(control->isGhostHiddenAnswers());
+
+    gtk_button_clicked(GTK_BUTTON(toggle));
+    bool wanted = false;
+    control->getSettings()->getCustomElement("utn").getBool("ghostHiddenAnswers", wanted);
+    EXPECT_TRUE(wanted) << "the choice is stored";
+    // The class watches the same display (or there is only one), so nothing may be ghosted, whatever was asked
+    EXPECT_FALSE(control->isGhostHiddenAnswers());
+
+    gtk_button_clicked(GTK_BUTTON(toggle));
+    control->getSettings()->getCustomElement("utn").getBool("ghostHiddenAnswers", wanted);
+    EXPECT_FALSE(wanted);
+
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
 // The M2 field test: a "Drag the divider to resize settings" tooltip covered the worksheet while annotating. The
 // divider must stay draggable (and keyboard operable) without any tooltip on the panes around the worksheet.
 TEST_F(ClassroomWorkflow, noPaneAroundTheWorksheetCarriesATooltip) {
