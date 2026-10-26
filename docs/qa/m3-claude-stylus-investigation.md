@@ -1,5 +1,11 @@
 # Claude stylus lag/freeze investigation, batch 1
 
+> **Correction (stability sprint, see `m3-claude-stability-sprint.md`).** The soak below did not run any render or autosave
+> job: the GTK fixture never starts the job scheduler, so "0 nested, 0 slow" described the main thread only. With the
+> scheduler running, the reviewed candidate does freeze: autosave rasterised erased strokes under the shared Document lock
+> and pen-up waited up to 2.7 s (a 5 s iteration) in a 2400-stroke session. That is fixed on
+> `feature/utn-claude-stability-oct31`; hardware confirmation is still outstanding.
+
 **Verdict: the release blocker stays OPEN.** Nothing here reproduces the field hang and nothing here is hardware evidence.
 
 ## What was established (measured on this machine, MSYS2 mingw64, gcc 16.2, Debug)
