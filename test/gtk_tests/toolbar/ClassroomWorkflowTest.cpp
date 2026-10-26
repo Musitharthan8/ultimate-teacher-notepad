@@ -758,6 +758,7 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
         std::vector<gint64> latencies;
         std::vector<gint64> releaseLatencies;
         latencies.reserve(static_cast<size_t>(strokes));
+        size_t inputPointCount = 0;
         for (int stroke = 0; stroke < strokes; ++stroke) {
             PositionInputData pos{};
             pos.pressure = 0.7;
@@ -765,11 +766,13 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
             pos.y = (100 + stroke % 240) * view->getZoom();
             const auto begin = g_get_monotonic_time();
             ASSERT_TRUE(view->onButtonPressEvent(pos));
+            ++inputPointCount;
             for (int point = 1; point <= 16; ++point) {
                 pos.x += 3 * view->getZoom();
                 pos.y += (point % 2 ? 1 : -1) * view->getZoom();
                 pos.timestamp += 8;
                 view->onMotionNotifyEvent(pos);
+                ++inputPointCount;
             }
             const auto releaseBegin = g_get_monotonic_time();
             view->onButtonReleaseEvent(pos);
@@ -791,6 +794,9 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
         if (requested) {
             std::sort(releaseLatencies.begin(), releaseLatencies.end());
             const std::string prefix = highlight ? "highlight_release" : "pen_release";
+            const std::string toolPrefix = highlight ? "highlight_" : "pen_";
+            RecordProperty(toolPrefix + "stroke_count", strokes);
+            RecordProperty(toolPrefix + "input_point_count", std::to_string(inputPointCount));
             RecordProperty(prefix + "_p99_us",
                            std::to_string(releaseLatencies[(releaseLatencies.size() - 1) * 99 / 100]));
             RecordProperty(prefix + "_max_us", std::to_string(releaseLatencies.back()));
