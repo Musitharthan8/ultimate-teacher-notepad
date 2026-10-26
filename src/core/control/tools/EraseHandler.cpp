@@ -482,12 +482,18 @@ void EraseHandler::finalize() {
     previousPoint.reset();
     originalDeletePositions.clear();
     if (this->eraseUndoAction) {
+        bool restructured = false;
         {
             std::unique_lock<Document> lock(*doc);
-            this->eraseUndoAction->finalize();
+            restructured = this->eraseUndoAction->finalize();
         }
         this->eraseUndoAction = nullptr;
-        this->page->firePageChanged();
+        // Every pointer event already repainted its own area. Rendering the whole page again at the end of each gesture
+        // held the shared Document lock for a full page (0.65 s on a dense page in the stress test) just as the next
+        // stroke needed the exclusive lock. Only a gesture that replaced elements needs it.
+        if (restructured) {
+            this->page->firePageChanged();
+        }
     } else if (this->eraseDeleteUndoAction) {
         this->eraseDeleteUndoAction = nullptr;
     }

@@ -38,7 +38,9 @@ public:
     void addEdited(Layer* layer, Stroke* element, Element::Index pos);
     [[maybe_unused]] void removeEdited(Stroke* element);
 
-    void finalize();
+    /// @return whether elements were replaced (the legacy ErasableStroke path). Masked edits change nothing visible
+    /// here, so the caller need not repaint the page.
+    bool finalize();
 
     std::string getText() override;
 

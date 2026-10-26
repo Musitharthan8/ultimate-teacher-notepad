@@ -47,7 +47,8 @@ void EraseUndoAction::removeEdited(Stroke* element) {
     }
 }
 
-void EraseUndoAction::finalize() {
+bool EraseUndoAction::finalize() {
+    bool restructured = false;
     for (auto const& entry: original) {
         if (!entry.element->getErasable()) {
             // Masked edits already own the original and retain one editable
@@ -59,6 +60,7 @@ void EraseUndoAction::finalize() {
             continue;
         } else {
             // Remove the original and add the copy
+            restructured = true;
             auto [own, pos] = entry.layer->removeElement(entry.element);
             entry.elementOwn = std::move(own);
 
@@ -86,6 +88,7 @@ void EraseUndoAction::finalize() {
         if (pos != Element::InvalidIndex) finalEdited.emplace(entry.layer, entry.element, pos);
     }
     edited = std::move(finalEdited);
+    return restructured;
 }
 
 auto EraseUndoAction::getText() -> std::string { return _("Erase stroke"); }
