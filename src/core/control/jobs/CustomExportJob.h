@@ -49,7 +49,7 @@ protected:
     void exportGraphics();
 
 
-private:
+protected:  // measurement build: lets the shared test configure the job
     /**
      * The range to export
      */

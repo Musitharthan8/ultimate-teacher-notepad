@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <mutex>
 #include <sstream>
@@ -16,7 +17,9 @@
 
 namespace utn::perf {
 namespace {
-constexpr size_t RING = 512;
+// Most recent samples kept for the window statistics. A session of tens of thousands of events fits whole, so for it
+// the all-time and window numbers are the same population; beyond that they differ and are reported separately.
+constexpr size_t RING = 65536;
 constexpr size_t METRICS = static_cast<size_t>(Metric::COUNT);
 
 struct Slot {
@@ -64,6 +67,9 @@ void record(Metric metric, double value) {
     }
     Slot& slot = slots[static_cast<size_t>(metric)];
     std::lock_guard lock(slot.mutex);
+    if (slot.stats.count == 0) {
+        slot.stats.first = value;
+    }
     slot.stats.count++;
     slot.stats.total += value;
     slot.stats.max = std::max(slot.stats.max, value);
@@ -77,6 +83,13 @@ Stats stats(Metric metric) {
     Slot& slot = slots[static_cast<size_t>(metric)];
     std::lock_guard lock(slot.mutex);
     Stats copy = slot.stats;
+    copy.windowCount = slot.filled;
+    double windowTotal = 0;
+    for (size_t i = 0; i < slot.filled; ++i) {
+        windowTotal += slot.ring[i];
+        copy.windowMax = std::max(copy.windowMax, slot.ring[i]);
+    }
+    copy.windowMean = slot.filled ? windowTotal / static_cast<double>(slot.filled) : 0.0;
     copy.p95 = percentile95(slot);
     return copy;
 }
@@ -100,6 +113,8 @@ const char* name(Metric metric) {
         case Metric::Autosave: return "autosave_ms";
         case Metric::AutosaveLockHold: return "autosave_lock_hold_ms";
         case Metric::StudentFrame: return "student_frame_ms";
+        case Metric::StudentRedrawRequests: return "student_redraw_requests";
+        case Metric::StudentRedrawUrgent: return "student_redraw_urgent";
         case Metric::EraseEvent: return "erase_event_ms";
         case Metric::ErasuresPerStroke: return "erasures_per_stroke";
         case Metric::Recognizer: return "recognizer_ms";
@@ -122,8 +137,9 @@ std::string report() {
         if (s.count == 0) {
             continue;
         }
-        out << "  " << name(metric) << ": n=" << s.count << " mean=" << s.mean() << " p95=" << s.p95 << " max=" << s.max
-            << " last=" << s.last << '\n';
+        out << "  " << name(metric) << ": all n=" << s.count << " mean=" << s.mean() << " max=" << s.max << " | last "
+            << s.windowCount << " samples: mean=" << s.windowMean << " p95=" << s.p95 << " max=" << s.windowMax
+            << " | first=" << s.first << " last=" << s.last << '\n';
     }
     return out.str();
 }
@@ -169,29 +185,80 @@ void sampleProcess() {
 
 namespace {
 constexpr guint HEARTBEAT_MS = 20;
+constexpr gint64 WATCHDOG_STALL_US = 2 * G_USEC_PER_SEC;
 std::atomic<bool> heartbeatRunning{false};
-gint64 lastBeat = 0;
+std::atomic<bool> shuttingDown{false};
+std::atomic<gint64> lastBeat{0};
 gint64 lastSample = 0;
 gint64 lastReport = 0;
 
+/// Appends to UTN_PERF_FILE, or utn-perf.log in the temp folder. A hung application cannot log from its main thread,
+/// so everything the watchdog thread learns goes to a file that survives the hang.
+void appendToLog(const std::string& text) {
+    const char* configured = std::getenv("UTN_PERF_FILE");
+    gchar* fallback = g_build_filename(g_get_tmp_dir(), "utn-perf.log", nullptr);
+    FILE* file = std::fopen(configured && *configured ? configured : fallback, "a");
+    g_free(fallback);
+    if (!file) {
+        return;
+    }
+    GDateTime* now = g_date_time_new_now_local();
+    gchar* stamp = g_date_time_format(now, "%Y-%m-%d %H:%M:%S");
+    std::fprintf(file, "[%s] %s\n", stamp, text.c_str());
+    g_free(stamp);
+    g_date_time_unref(now);
+    std::fclose(file);
+}
+
 gboolean beat(gpointer) {
     const gint64 now = g_get_monotonic_time();
-    if (lastBeat != 0) {
-        const double late = static_cast<double>(now - lastBeat) / 1000.0 - HEARTBEAT_MS;
+    const gint64 previous = lastBeat.exchange(now);
+    if (previous != 0) {
+        const double late = static_cast<double>(now - previous) / 1000.0 - HEARTBEAT_MS;
         if (late > 8.0) {
             record(Metric::UiStall, late);
         }
     }
-    lastBeat = now;
     if (now - lastSample > 5 * G_USEC_PER_SEC) {
         lastSample = now;
         sampleProcess();
     }
     if (now - lastReport > 30 * G_USEC_PER_SEC) {
         lastReport = now;
-        g_message("%s", report().c_str());
+        const std::string summary = report();
+        g_message("%s", summary.c_str());
+        appendToLog(summary);
     }
     return G_SOURCE_CONTINUE;
+}
+
+/// Runs off the main thread, so it can still speak while the main thread is stuck. Reports each stall once, when it
+/// passes WATCHDOG_STALL_US, and again with its length when it ends.
+void watchdog() {
+    bool reported = false;
+    gint64 stalledSince = 0;
+    while (!shuttingDown.load()) {
+        g_usleep(250 * 1000);
+        if (shuttingDown.load()) {
+            break;
+        }
+        const gint64 beatAt = lastBeat.load();
+        const gint64 now = g_get_monotonic_time();
+        if (beatAt == 0) {
+            continue;
+        }
+        if (now - beatAt > WATCHDOG_STALL_US) {
+            if (!reported) {
+                reported = true;
+                stalledSince = beatAt;
+                appendToLog("UI THREAD NOT RESPONDING for over 2 s. " + report());
+            }
+        } else if (reported) {
+            reported = false;
+            appendToLog("UI thread responding again after " +
+                        std::to_string((now - stalledSince) / G_USEC_PER_SEC) + " s");
+        }
+    }
 }
 }  // namespace
 
@@ -201,6 +268,12 @@ void startHeartbeat() {
     }
     lastBeat = lastSample = lastReport = g_get_monotonic_time();
     g_timeout_add(HEARTBEAT_MS, beat, nullptr);
+    std::atexit([] { shuttingDown.store(true); });
+    appendToLog("UTN perf logging started");
+    g_thread_unref(g_thread_new("utn-perf-watchdog", [](gpointer) -> gpointer {
+        watchdog();
+        return nullptr;
+    }, nullptr));
 }
 
 }  // namespace utn::perf
