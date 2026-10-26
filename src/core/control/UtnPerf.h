@@ -73,7 +73,7 @@ void sampleProcess();
 
 /**
  * Starts (once) a main-loop heartbeat. Every 20 ms it measures how late it ran and records UiStall for lateness above
- * 8 ms, samples the process every 5 s and writes report() every 30 s. Must be called from the GTK main thread.
+ * 30 ms (the Windows timer tick is about 15.6 ms), samples the process every 5 s and writes report() every 30 s. Must be called from the GTK main thread.
  */
 void startHeartbeat();
 
