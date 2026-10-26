@@ -49,7 +49,7 @@ protected:
     void exportGraphics();
 
 
-private:
+protected:  // not private: the export tests configure the job without the file chooser
     /**
      * The range to export
      */

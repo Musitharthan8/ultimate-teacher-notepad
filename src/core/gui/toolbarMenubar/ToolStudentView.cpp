@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <shared_mutex>
+#include <thread>
 #include <string>
 #include <utility>
 
@@ -52,9 +53,13 @@ void closeMenu(GtkWidget* entry) {
 }
 
 /// Draw the current page as students may see it, centred and scaled into width × height
-void renderStudentFrame(Control* control, cairo_t* cr, double width, double height) {
+void renderStudentFrame(Control* control, cairo_t* cr, double width, double height,
+                        StudentFrameContent* content = nullptr) {
     cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
     cairo_paint(cr);
+    if (content) {
+        *content = {};
+    }
 
     PageRef page = control->getCurrentPage();
     if (!page) {
@@ -62,6 +67,16 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
     }
     auto* doc = control->getDocument();
     std::shared_lock lock(*doc);
+    if (content) {
+        // What this frame shows, recorded under the same lock that draws it, so a frozen copy can later tell whether
+        // students would now be allowed to see less
+        content->page = page;
+        for (const Layer* layer: page->getLayersView()) {
+            if (utn::visibleToStudents(*layer)) {
+                content->visibleLayers.push_back(layer);
+            }
+        }
+    }
 
     const double pageWidth = page->getWidth();
     const double pageHeight = page->getHeight();
@@ -315,7 +330,69 @@ void ToolStudentView::updateTeacherOutline(State state) {
     gtk_widget_queue_draw(teacherOutline);
 }
 
+bool ToolStudentView::frozenFrameIsSafe() {
+    if (!frozenFrame) {
+        return true;
+    }
+    // Curtain or Spotlight switched on after the freeze: the frozen picture shows the whole page
+    auto* tools = control->getToolHandler();
+    if ((tools->isCurtainEnabled() || tools->isSpotlightEnabled()) && !frozenWithOverlay) {
+        return false;
+    }
+    if (!frozenContent.page) {
+        return true;  // frozen before there was a page: nothing private in it
+    }
+    // Never block (this runs inside document notifications), but do not guess either: try a few times, then treat
+    // "cannot tell" as unsafe. A blank screen is always the safe answer.
+    auto* doc = control->getDocument();
+    bool locked = false;
+    for (int attempt = 0; attempt < 8 && !(locked = doc->try_lock_shared()); ++attempt) {
+        g_usleep(500);
+    }
+    if (!locked) {
+        return false;
+    }
+    bool safe = true;
+    for (const Layer* shown: frozenContent.visibleLayers) {
+        bool stillVisible = false;
+        for (const Layer* layer: frozenContent.page->getLayersView()) {
+            if (layer == shown) {
+                stillVisible = utn::visibleToStudents(*layer);
+                break;
+            }
+        }
+        if (!stillVisible) {  // hidden, made private, or gone
+            safe = false;
+            break;
+        }
+    }
+    doc->unlock_shared();
+    return safe;
+}
+
+bool ToolStudentView::dropFrozenFrameIfUnsafe() {
+    if (!frozenFrame || frozenFrameIsSafe()) {
+        return false;
+    }
+    cairo_surface_destroy(frozenFrame);
+    frozenFrame = nullptr;
+    frozenContent = {};
+    frozen = false;
+    setBlanked(true);  // blank at once; also covers the teacher's canvas when students watch the same screen
+    if (drawingArea) {
+        gtk_widget_queue_draw(drawingArea);
+    }
+    if (auto* win = control->getWindow()) {
+        win->showToast(_("Answers were hidden while the screen was frozen. Students now see a blank screen. Choose "
+                         "\"Show the page again\" to continue."));
+    }
+    return true;
+}
+
 void ToolStudentView::requestRedraw(bool urgent) {
+    if (frozenFrame && std::this_thread::get_id() == uiThread) {
+        dropFrozenFrameIfUnsafe();
+    }
     utn::perf::record(utn::perf::Metric::StudentRedrawRequests, 1);
     if (urgent) {
         utn::perf::record(utn::perf::Metric::StudentRedrawUrgent, 1);
@@ -373,7 +450,7 @@ void ToolStudentView::refreshLiveFrame() {
         liveFrame = createFrameSurface(drawingArea, width, height);
     }
     cairo_t* cr = cairo_create(liveFrame);
-    renderStudentFrame(control, cr, width, height);
+    renderStudentFrame(control, cr, width, height, &liveContent);
     cairo_destroy(cr);
     frameDirty = false;
 
@@ -587,6 +664,9 @@ void ToolStudentView::setFrozen(bool enabled) {
             cairo_set_source_surface(cr, liveFrame, 0, 0);
             cairo_paint(cr);
             cairo_destroy(cr);
+            frozenContent = liveContent;
+            auto* tools = control->getToolHandler();
+            frozenWithOverlay = tools->isCurtainEnabled() || tools->isSpotlightEnabled();
         }
         frozen = frozenFrame != nullptr;
     } else if (!enabled) {

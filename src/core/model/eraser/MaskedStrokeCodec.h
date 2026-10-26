@@ -26,4 +26,6 @@ std::string encodeMaskedStroke(const Stroke& stroke, const xoj::util::Matrix& fa
 std::optional<DecodedMaskedStroke> decodeMaskedStroke(std::string_view text);
 bool matchesFallbackMatrix(const xoj::util::Matrix& actual, const xoj::util::Matrix& expected);
 std::optional<MaskedStrokeFallback> rasterizeMaskedStroke(const Stroke& stroke);
+/// How many times rasterizeMaskedStroke has been called in this process. Lets tests prove where that work happens.
+size_t rasterizeMaskedStrokeCallCount();
 }  // namespace utn::eraser

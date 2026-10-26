@@ -49,6 +49,12 @@ public:
      * anywhere
      */
     void saveTo(OutputStream* out, const fs::path& filepath, ProgressListener* listener = nullptr);
+    /**
+     * Writes to `<filepath>.utn-tmp` and moves it over `filepath` only when the whole file was written. A failure
+     * (including an annotation that cannot be rendered for a student copy) leaves an existing `filepath` untouched and
+     * removes the temporary file. Does not access the Document instance.
+     */
+    void saveAtomically(const fs::path& filepath, ProgressListener* listener = nullptr);
     /// Update document information. Requires write access to the Document.
     void updateDocumentInfo(Document* doc);
 

@@ -6,8 +6,13 @@
  *
  * Based on Xournal++ GPLv2+
  */
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <thread>
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,6 +22,7 @@
 #include "control/UtnPerf.h"
 #include "control/xojfile/LoadHandler.h"
 #include "control/xojfile/SaveHandler.h"
+#include "control/xojfile/XojExportHandler.h"
 #include "model/Document.h"
 #include "model/ExportAudience.h"
 #include "model/Layer.h"
@@ -159,11 +165,150 @@ TEST(SaveIntegrity, studentCopyNeverRestoresErasedInk) {
     SaveHandler saver;
     saver.setExportAudience(ExportAudience::Student);
     saver.prepareSave(&doc, file);
-    auto reopened = loadBack(saver, file);
-    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    saver.saveTo(file);
+    // A copy without the annotation would look complete and is not: the export fails, and writes nothing
+    EXPECT_FALSE(saver.getErrorMessage().empty());
+    EXPECT_FALSE(fs::exists(file));
+    EXPECT_TRUE(saver.getWarnings().empty()) << "an omission is an error, not a warning";
+}
+
+namespace {
+std::string slurp(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+fs::path tempOf(const fs::path& file) {
+    fs::path temp = file;
+    temp += u8".utn-tmp";
+    return temp;
+}
+}  // namespace
+
+// Student export that fails must leave an existing file exactly as it was, and no temporary file behind.
+TEST(SaveIntegrity, failedStudentExportKeepsTheExistingFileAndLeavesNoTemporaryFile) {
+    Document doc(nullptr);
+    auto page = std::make_shared<SavePage>();
+    page->getSelectedLayer()->addElement(erasedBar());
+    page->getSelectedLayer()->addElement(damagedErasedStroke(true));
+    doc.addPage(page);
+
+    const auto file = Util::getTmpDirSubfolder() / "utn-previous-student-copy.xoj";
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << "previous good copy";
+    }
+    ASSERT_EQ(slurp(file), "previous good copy") << "the temporary folder is not writable";
+
+    XojExportHandler student;  // defaults to the student audience
+    student.prepareSave(&doc, file);
+    student.saveAtomically(file);
+    EXPECT_FALSE(student.getErrorMessage().empty());
+    EXPECT_EQ(slurp(file), "previous good copy") << "the earlier copy was replaced by an incomplete one";
+    EXPECT_FALSE(fs::exists(tempOf(file)));
+    fs::remove(file);
+}
+
+TEST(SaveIntegrity, saveAtomicallyReplacesTheFileOnlyWithAWholeOne) {
+    Document doc(nullptr);
+    auto page = std::make_shared<SavePage>();
+    page->getSelectedLayer()->addElement(erasedBar());
+    doc.addPage(page);
+
+    const auto file = Util::getTmpDirSubfolder() / "utn-atomic.xoj";
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << "old";
+    }
+    XojExportHandler student;
+    student.prepareSave(&doc, file);
+    student.saveAtomically(file);
+    ASSERT_TRUE(student.getErrorMessage().empty()) << student.getErrorMessage();
+    EXPECT_FALSE(fs::exists(tempOf(file)));
+    auto reopened = LoadHandler{}.loadDocument(file);
+    fs::remove(file);
     ASSERT_TRUE(reopened);
-    EXPECT_TRUE(reopened->getPage(0)->getSelectedLayer()->getElements().empty());
-    EXPECT_EQ(saver.getWarnings().size(), 1U);
+    EXPECT_EQ(reopened->getPage(0)->getSelectedLayer()->getElements().size(), 1U);
+}
+
+TEST(SaveIntegrity, saveAtomicallyIntoAMissingFolderFailsCleanly) {
+    Document doc(nullptr);
+    auto page = std::make_shared<SavePage>();
+    page->getSelectedLayer()->addElement(erasedBar());
+    doc.addPage(page);
+    const auto file = Util::getTmpDirSubfolder() / "no-such-folder-utn" / "out.xoj";
+    SaveHandler saver;
+    saver.prepareSave(&doc, file);
+    saver.saveAtomically(file);
+    EXPECT_FALSE(saver.getErrorMessage().empty());
+    EXPECT_FALSE(fs::exists(file));
+    EXPECT_FALSE(fs::exists(tempOf(file)));
+}
+
+// The expensive part of saving an erased stroke must happen after the Document lock is released.
+TEST(SaveIntegrity, rasterWorkHappensInResolveNotInPrepare) {
+    Document doc(nullptr);
+    auto page = std::make_shared<SavePage>();
+    for (int i = 0; i < 12; ++i) {
+        page->getSelectedLayer()->addElement(erasedBar(20 + 20 * i));
+    }
+    doc.addPage(page);
+
+    const auto file = Util::getTmpDirSubfolder() / "utn-where-raster.xopp";
+    SaveHandler saver;
+    const size_t before = utn::eraser::rasterizeMaskedStrokeCallCount();
+    doc.lock_shared();
+    saver.prepareSave(&doc, file);
+    const size_t underLock = utn::eraser::rasterizeMaskedStrokeCallCount();
+    doc.unlock_shared();
+    EXPECT_EQ(underLock, before) << "prepareSave drew erased strokes while the Document lock was held";
+
+    saver.saveAtomically(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    EXPECT_EQ(utn::eraser::rasterizeMaskedStrokeCallCount(), before + 12U);
+    fs::remove(file);
+}
+
+// While another thread saves a document full of erased strokes, the editing thread must never wait for the save.
+TEST(SaveIntegrity, editingIsNotBlockedWhileADenseDocumentIsSaved) {
+    Document doc(nullptr);
+    auto page = std::make_shared<SavePage>();
+    for (int i = 0; i < 150; ++i) {
+        page->getSelectedLayer()->addElement(erasedBar(5 + (i % 280)));
+    }
+    doc.addPage(page);
+    const auto file = Util::getTmpDirSubfolder() / "utn-dense-save.xopp";
+
+    std::atomic<bool> done{false};
+    SaveHandler saver;
+    doc.lock_shared();
+    saver.prepareSave(&doc, file);
+    doc.unlock_shared();
+    std::thread saving([&] {
+        saver.saveAtomically(file);  // no Document access, no lock
+        done = true;
+    });
+    double worstMs = 0;
+    int edits = 0;
+    while (!done) {
+        const auto start = std::chrono::steady_clock::now();
+        doc.lock();
+        auto extra = std::make_unique<Stroke>();
+        extra->addPoint(Point(1, 1));
+        extra->addPoint(Point(2, 2));
+        page->getSelectedLayer()->addElement(std::move(extra));
+        doc.unlock();
+        worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        ++edits;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    saving.join();
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    EXPECT_GT(edits, 3) << "the save finished before there was any overlap to measure";
+    EXPECT_LT(worstMs, 100.0) << "an edit waited for the save";
+    auto reopened = LoadHandler{}.loadDocument(file);
+    fs::remove(file);
+    ASSERT_TRUE(reopened);
+    EXPECT_EQ(reopened->getPage(0)->getSelectedLayer()->getElements().size(), 150U) << "the save is the state at prepare time";
 }
 
 TEST(SaveIntegrity, rasterFallbackStillWorksForOrdinaryStrokes) {
@@ -435,4 +580,31 @@ TEST(HighlighterErasing, holeSurvivesSaveReopenAndTheStudentCopyKeepsNoEditableO
     EXPECT_EQ(xml.find("utn-stroke-v1"), std::string::npos) << "no editable original in the student copy";
     EXPECT_NE(xml.find("<image"), std::string::npos) << "the clipped ink is there as a picture";
     EXPECT_EQ(xml.find("<stroke"), std::string::npos) << "no vector stroke that still contains the erased part";
+}
+
+// --- statistics report their population ---------------------------------------------------------------------------
+
+TEST(PerfCounters, allTimeAndWindowStatisticsAreSeparateAndLabelled) {
+    utn::perf::setEnabled(true);
+    utn::perf::reset();
+    constexpr int total = 70000;  // more than the 65536-sample window
+    for (int i = 1; i <= total; ++i) {
+        utn::perf::record(utn::perf::Metric::PenUp, i);
+    }
+    const auto s = utn::perf::stats(utn::perf::Metric::PenUp);
+    EXPECT_EQ(s.count, static_cast<size_t>(total));
+    EXPECT_DOUBLE_EQ(s.max, total);
+    EXPECT_DOUBLE_EQ(s.first, 1);
+    EXPECT_DOUBLE_EQ(s.last, total);
+    EXPECT_NEAR(s.mean(), (1.0 + total) / 2, 1e-6);
+    // The window holds only the newest samples, 4465..70000
+    EXPECT_EQ(s.windowCount, 65536U);
+    EXPECT_DOUBLE_EQ(s.windowMax, total);
+    EXPECT_NEAR(s.windowMean, (4465.0 + total) / 2, 1.0);
+    EXPECT_NEAR(s.p95, 4465.0 + 0.95 * 65535, 2.0);
+    const std::string report = utn::perf::report();
+    EXPECT_NE(report.find("all n=70000"), std::string::npos);
+    EXPECT_NE(report.find("last 65536 samples"), std::string::npos);
+    utn::perf::reset();
+    utn::perf::setEnabled(false);
 }

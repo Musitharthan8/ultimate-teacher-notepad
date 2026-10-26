@@ -17,7 +17,9 @@
 
 namespace utn::perf {
 namespace {
-constexpr size_t RING = 512;
+// Most recent samples kept for the window statistics. A session of tens of thousands of events fits whole, so for it
+// the all-time and window numbers are the same population; beyond that they differ and are reported separately.
+constexpr size_t RING = 65536;
 constexpr size_t METRICS = static_cast<size_t>(Metric::COUNT);
 
 struct Slot {
@@ -65,6 +67,9 @@ void record(Metric metric, double value) {
     }
     Slot& slot = slots[static_cast<size_t>(metric)];
     std::lock_guard lock(slot.mutex);
+    if (slot.stats.count == 0) {
+        slot.stats.first = value;
+    }
     slot.stats.count++;
     slot.stats.total += value;
     slot.stats.max = std::max(slot.stats.max, value);
@@ -78,6 +83,13 @@ Stats stats(Metric metric) {
     Slot& slot = slots[static_cast<size_t>(metric)];
     std::lock_guard lock(slot.mutex);
     Stats copy = slot.stats;
+    copy.windowCount = slot.filled;
+    double windowTotal = 0;
+    for (size_t i = 0; i < slot.filled; ++i) {
+        windowTotal += slot.ring[i];
+        copy.windowMax = std::max(copy.windowMax, slot.ring[i]);
+    }
+    copy.windowMean = slot.filled ? windowTotal / static_cast<double>(slot.filled) : 0.0;
     copy.p95 = percentile95(slot);
     return copy;
 }
@@ -125,8 +137,9 @@ std::string report() {
         if (s.count == 0) {
             continue;
         }
-        out << "  " << name(metric) << ": n=" << s.count << " mean=" << s.mean() << " p95=" << s.p95 << " max=" << s.max
-            << " last=" << s.last << '\n';
+        out << "  " << name(metric) << ": all n=" << s.count << " mean=" << s.mean() << " max=" << s.max << " | last "
+            << s.windowCount << " samples: mean=" << s.windowMean << " p95=" << s.p95 << " max=" << s.windowMax
+            << " | first=" << s.first << " last=" << s.last << '\n';
     }
     return out.str();
 }

@@ -39,12 +39,21 @@ enum class Metric : unsigned {
     COUNT
 };
 
+/**
+ * Two populations, never mixed. "All" (count, total/mean(), max, first, last) covers every sample since reset().
+ * "Window" (windowCount, windowMean, p95, windowMax) covers the most recent windowCount samples, at most 65536; for a
+ * shorter session it is the same population as "All". Compare mean, p95 and max only within one population.
+ */
 struct Stats {
     size_t count = 0;
     double total = 0;
     double max = 0;
+    double first = 0;
     double last = 0;
-    double p95 = 0;  ///< over the most recent samples (bounded ring)
+    size_t windowCount = 0;
+    double windowMean = 0;
+    double windowMax = 0;
+    double p95 = 0;  ///< of the window
     double mean() const { return count ? total / static_cast<double>(count) : 0.0; }
 };
 

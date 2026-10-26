@@ -16,7 +16,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <cairo.h>
 #include <gtk/gtk.h>
@@ -27,6 +30,14 @@
 
 class Control;
 class XojPage;
+class Layer;
+
+/// What one student frame shows: the page and which of its layers students were allowed to see. Lets a frozen frame
+/// notice that students would now be allowed to see less.
+struct StudentFrameContent {
+    std::shared_ptr<XojPage> page;
+    std::vector<const Layer*> visibleLayers;  // compared by address only, never dereferenced unless on page
+};
 
 class ToolStudentView: public AbstractToolItem, public DocumentListener {
 public:
@@ -76,6 +87,16 @@ private:
     /// True if which layers students can see on the current page differs from the last call. Never blocks.
     bool studentAudienceChanged();
 
+    /**
+     * A frozen frame keeps whatever it showed, including answers that were revealed at that moment. If students may now
+     * see less (an answers layer hidden, a layer made private or invisible, Curtain or Spotlight switched on), the
+     * frozen frame is destroyed and the students' screen goes blank at once: a blank frame is always safe, whereas
+     * a replacement would have to be rendered first. The teacher is told, and "Show the page again" resumes live.
+     * @return true if the frame was removed
+     */
+    bool dropFrozenFrameIfUnsafe();
+    bool frozenFrameIsSafe();
+
     void showTeacherBlankCover(bool show);
 
     static gboolean drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data);
@@ -84,6 +105,8 @@ private:
 
 private:
     Control* control;
+    /// GTK objects may only be touched from this thread (the one that built the tool); other threads only schedule
+    std::thread::id uiThread = std::this_thread::get_id();
     GtkWidget* window = nullptr;
     GtkWidget* drawingArea = nullptr;
     bool fullscreen = false;
@@ -94,6 +117,9 @@ private:
     cairo_surface_t* frozenFrame = nullptr;
     /// The current live frame. The draw handler only copies it; refreshLiveFrame() is the only place that renders.
     cairo_surface_t* liveFrame = nullptr;
+    StudentFrameContent liveContent;    ///< what liveFrame shows
+    StudentFrameContent frozenContent;  ///< what frozenFrame shows
+    bool frozenWithOverlay = false;     ///< Curtain or Spotlight was already part of the frozen picture
     std::atomic_bool frameDirty{true};
     std::atomic<guint> nextRedrawDelayMs{40};
     gint64 lastFrameEnd = 0;

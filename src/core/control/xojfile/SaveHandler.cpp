@@ -108,9 +108,12 @@ void SaveHandler::resolveDeferredStrokes() {
         // A save must never silently drop an annotation, and one stroke that cannot be drawn must not make every
         // later save and autosave fail either.
         if (exportAudience == ExportAudience::Student) {
-            // The erased part may have been private, so it is never written back.
-            warnings.emplace_back("A partially erased stroke could not be rendered and was left out of the student copy.");
-            g_warning("%s", warnings.back().c_str());
+            // The erased part may have been private, so it is never written back. Leaving the stroke out would hand
+            // the class an incomplete copy that looks complete, so the export fails instead. Nothing has been written
+            // yet (callers resolve before they open an output file), so any earlier file stays as it was.
+            errorMessage = "A partially erased annotation could not be rendered for the student copy, so the copy was "
+                           "not written. The lesson itself is unchanged. Try again, or export a rendered PNG or PDF.";
+            g_warning("%s", errorMessage.c_str());
             node->setResolved(nullptr, true);
             continue;
         }
@@ -562,8 +565,8 @@ void SaveHandler::writeBackgroundName(XmlNode* background, ConstPageRef p) {
 }
 
 void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
+    resolveDeferredStrokes();  // before the output file is created; may set errorMessage
     if (!errorMessage.empty()) return;
-    resolveDeferredStrokes();  // before the output file is created
     GzOutputStream out(filepath);
 
     if (!out.getLastError().empty()) {
@@ -581,8 +584,8 @@ void SaveHandler::saveTo(const fs::path& filepath, ProgressListener* listener) {
 }
 
 void SaveHandler::saveTo(OutputStream* out, const fs::path& filepath, ProgressListener* listener) {
-    if (!errorMessage.empty()) return;
     resolveDeferredStrokes();
+    if (!errorMessage.empty()) return;
     out->write("<?xml version=\"1.0\" standalone=\"no\"?>\n");
     root->writeOut(out, listener);
 
@@ -600,6 +603,37 @@ void SaveHandler::saveTo(OutputStream* out, const fs::path& filepath, ProgressLi
                         FS(_F("Could not write background \"{1}\". Continuing anyway.") % tmpfn.u8string());
             }
         }
+    }
+}
+
+void SaveHandler::saveAtomically(const fs::path& filepath, ProgressListener* listener) {
+    // Everything that can fail without touching a file comes first: the destination is then exactly as it was
+    resolveDeferredStrokes();
+    if (!errorMessage.empty()) return;
+
+    fs::path temp = filepath;
+    temp += u8".utn-tmp";
+    std::error_code ignored;
+    {
+        GzOutputStream out(temp);
+        if (!out.getLastError().empty()) {
+            errorMessage = out.getLastError();
+            out.close();
+            fs::remove(temp, ignored);
+            return;
+        }
+        saveTo(&out, filepath, listener);
+        out.close();
+        if (!out.getLastError().empty()) {
+            // A broken stream means an incomplete file. Never let it replace a good one.
+            errorMessage = out.getLastError();
+            fs::remove(temp, ignored);
+            return;
+        }
+    }
+    if (!Util::safeRenameFile(temp, filepath)) {
+        errorMessage = FS(_F("Could not replace \"{1}\". The new copy is at \"{2}\".") % filepath.u8string() %
+                          temp.u8string());
     }
 }
 

@@ -125,10 +125,12 @@ void CustomExportJob::run() {
         Document* doc = this->control->getDocument();
 
         XojExportHandler h;
+        // prepareSave only reads the Document and copies what it needs (erased strokes are snapshots), so the lock ends
+        // here. The expensive part, drawing those strokes and compressing the file, must not hold it: it blocks pen-up.
         doc->lock_shared();
         h.prepareSave(doc, filepath);
-        h.saveTo(filepath, this->control);
         doc->unlock_shared();
+        h.saveAtomically(filepath, this->control);
 
         if (!h.getErrorMessage().empty()) {
             this->lastError = FS(_F("Save file error: {1}") % h.getErrorMessage());

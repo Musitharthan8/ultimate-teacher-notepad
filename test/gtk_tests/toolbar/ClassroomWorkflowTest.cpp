@@ -1,10 +1,14 @@
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -15,6 +19,7 @@
 #include "control/UtnPerf.h"
 #include "control/actions/ActionDatabase.h"
 #include "control/jobs/AutosaveJob.h"
+#include "control/jobs/CustomExportJob.h"
 #include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
@@ -185,6 +190,41 @@ void ensureSchedulerRunning(Control* control) {
         control->getScheduler()->start();
         started = true;
     }
+}
+
+/**
+ * Fails the test, loudly, when the temporary folder cannot be written and read back. Set TMP / TEMP / TMPDIR to a
+ * folder you own (for example `set TMP=C:\Users\you\utn-tmp`) before running when the default, under C:\msys64\tmp,
+ * is not writable for your account. Nothing is skipped: a soak that cannot autosave proves nothing.
+ */
+void requireWorkingTempFolder() {
+    const auto folder = Util::getTmpDirSubfolder();
+    const auto probe = folder / "utn-tmp-probe.txt";
+    {
+        std::ofstream out(probe, std::ios::binary);
+        out << "probe";
+    }
+    std::ifstream in(probe, std::ios::binary);
+    std::string text;
+    in >> text;
+    in.close();
+    std::error_code ec;
+    fs::remove(probe, ec);
+    ASSERT_EQ(text, "probe") << "the temporary folder " << folder.string() << " cannot be written or read back";
+}
+
+/// Writes one metric to the XML report with the population of every number in its name: all_* covers every sample
+/// since the reset, win_* the last win_n samples (the same set unless more than 65536 were recorded).
+void recordPerfProperties(utn::perf::Metric metric) {
+    const auto stats = utn::perf::stats(metric);
+    const std::string base = std::string("perf_") + utn::perf::name(metric);
+    ::testing::Test::RecordProperty(base + "_all_n", std::to_string(stats.count));
+    ::testing::Test::RecordProperty(base + "_all_mean", std::to_string(stats.mean()));
+    ::testing::Test::RecordProperty(base + "_all_max", std::to_string(stats.max));
+    ::testing::Test::RecordProperty(base + "_win_n", std::to_string(stats.windowCount));
+    ::testing::Test::RecordProperty(base + "_win_mean", std::to_string(stats.windowMean));
+    ::testing::Test::RecordProperty(base + "_win_p95", std::to_string(stats.p95));
+    ::testing::Test::RecordProperty(base + "_win_max", std::to_string(stats.windowMax));
 }
 
 void addMarker(Layer* layer, double y) {
@@ -1001,14 +1041,19 @@ TEST_F(ClassroomWorkflow, studentWindowPrivacyFreezeBlankNavigationAndReopen) {
         control->setAnswersRevealed(false, false);
         control->firePageSelected(1);
         settle();
-        EXPECT_EQ(studentPixel(student, 100, 200), 0U) << "Freeze retains the revealed frame";
+        // Hiding answers while frozen must not leave the revealed frame on the projector: the screen goes blank
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
+        EXPECT_EQ(studentPixel(student, 100, 200), 0U);
+        EXPECT_EQ(studentPixel(student, 300, 700), 0U) << "blank, not the old page";
+        click("Show the page again");
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Live) << "the frozen frame is gone, not restored";
+        EXPECT_EQ(studentPixel(student, 100, 100), 0xFFFFFFU) << "Page two is empty";
         click("Blank screen");
         EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
         EXPECT_EQ(studentPixel(student, 100, 100), 0U);
         EXPECT_EQ(studentPixel(student, 100, 400), 0U);
         click("Show the page again");
-        EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
-        click("Resume live view");
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
         EXPECT_EQ(studentPixel(student, 100, 100), 0xFFFFFFU) << "Page two is empty";
         control->firePageSelected(0);
         settle();
@@ -1343,6 +1388,218 @@ TEST_F(ClassroomWorkflow, ghostedHiddenAnswersAreOptInAndRememberedAndNeverShown
     settle();
 }
 
+namespace {
+/// The real compatibility export, started without the file chooser
+class CompatibilityExportForTest: public CustomExportJob {
+public:
+    explicit CompatibilityExportForTest(Control* control): CustomExportJob(control) {}
+    void configure(const fs::path& target) {
+        filepath = target;
+        exportTypeXoj = true;
+    }
+    const std::string& error() const { return lastError; }
+
+protected:
+    ~CompatibilityExportForTest() override = default;
+};
+}  // namespace
+
+// The compatibility (.xoj) export used to hold the shared Document lock while it drew every erased stroke and compressed
+// the file, so the next pen-up waited for all of it. Run the real job on a dense lesson while this thread edits, erases and
+// autosaves, and measure how long editing waits for the lock.
+TEST_F(ClassroomWorkflow, compatibilityExportDoesNotBlockEditingErasingOrAutosave) {
+    requireWorkingTempFolder();
+    window->show(nullptr);
+    settle();
+    ensureSchedulerRunning(control.get());
+    auto page = control->getCurrentPage();
+    Document* doc = control->getDocument();
+    for (int i = 0; i < 160; ++i) {
+        auto bar = std::make_unique<Stroke>();
+        bar->setWidth(8);
+        bar->addPoint(Point(20, 10 + (i % 75) * 9.0));
+        bar->addPoint(Point(560, 10 + (i % 75) * 9.0));
+        bar->setErasures({{{250, 0}, {250, 780}, 12, {}}, {{400, 0}, {400, 780}, 12, {}}});
+        page->getSelectedLayer()->addElement(std::move(bar));
+    }
+    const auto target = Util::getTmpDirSubfolder() / "compat-export.xoj";
+    fs::remove(target);
+
+    auto* job = new CompatibilityExportForTest(control.get());
+    job->configure(target);
+    const size_t rasterBefore = utn::eraser::rasterizeMaskedStrokeCallCount();
+#ifdef UTN_LOCK_AUDIT
+    const unsigned nestedBefore = utn::lockaudit::nestedViolations();
+#endif
+    std::atomic<bool> done{false};
+    std::thread exporting([&] {
+        job->run();
+        done = true;
+    });
+    // This thread is the "teacher": strokes, erasing through the eraser handler, autosave jobs, undo
+    control->selectTool(TOOL_ERASER);
+    control->getToolHandler()->setEraserType(ERASER_TYPE_DEFAULT);
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+    double worstMs = 0;
+    int rounds = 0;
+    while (!done && rounds < 400) {
+        const auto start = std::chrono::steady_clock::now();
+        PositionInputData pos{};
+        pos.pressure = 0.5;
+        pos.x = (100 + (rounds % 50) * 5) * view->getZoom();
+        pos.y = (60 + (rounds % 40) * 12) * view->getZoom();
+        view->onButtonPressEvent(pos);
+        for (int step = 1; step <= 6; ++step) {
+            pos.x += 8 * view->getZoom();
+            pos.timestamp += 8;
+            view->onMotionNotifyEvent(pos);
+        }
+        view->onButtonReleaseEvent(pos);  // takes the exclusive lock several times
+        if (rounds % 10 == 9) {
+            auto* autosave = new AutosaveJob(control.get());
+            control->getScheduler()->addJob(autosave, JOB_PRIORITY_NONE);
+            autosave->unref();
+        }
+        worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        for (int event = 0; event < 20 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        ++rounds;
+    }
+    exporting.join();
+    settle();
+    RecordProperty("export_overlap_rounds", rounds);
+    RecordProperty("export_worst_edit_ms", std::to_string(worstMs));
+    EXPECT_GT(rounds, 3) << "the export finished before editing overlapped it";
+    EXPECT_TRUE(job->error().empty()) << job->error();
+    EXPECT_GE(utn::eraser::rasterizeMaskedStrokeCallCount() - rasterBefore, 160U) << "the export drew the erased strokes";
+    // 160 erased strokes take far longer than this to draw, so an edit that waited for them would exceed it
+    EXPECT_LT(worstMs, 250.0) << "an edit waited for the export";
+#ifdef UTN_LOCK_AUDIT
+    EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore);
+#endif
+    ASSERT_TRUE(fs::exists(target)) << "the export wrote no file";
+    EXPECT_FALSE(fs::exists(target.string() + ".utn-tmp"));
+    auto reopened = LoadHandler{}.loadDocument(target);
+    fs::remove(target);
+    ASSERT_TRUE(reopened) << "the exported file does not open";
+    EXPECT_GE(reopened->getPageCount(), 1U);
+    job->unref();
+    control->selectTool(TOOL_PEN);
+    (void)doc;
+}
+
+// A frozen frame is a picture of the moment it was taken. If the teacher then hides answers (or makes a layer private or
+// invisible, or covers the page), the picture must not stay on the projector: the screen goes blank at once. Each case
+// checks the real Student View pixels, not just the state flag.
+TEST_F(ClassroomWorkflow, frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee) {
+    window->show(nullptr);
+    auto page = control->getCurrentPage();
+    addMarker(page->getSelectedLayer(), 100);
+    control->startAnswersLayer();
+    Layer* answers = page->getSelectedLayer();
+    addMarker(answers, 200);
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto click = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+    click("Open on the projector");
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+
+    // Live, answers revealed, then frozen: the picture holds the answer marker (black) on a white page
+    auto freezeShowingAnswers = [&]() {
+        if (students->getState() == ToolStudentView::State::Blank) {
+            click("Show the page again");
+        }
+        if (students->getState() == ToolStudentView::State::Frozen) {
+            click("Resume live view");
+        }
+        window->exitPresentationOverlay();
+        answers->setAudience(LayerAudience::Answers);
+        answers->setVisible(true);
+        control->firePageChanged(0);
+        settle();
+        click("Freeze this page");
+        ASSERT_EQ(students->getState(), ToolStudentView::State::Frozen);
+        ASSERT_EQ(studentPixel(student, 100, 200), 0U) << "the answer is on the frozen picture";
+        ASSERT_EQ(studentPixel(student, 300, 700), 0xFFFFFFU);
+    };
+    auto expectBlankNow = [&](const char* what) {
+        settle();
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Blank) << what;
+        EXPECT_EQ(studentPixel(student, 300, 700), 0U) << what << ": the old picture must be gone";
+        EXPECT_EQ(studentPixel(student, 100, 200), 0U) << what;
+    };
+
+    freezeShowingAnswers();
+    control->setAnswersRevealed(false, false);
+    expectBlankNow("hide answers on this page");
+
+    freezeShowingAnswers();
+    control->setAnswersRevealed(false, true);
+    expectBlankNow("hide all answers");
+
+    freezeShowingAnswers();
+    answers->setAudience(LayerAudience::TeacherOnly);
+    control->firePageChanged(0);
+    expectBlankNow("layer became teacher-only");
+
+    freezeShowingAnswers();
+    answers->setVisible(false);
+    control->firePageChanged(0);
+    expectBlankNow("layer hidden");
+
+    freezeShowingAnswers();
+    turnOnOverlay(control.get(), false);
+    expectBlankNow("Curtain switched on");
+    window->exitPresentationOverlay();
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Blank) << "leaving Curtain does not bring the old frame back";
+
+    freezeShowingAnswers();
+    turnOnOverlay(control.get(), true);
+    expectBlankNow("Spotlight switched on");
+
+    // Blank on top of a frozen frame, answers hidden underneath, then "Show the page again": live and sanitised, never
+    // the frozen picture with the answers in it
+    freezeShowingAnswers();
+    click("Blank screen");
+    ASSERT_EQ(students->getState(), ToolStudentView::State::Blank);
+    control->setAnswersRevealed(false, false);
+    settle();
+    click("Show the page again");
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(studentPixel(student, 100, 200), 0xFFFFFFU) << "the hidden answer is not on the projector";
+    EXPECT_EQ(studentPixel(student, 100, 100), 0U) << "ordinary ink is";
+
+    // Changes that give students nothing new keep the freeze: new public ink does not appear, and nothing goes blank
+    freezeShowingAnswers();
+    addMarker(page->getLayers().front(), 500);
+    control->firePageChanged(0);
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
+    EXPECT_EQ(studentPixel(student, 100, 500), 0xFFFFFFU) << "the frozen picture does not follow the page";
+    EXPECT_EQ(studentPixel(student, 100, 200), 0U);
+    // Resizing the projector window rescales the picture; it neither blanks nor refreshes it
+    gtk_window_resize(GTK_WINDOW(student), 800, 600);
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
+
+    gtk_widget_destroy(student);
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
 // The M2 field test: a "Drag the divider to resize settings" tooltip covered the worksheet while annotating. The
 // divider must stay draggable (and keyboard operable) without any tooltip on the panes around the worksheet.
 TEST_F(ClassroomWorkflow, noPaneAroundTheWorksheetCarriesATooltip) {
@@ -1505,12 +1762,17 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     while (doc->getPageCount() < PAGES) {
         control->insertNewPage(doc->getPageCount(), true);
     }
+    // Autosave and export write temporary files. If the temporary folder cannot be used the soak would measure a failing
+    // autosave, so say so instead of reporting numbers.
+    requireWorkingTempFolder();
     window->show(nullptr);
     settle();
     ensureSchedulerRunning(control.get());
 
     utn::perf::setEnabled(true);
     utn::perf::reset();
+    utn::perf::startHeartbeat();  // UI-thread responsiveness (ui_stall_ms) and the process counters
+    utn::perf::sampleProcess();
 #ifdef UTN_LOCK_AUDIT
     const unsigned nestedBefore = utn::lockaudit::nestedViolations();
 #endif
@@ -1584,11 +1846,24 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
             gtk_main_iteration_do(false);
         }
         latencies.push_back(g_get_monotonic_time() - begin);
+        if (i % 100 == 99) {
+            utn::perf::sampleProcess();  // memory and handle growth over the session
+        }
     }
     // Let the queued renders and the last autosave finish before the numbers are read
     for (int i = 0; i < 80; ++i) {
         settle();
     }
+    utn::perf::sampleProcess();
+
+    // The autosave must really have written its file, and it must reopen: otherwise every autosave number is a lie
+    const auto autosaveFile = fs::path(lesson).replace_filename(".soak-heavy-lesson.autosave.xopp");
+    ASSERT_TRUE(fs::exists(autosaveFile)) << "autosave wrote no file: " << autosaveFile.string();
+    EXPECT_GT(fs::file_size(autosaveFile), 200U);
+    auto reopenedAutosave = LoadHandler{}.loadDocument(autosaveFile);
+    ASSERT_TRUE(reopenedAutosave) << "the autosave file does not open";
+    EXPECT_EQ(reopenedAutosave->getPageCount(), PAGES);
+    EXPECT_GT(utn::perf::stats(utn::perf::Metric::Autosave).count, 0U) << "no autosave job ran";
 
     // Compare the end of the session with its beginning, in the order it happened
     const size_t third = latencies.size() / 3;
@@ -1612,12 +1887,26 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
                        utn::perf::Metric::StudentFrame, utn::perf::Metric::StudentRedrawRequests,
                        utn::perf::Metric::StudentRedrawUrgent, utn::perf::Metric::EraseEvent,
                        utn::perf::Metric::ErasuresPerStroke, utn::perf::Metric::DocLockWaitExclusive}) {
-        const auto stats = utn::perf::stats(metric);
-        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_n", static_cast<int>(stats.count));
-        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_mean", std::to_string(stats.mean()));
-        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_p95", std::to_string(stats.p95));
-        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_max", std::to_string(stats.max));
+        recordPerfProperties(metric);
     }
+    // UI-thread responsiveness: how late the 20 ms heartbeat ran (only lateness above 8 ms is recorded)
+    recordPerfProperties(utn::perf::Metric::UiStall);
+    // Growth over the session. First sample is taken before the first stroke, last after everything has settled.
+    for (auto metric: {utn::perf::Metric::ProcessPrivateMiB, utn::perf::Metric::GdiObjects,
+                       utn::perf::Metric::UserObjects, utn::perf::Metric::ProcessHandles}) {
+        const auto stats = utn::perf::stats(metric);
+        const std::string base = std::string("growth_") + utn::perf::name(metric);
+        RecordProperty(base + "_first", std::to_string(stats.first));
+        RecordProperty(base + "_last", std::to_string(stats.last));
+        RecordProperty(base + "_max", std::to_string(stats.max));
+    }
+#ifdef _WIN32
+    // Leak tripwires, generous: a page of handles or GDI objects that keeps growing is the leak, not the working set
+    const auto gdi = utn::perf::stats(utn::perf::Metric::GdiObjects);
+    const auto handles = utn::perf::stats(utn::perf::Metric::ProcessHandles);
+    EXPECT_LT(gdi.last - gdi.first, 500.0) << "GDI objects grew over the session";
+    EXPECT_LT(handles.last - handles.first, 1000.0) << "kernel handles grew over the session";
+#endif
     // Merged eraser capsules keep a stroke that was swept many times cheap to draw and still saveable with its data
     EXPECT_LE(utn::perf::stats(utn::perf::Metric::ErasuresPerStroke).max,
               static_cast<double>(utn::eraser::MASKED_STROKE_MAX_ERASURES));
@@ -1643,7 +1932,7 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     settle();
     utn::perf::setEnabled(false);
     std::error_code ec;
-    fs::remove(fs::path(lesson).replace_filename(".soak-heavy-lesson.autosave.xopp"), ec);
+    fs::remove(autosaveFile, ec);
 }
 
 namespace {

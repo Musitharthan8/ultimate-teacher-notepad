@@ -1,6 +1,7 @@
 #include "MaskedStrokeCodec.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -123,7 +124,13 @@ std::optional<MaskedStrokeFallback> rasterizeAtScale(const Stroke& stroke, const
 }
 }  // namespace
 
+namespace {
+std::atomic<size_t> rasterizeCalls{0};
+}
+size_t rasterizeMaskedStrokeCallCount() { return rasterizeCalls.load(); }
+
 std::optional<MaskedStrokeFallback> rasterizeMaskedStroke(const Stroke& stroke) {
+    rasterizeCalls.fetch_add(1);
     const auto b = stroke.getBoundingBox();
     if (!std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.width) || !std::isfinite(b.height) ||
         b.width <= 0 || b.height <= 0) return std::nullopt;
