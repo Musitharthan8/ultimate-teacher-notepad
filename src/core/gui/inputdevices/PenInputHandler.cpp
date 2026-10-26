@@ -40,7 +40,7 @@
 
 PenInputHandler::PenInputHandler(InputContext* inputContext): AbstractInputHandler(inputContext) {}
 
-PenInputHandler::~PenInputHandler() = default;
+PenInputHandler::~PenInputHandler() { stopEdgeScroll(); }
 
 void PenInputHandler::updateLastEvent(InputEvent const& event) {
     if (!event) {
@@ -548,45 +548,65 @@ void PenInputHandler::actionLeaveWindow(InputEvent const& event) {
         gint width = gtk_widget_get_allocated_width(widget);
         gint height = gtk_widget_get_allocated_height(widget);
 
-        new std::thread([&, eventX, eventY, width, height]() {
-            int offsetX = 0, offsetY = 0;
+        int offsetX = 0, offsetY = 0;
 
-            // TODO(fabian): make offset dependent on how big the distance between pen and view is
-            if (eventX < WIDGET_SCROLL_BORDER) {
-                offsetX = -10;
-            }
+        // TODO(fabian): make offset dependent on how big the distance between pen and view is
+        if (eventX < WIDGET_SCROLL_BORDER) {
+            offsetX = -10;
+        }
 
-            if (eventY < WIDGET_SCROLL_BORDER) {
-                offsetY = -10;
-            }
+        if (eventY < WIDGET_SCROLL_BORDER) {
+            offsetY = -10;
+        }
 
-            if (eventX > width - WIDGET_SCROLL_BORDER) {
-                offsetX = 10;
-            }
+        if (eventX > width - WIDGET_SCROLL_BORDER) {
+            offsetX = 10;
+        }
 
-            if (eventY > height - WIDGET_SCROLL_BORDER) {
-                offsetY = 10;
-            }
+        if (eventY > height - WIDGET_SCROLL_BORDER) {
+            offsetY = 10;
+        }
 
 #ifdef DEBUG_INPUT
-            g_message("Offset: X:%d\tY:%d", offsetX, offsetY);
+        g_message("Offset: X:%d\tY:%d", offsetX, offsetY);
 #endif
 
-            while (!this->penInWidget) {
-                Util::execInUiThread([&]() {
-                    GtkXournal* xournal = this->inputContext->getXournal();
-                    xournal->layout->scrollRelative(offsetX, offsetY);
-                });
+        // Scroll on the main loop instead of from a detached thread: the thread was never joined, captured this and
+        // its own locals by reference for callbacks that ran later, and a second one started for each pen exit.
+        startEdgeScroll(offsetX, offsetY);
+    }
+}
 
-                // sleep for half a second until we scroll again
-                g_usleep(static_cast<gulong>(0.5 * G_USEC_PER_SEC));
-            }
-        });
+void PenInputHandler::startEdgeScroll(int offsetX, int offsetY) {
+    stopEdgeScroll();
+    edgeScrollX = offsetX;
+    edgeScrollY = offsetY;
+    auto step = +[](gpointer data) -> gboolean {
+        auto* self = static_cast<PenInputHandler*>(data);
+        // Stop when the pen is back, and also when it was lifted while outside: scrolling on forever is never wanted
+        if (self->penInWidget || !self->deviceClassPressed) {
+            self->edgeScrollSource = 0;
+            return G_SOURCE_REMOVE;
+        }
+        self->inputContext->getXournal()->layout->scrollRelative(self->edgeScrollX, self->edgeScrollY);
+        return G_SOURCE_CONTINUE;
+    };
+    step(this);  // the first step is immediate, then one every half second until the pen is back
+    if (!penInWidget) {
+        edgeScrollSource = g_timeout_add(500, step, this);
+    }
+}
+
+void PenInputHandler::stopEdgeScroll() {
+    if (edgeScrollSource != 0) {
+        g_source_remove(edgeScrollSource);
+        edgeScrollSource = 0;
     }
 }
 
 void PenInputHandler::actionEnterWindow(InputEvent const& event) {
     this->penInWidget = true;
+    stopEdgeScroll();
 
     if (!this->inputContext->getSettings()->getInputSystemDrawOutsideWindowEnabled()) {
         // Restart input sequence if the tool is pressed and not a single-page tool

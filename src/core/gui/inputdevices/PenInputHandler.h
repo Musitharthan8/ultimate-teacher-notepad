@@ -76,6 +76,16 @@ protected:
     bool penInWidget = false;
 
     /**
+     * Scrolling while a selection is dragged outside the widget. Runs on the main loop and is cancelled when the pen
+     * comes back, when it is lifted, and when this handler is destroyed.
+     */
+    guint edgeScrollSource = 0;
+    int edgeScrollX = 0;
+    int edgeScrollY = 0;
+    void startEdgeScroll(int offsetX, int offsetY);
+    void stopEdgeScroll();
+
+    /**
      * Page a selection started at as we require this for motion updates
      */
     XojPageView* sequenceStartPage = nullptr;
