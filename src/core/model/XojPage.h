@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>   // for size_t
+#include <cstdint>
 #include <optional>  // for optional
 #include <string>    // for string
 #include <vector>    // for vector
@@ -69,6 +70,8 @@ public:
     Layer::Index getSelectedLayerId();
     void setSelectedLayerId(Layer::Index id);
     bool isLayerVisible(Layer::Index layerId) const;
+    /// How many times a layer was removed from this page (a frozen Student View treats any removal as unsafe)
+    uint64_t getLayerRemovalCount() const { return layerRemovals; }
 
     Layer* getSelectedLayer();
 
@@ -105,6 +108,7 @@ private:
      * The layer list
      */
     std::vector<Layer*> layer;
+    uint64_t layerRemovals = 0;
 
     /**
      * The current selected layer ID

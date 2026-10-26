@@ -13,6 +13,7 @@
 #include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"  // for SElement, Settings
 #include "model/StrokeStyle.h"          // for StrokeStyle
+#include "model/StudentVisibility.h"
 #include "model/TextAlignment.h"
 #include "util/Assert.h"
 #include "util/Color.h"
@@ -520,6 +521,7 @@ void ToolHandler::setSpotlightEnabled(bool enabled) {
     if (enabled) {
         this->curtainEnabled = false;
     }
+    utn::notifyStudentVisibilityChanged(true);
 }
 
 void ToolHandler::setCurtainEnabled(bool enabled) {
@@ -527,11 +529,13 @@ void ToolHandler::setCurtainEnabled(bool enabled) {
     if (enabled) {
         this->spotlightEnabled = false;
     }
+    utn::notifyStudentVisibilityChanged(true);
 }
 
 void ToolHandler::clearPresentationOverlay() {
     this->spotlightEnabled = false;
     this->curtainEnabled = false;
+    utn::notifyStudentVisibilityChanged(true);
 }
 
 void ToolHandler::setSize(ToolSize size) {

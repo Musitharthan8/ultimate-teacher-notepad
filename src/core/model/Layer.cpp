@@ -9,6 +9,7 @@
 
 #include "model/Element.h"  // for Element, Element::Index, Element::Inval...
 #include "model/ElementInsertionPosition.h"
+#include "model/StudentVisibility.h"
 #include "util/Assert.h"      // for xoj_assert
 #include "util/Stacktrace.h"  // for Stacktrace
 #include "util/safe_casts.h"
@@ -130,7 +131,10 @@ auto Layer::isVisible() const -> bool { return visible; }
 /**
  * @return true if the layer is visible
  */
-void Layer::setVisible(bool visible) { this->visible = visible; }
+void Layer::setVisible(bool visible) {
+    this->visible = visible;
+    utn::notifyStudentVisibilityChanged(false);
+}
 
 auto Layer::getElements() -> std::vector<ElementPtr>& { return this->elements; }
 
@@ -147,4 +151,7 @@ void Layer::setName(const std::string& newName) { this->name = newName; }
 
 auto Layer::getAudience() const -> LayerAudience { return this->audience; }
 
-void Layer::setAudience(LayerAudience audience) { this->audience = audience; }
+void Layer::setAudience(LayerAudience audience) {
+    this->audience = audience;
+    utn::notifyStudentVisibilityChanged(false);
+}

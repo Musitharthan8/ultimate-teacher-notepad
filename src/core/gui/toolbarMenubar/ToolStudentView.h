@@ -37,7 +37,11 @@ class Layer;
 struct StudentFrameContent {
     std::shared_ptr<XojPage> page;
     std::vector<const Layer*> visibleLayers;  // compared by address only, never dereferenced unless on page
+    uint64_t layerRemovals = 0;  ///< XojPage::getLayerRemovalCount() when the frame was drawn
 };
+
+/// Spotlight and Curtain are different overlays: switching from one to the other is a change, not a continuation
+enum class OverlayKind { None, Spotlight, Curtain };
 
 class ToolStudentView: public AbstractToolItem, public DocumentListener {
 public:
@@ -96,6 +100,9 @@ private:
      */
     bool dropFrozenFrameIfUnsafe();
     bool frozenFrameIsSafe();
+    /// Called for every change that may reduce what students can see, wherever it was made. See model/StudentVisibility.h
+    void onStudentVisibilityChanged(bool mayCheckNow);
+    static OverlayKind currentOverlay(Control* control);
 
     void showTeacherBlankCover(bool show);
 
@@ -119,7 +126,11 @@ private:
     cairo_surface_t* liveFrame = nullptr;
     StudentFrameContent liveContent;    ///< what liveFrame shows
     StudentFrameContent frozenContent;  ///< what frozenFrame shows
-    bool frozenWithOverlay = false;     ///< Curtain or Spotlight was already part of the frozen picture
+    OverlayKind frozenOverlay = OverlayKind::None;  ///< Curtain or Spotlight that was part of the frozen picture
+    std::atomic_bool hasFrozenFrame{false};         ///< mirror of frozenFrame != nullptr, readable from any thread
+    size_t visibilityListenerId = 0;
+    std::shared_ptr<std::atomic_bool> alive = std::make_shared<std::atomic_bool>(true);
+    std::atomic_bool visibilityCheckQueued{false};
     std::atomic_bool frameDirty{true};
     std::atomic<guint> nextRedrawDelayMs{40};
     gint64 lastFrameEnd = 0;

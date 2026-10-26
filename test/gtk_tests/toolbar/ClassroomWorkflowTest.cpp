@@ -39,6 +39,7 @@
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
 #include "gui/toolbarMenubar/RevealActions.h"
+#include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
 #include "model/Document.h"
@@ -1525,7 +1526,7 @@ TEST_F(ClassroomWorkflow, frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee)
         window->exitPresentationOverlay();
         answers->setAudience(LayerAudience::Answers);
         answers->setVisible(true);
-        control->firePageChanged(0);
+        control->firePageChanged(0);  // set-up only: shows the revealed answer on the live frame
         settle();
         click("Freeze this page");
         ASSERT_EQ(students->getState(), ToolStudentView::State::Frozen);
@@ -1547,14 +1548,13 @@ TEST_F(ClassroomWorkflow, frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee)
     control->setAnswersRevealed(false, true);
     expectBlankNow("hide all answers");
 
+    // No page-change notification is injected below: the layer UI does not send one, so neither may the test
     freezeShowingAnswers();
     answers->setAudience(LayerAudience::TeacherOnly);
-    control->firePageChanged(0);
     expectBlankNow("layer became teacher-only");
 
     freezeShowingAnswers();
-    answers->setVisible(false);
-    control->firePageChanged(0);
+    control->getLayerController()->setLayerVisible(1 + static_cast<Layer::Index>(std::find(page->getLayers().begin(), page->getLayers().end(), answers) - page->getLayers().begin()), false);
     expectBlankNow("layer hidden");
 
     freezeShowingAnswers();
@@ -1598,6 +1598,236 @@ TEST_F(ClassroomWorkflow, frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee)
     pill.reset();
     students.reset();
     settle();
+}
+
+namespace {
+/// The student window rig of the frozen-frame tests: answers on their own layer, Student View open on the "projector"
+struct FrozenRig {
+    Control* control;
+    MainWindow* window;
+    PageRef page;
+    Layer* answers = nullptr;
+    std::unique_ptr<ToolStudentView> students;
+    xoj::util::WidgetSPtr pill;
+    GtkWidget* menu = nullptr;
+    GtkWidget* student = nullptr;
+
+    FrozenRig(Control* control, MainWindow* window): control(control), window(window) {
+        window->show(nullptr);
+        page = control->getCurrentPage();
+        addMarker(page->getSelectedLayer(), 100);
+        control->startAnswersLayer();
+        answers = page->getSelectedLayer();
+        addMarker(answers, 200);
+        students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control);
+        pill = students->createItem(true);
+        menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+        click("Open on the projector");
+        student = studentWindow();
+    }
+    ~FrozenRig() {
+        if (student) gtk_widget_destroy(student);
+        gtk_widget_destroy(pill.get());
+        pill.reset();
+        students.reset();
+        settle();
+    }
+    void click(const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    }
+    Layer::Index answersId() const {
+        Layer::Index id = 1;
+        for (const Layer* layer: page->getLayersView()) {
+            if (layer == answers) return id;
+            ++id;
+        }
+        return 0;
+    }
+    /// Live, answers showing (revealed through the real layer checkbox path), then frozen
+    void freezeShowingAnswers() {
+        if (students->getState() == ToolStudentView::State::Blank) click("Show the page again");
+        if (students->getState() == ToolStudentView::State::Frozen) click("Resume live view");
+        window->exitPresentationOverlay();
+        answers->setAudience(LayerAudience::Answers);
+        control->getLayerController()->setLayerVisible(answersId(), true);
+        settle();
+        click("Freeze this page");
+        ASSERT_EQ(students->getState(), ToolStudentView::State::Frozen);
+        ASSERT_EQ(studentPixel(student, 100, 200), 0U) << "the answer is on the frozen picture";
+        ASSERT_EQ(studentPixel(student, 300, 700), 0xFFFFFFU);
+    }
+    /// Checked at once: no settle(), no main loop iteration since the action
+    void expectBlankImmediately(const char* what) {
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Blank) << what;
+        EXPECT_EQ(studentPixel(student, 300, 700), 0U) << what << ": the old picture must be gone";
+        EXPECT_EQ(studentPixel(student, 100, 200), 0U) << what << ": the answer must be gone";
+        EXPECT_EQ(studentPixel(student, 100, 100), 0U) << what;
+    }
+};
+}  // namespace
+
+// The tests above call model setters and then announce a page change by hand. The real layer checkbox, the "Hide
+// answers" button and the Spotlight/Curtain menu entries do not do that, so here every action goes through the same
+// function the widget calls, nothing is announced by the test, and the state is read before the main loop runs again.
+TEST_F(ClassroomWorkflow, frozenStudentViewIsBlankedByTheRealLayerAndOverlayActions) {
+    FrozenRig rig(control.get(), window.get());
+    ASSERT_NE(rig.student, nullptr);
+    auto* layers = control->getLayerController();
+
+    // 1. the layer checkbox (ShowLayerEntry and the sidebar both call LayerController::setLayerVisible)
+    rig.freezeShowingAnswers();
+    layers->setLayerVisible(rig.answersId(), false);
+    rig.expectBlankImmediately("layer hidden with the layer checkbox");
+
+    // 2. "Hide all layers"
+    rig.freezeShowingAnswers();
+    layers->hideAllLayer();
+    rig.expectBlankImmediately("all layers hidden");
+    layers->showAllLayer();
+
+    // 3. Hide answers from the toolbar, the real button handler
+    rig.freezeShowingAnswers();
+    utn::hideAnswersFromUi(control.get());
+    rig.expectBlankImmediately("Hide answers");
+
+    // 4. A layer made teacher-only. No layer widget does this today, so nothing but the model setter runs: the change
+    //    must be noticed anyway. First by the draw itself (nothing has been processed yet), then by the state.
+    rig.freezeShowingAnswers();
+    rig.answers->setAudience(LayerAudience::TeacherOnly);
+    EXPECT_EQ(studentPixel(rig.student, 100, 200), 0U) << "painted black before any other event was processed";
+    EXPECT_EQ(studentPixel(rig.student, 300, 700), 0U);
+    settle();
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Blank);
+
+    // 5. The same through the model hide, with a delayed redraw queued first: no timer can bring the old picture back
+    rig.freezeShowingAnswers();
+    control->firePageChanged(0);  // queues a throttled redraw while the frame is still frozen
+    layers->setLayerVisible(rig.answersId(), false);
+    rig.expectBlankImmediately("hidden with a redraw already pending");
+    for (int i = 0; i < 8; ++i) {
+        control->firePageChanged(0);
+        settle();
+        control->notifyCanvasChanged(rig.page.get());
+        g_usleep(60 * 1000);
+        settle();
+    }
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Blank);
+    EXPECT_EQ(studentPixel(rig.student, 100, 200), 0U) << "a delayed redraw restored the unsafe frame";
+    EXPECT_EQ(studentPixel(rig.student, 300, 700), 0U);
+
+    // 6. Blank, then back to live: sanitised, never the frozen picture
+    rig.click("Show the page again");
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(studentPixel(rig.student, 100, 200), 0xFFFFFFU) << "the hidden answer is not projected";
+    EXPECT_EQ(studentPixel(rig.student, 100, 100), 0U) << "ordinary ink is";
+}
+
+TEST_F(ClassroomWorkflow, frozenStudentViewIsBlankedWhenAnOverlayChanges) {
+    FrozenRig rig(control.get(), window.get());
+    ASSERT_NE(rig.student, nullptr);
+    auto* tools = control->getToolHandler();
+    auto overlay = [&](Action action) { ToolPresentationKit::runClassroomAction(control.get(), action); };
+
+    // Curtain switched on while frozen (the real menu entry)
+    rig.freezeShowingAnswers();
+    overlay(Action::CLASSROOM_CURTAIN);
+    ASSERT_TRUE(tools->isCurtainEnabled());
+    rig.expectBlankImmediately("Curtain switched on");
+
+    // Spotlight switched on while frozen
+    rig.freezeShowingAnswers();
+    overlay(Action::CLASSROOM_SPOTLIGHT);
+    ASSERT_TRUE(tools->isSpotlightEnabled());
+    rig.expectBlankImmediately("Spotlight switched on");
+
+    // Frozen under Spotlight, then Curtain: the new overlay is stricter, the old picture must not stay
+    rig.freezeShowingAnswers();
+    rig.click("Resume live view");
+    overlay(Action::CLASSROOM_SPOTLIGHT);  // live under Spotlight
+    settle();
+    rig.click("Freeze this page");
+    ASSERT_EQ(rig.students->getState(), ToolStudentView::State::Frozen) << "Spotlight alone must not blank the freeze";
+    overlay(Action::CLASSROOM_CURTAIN);
+    ASSERT_TRUE(tools->isCurtainEnabled());
+    ASSERT_FALSE(tools->isSpotlightEnabled());
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Blank) << "Spotlight to Curtain kept the old picture";
+    EXPECT_EQ(studentPixel(rig.student, 100, 200), 0U);
+    EXPECT_EQ(studentPixel(rig.student, 100, 100), 0U);
+
+    // Frozen under Curtain, then Spotlight: also a change of overlay, so also blank (the conservative choice)
+    overlay(Action::CLASSROOM_EXIT_OVERLAY);
+    rig.click("Show the page again");
+    overlay(Action::CLASSROOM_CURTAIN);
+    settle();
+    rig.click("Freeze this page");
+    ASSERT_EQ(rig.students->getState(), ToolStudentView::State::Frozen);
+    overlay(Action::CLASSROOM_SPOTLIGHT);
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Blank) << "Curtain to Spotlight kept the old picture";
+
+    // Leaving the overlay that was part of the frozen picture shows nothing new: the freeze stays
+    overlay(Action::CLASSROOM_EXIT_OVERLAY);
+    rig.click("Show the page again");
+    overlay(Action::CLASSROOM_CURTAIN);
+    settle();
+    rig.click("Freeze this page");
+    ASSERT_EQ(rig.students->getState(), ToolStudentView::State::Frozen);
+    const unsigned coveredBefore = studentPixel(rig.student, 300, 700);
+    overlay(Action::CLASSROOM_EXIT_OVERLAY);
+    settle();
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Frozen);
+    EXPECT_EQ(studentPixel(rig.student, 300, 700), coveredBefore) << "still the covered picture";
+}
+
+TEST_F(ClassroomWorkflow, frozenStudentViewIsBlankedWhenTheAnswersLayerIsRemoved) {
+    FrozenRig rig(control.get(), window.get());
+    ASSERT_NE(rig.student, nullptr);
+    rig.freezeShowingAnswers();
+    ASSERT_EQ(control->getLayerController()->getCurrentLayerId(), rig.answersId());
+    control->getLayerController()->deleteCurrentLayer();  // the real "Delete layer" action
+    rig.expectBlankImmediately("answers layer deleted");
+}
+
+TEST_F(ClassroomWorkflow, ordinaryChangesKeepTheFreezeAndLiveAndBlankStillWork) {
+    FrozenRig rig(control.get(), window.get());
+    ASSERT_NE(rig.student, nullptr);
+    auto* layers = control->getLayerController();
+    auto* tools = control->getToolHandler();
+
+    // Answers hidden before the freeze: the frozen picture has none
+    utn::hideAnswersFromUi(control.get());
+    settle();
+    rig.click("Freeze this page");
+    ASSERT_EQ(rig.students->getState(), ToolStudentView::State::Frozen);
+    ASSERT_EQ(studentPixel(rig.student, 100, 200), 0xFFFFFFU);
+    ASSERT_EQ(studentPixel(rig.student, 100, 100), 0U);
+
+    // New ink, a new layer, a pen switch, hiding something that was never shown, revealing answers on the teacher's side
+    addMarker(rig.page->getLayers().front(), 500);
+    control->firePageChanged(0);
+    control->selectTool(TOOL_PEN);
+    layers->addNewLayer(false);
+    layers->setLayerVisible(rig.answersId(), false);  // already hidden: shows nothing new, hides nothing students saw
+    utn::revealAnswersFromUi(control.get(), false);   // students see the frozen picture, not the answers
+    settle();
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Frozen) << "an ordinary change destroyed the freeze";
+    EXPECT_EQ(studentPixel(rig.student, 100, 500), 0xFFFFFFU) << "the frozen picture does not follow the page";
+    EXPECT_EQ(studentPixel(rig.student, 100, 200), 0xFFFFFFU) << "revealing later does not reach a frozen frame";
+    EXPECT_EQ(studentPixel(rig.student, 100, 100), 0U);
+    EXPECT_FALSE(tools->isCurtainEnabled());
+
+    // Resume: live shows the current page; Blank and back
+    rig.click("Resume live view");
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(studentPixel(rig.student, 100, 500), 0U) << "live follows the page again";
+    rig.click("Blank screen");
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Blank);
+    EXPECT_EQ(studentPixel(rig.student, 300, 700), 0U);
+    rig.click("Show the page again");
+    EXPECT_EQ(rig.students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(studentPixel(rig.student, 100, 100), 0U);
 }
 
 // The M2 field test: a "Drag the divider to resize settings" tooltip covered the worksheet while annotating. The

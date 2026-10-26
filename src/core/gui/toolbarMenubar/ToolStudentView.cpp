@@ -27,6 +27,7 @@
 #include "model/Document.h"
 #include "model/Layer.h"
 #include "model/LayerAudience.h"
+#include "model/StudentVisibility.h"
 #include "model/XojPage.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
@@ -71,6 +72,7 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
         // What this frame shows, recorded under the same lock that draws it, so a frozen copy can later tell whether
         // students would now be allowed to see less
         content->page = page;
+        content->layerRemovals = page->getLayerRemovalCount();
         for (const Layer* layer: page->getLayersView()) {
             if (utn::visibleToStudents(*layer)) {
                 content->visibleLayers.push_back(layer);
@@ -141,6 +143,9 @@ ToolStudentView::ToolStudentView(std::string id, Control* control):
     registerListener(control);
     // A null page means the audience changed (answers hidden or revealed): show it without waiting
     canvasListenerId = control->addCanvasChangedListener([this](const XojPage* page) { requestRedraw(page == nullptr); });
+    // Layers, audiences and overlays announce here whatever user interface path changed them
+    visibilityListenerId =
+            utn::addStudentVisibilityListener([this](bool mayCheckNow) { onStudentVisibilityChanged(mayCheckNow); });
 
     if (GdkDisplay* display = gdk_display_get_default()) {
         auto onMonitorsChanged = +[](GdkDisplay*, GdkMonitor*, gpointer data) {
@@ -158,6 +163,8 @@ ToolStudentView::ToolStudentView(std::string id, Control* control):
 }
 
 ToolStudentView::~ToolStudentView() {
+    utn::removeStudentVisibilityListener(visibilityListenerId);  // returns only when no call is running
+    *alive = false;                                              // a queued check must not touch this object
     control->removeCanvasChangedListener(canvasListenerId);
     if (guint source = redrawSource.exchange(0)) {
         g_source_remove(source);
@@ -334,9 +341,12 @@ bool ToolStudentView::frozenFrameIsSafe() {
     if (!frozenFrame) {
         return true;
     }
-    // Curtain or Spotlight switched on after the freeze: the frozen picture shows the whole page
-    auto* tools = control->getToolHandler();
-    if ((tools->isCurtainEnabled() || tools->isSpotlightEnabled()) && !frozenWithOverlay) {
+    // Any overlay that is not the one already in the frozen picture. Switching on Curtain or Spotlight after the freeze
+    // is a change; so is switching from one to the other, because the new one can be the stricter (Spotlight to Curtain)
+    // and a frozen picture of the old one would then show what the teacher just covered. Switching an overlay off
+    // keeps the frozen picture, which was already covered at least as much.
+    const OverlayKind overlay = currentOverlay(control);
+    if (overlay != OverlayKind::None && overlay != frozenOverlay) {
         return false;
     }
     if (!frozenContent.page) {
@@ -352,8 +362,12 @@ bool ToolStudentView::frozenFrameIsSafe() {
     if (!locked) {
         return false;
     }
-    bool safe = true;
+    // A layer removed since the frame was drawn: its address may be reused, so do not trust the comparison below
+    bool safe = frozenContent.page->getLayerRemovalCount() == frozenContent.layerRemovals;
     for (const Layer* shown: frozenContent.visibleLayers) {
+        if (!safe) {
+            break;
+        }
         bool stillVisible = false;
         for (const Layer* layer: frozenContent.page->getLayersView()) {
             if (layer == shown) {
@@ -376,6 +390,7 @@ bool ToolStudentView::dropFrozenFrameIfUnsafe() {
     }
     cairo_surface_destroy(frozenFrame);
     frozenFrame = nullptr;
+    hasFrozenFrame = false;
     frozenContent = {};
     frozen = false;
     setBlanked(true);  // blank at once; also covers the teacher's canvas when students watch the same screen
@@ -387,6 +402,39 @@ bool ToolStudentView::dropFrozenFrameIfUnsafe() {
                          "\"Show the page again\" to continue."));
     }
     return true;
+}
+
+OverlayKind ToolStudentView::currentOverlay(Control* control) {
+    auto* tools = control->getToolHandler();
+    if (tools->isCurtainEnabled()) {
+        return OverlayKind::Curtain;
+    }
+    return tools->isSpotlightEnabled() ? OverlayKind::Spotlight : OverlayKind::None;
+}
+
+void ToolStudentView::onStudentVisibilityChanged(bool mayCheckNow) {
+    if (mayCheckNow && std::this_thread::get_id() == uiThread) {
+        // From the layer controller or the tool handler: the Document is not locked, so check now. A frozen frame that
+        // students may no longer see goes blank before this returns; a live one is redrawn without waiting.
+        dropFrozenFrameIfUnsafe();
+        requestRedraw(studentAudienceChanged());
+        return;
+    }
+    // From a model setter: possibly under the Document lock or on another thread. Check as soon as the main loop is free,
+    // and only if there is a frozen frame to protect.
+    if (!hasFrozenFrame.load() || visibilityCheckQueued.exchange(true)) {
+        return;
+    }
+    using Token = std::pair<std::weak_ptr<std::atomic_bool>, ToolStudentView*>;
+    g_idle_add_full(G_PRIORITY_HIGH, +[](gpointer data) -> gboolean {
+        std::unique_ptr<Token> token(static_cast<Token*>(data));
+        if (auto alive = token->first.lock(); alive && *alive) {
+            ToolStudentView* self = token->second;
+            self->visibilityCheckQueued = false;
+            self->dropFrozenFrameIfUnsafe();
+        }
+        return G_SOURCE_REMOVE;
+    }, new Token(alive, this), nullptr);
 }
 
 void ToolStudentView::requestRedraw(bool urgent) {
@@ -471,6 +519,7 @@ bool ToolStudentView::studentAudienceChanged() {
         return false;
     }
     uint64_t signature = 1469598103934665603ULL;
+    signature = (signature ^ (static_cast<uint64_t>(currentOverlay(control)) + 7U)) * 1099511628211ULL;
     // doc->getPage, not Control::getCurrentPage(): that takes the Document lock again, and the lock is not recursive
     if (PageRef page = doc->getPage(control->getCurrentPageNo())) {
         size_t index = 0;
@@ -665,16 +714,17 @@ void ToolStudentView::setFrozen(bool enabled) {
             cairo_paint(cr);
             cairo_destroy(cr);
             frozenContent = liveContent;
-            auto* tools = control->getToolHandler();
-            frozenWithOverlay = tools->isCurtainEnabled() || tools->isSpotlightEnabled();
+            frozenOverlay = currentOverlay(control);
         }
         frozen = frozenFrame != nullptr;
+        hasFrozenFrame = frozen;
     } else if (!enabled) {
         frozen = false;
         if (frozenFrame) {
             cairo_surface_destroy(frozenFrame);
             frozenFrame = nullptr;
         }
+        hasFrozenFrame = false;
         // The page may have changed while students saw the frozen frame; never show a stale live frame on resume
         refreshLiveFrame();
     }
@@ -766,6 +816,21 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
         return FALSE;
     }
     if (self->frozen && self->frozenFrame) {
+        // Last line of defence: whatever delayed redraw or exposure got us here, a frozen picture that students may no
+        // longer see is never painted. Painting black is safe inside a draw; the state change itself follows at once.
+        if (!self->frozenFrameIsSafe()) {
+            cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+            cairo_paint(cr);
+            using Token = std::pair<std::weak_ptr<std::atomic_bool>, ToolStudentView*>;
+            g_idle_add_full(G_PRIORITY_HIGH, +[](gpointer data) -> gboolean {
+                std::unique_ptr<Token> token(static_cast<Token*>(data));
+                if (auto alive = token->first.lock(); alive && *alive) {
+                    token->second->dropFrozenFrameIfUnsafe();
+                }
+                return G_SOURCE_REMOVE;
+            }, new Token(self->alive, self), nullptr);
+            return FALSE;
+        }
         cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
         cairo_paint(cr);
         double frameWidth = 0, frameHeight = 0;

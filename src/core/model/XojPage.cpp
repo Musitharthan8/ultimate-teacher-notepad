@@ -6,6 +6,7 @@
 
 #include "model/Layer.h"     // for Layer, Layer::Index
 #include "model/PageType.h"  // for PageType, PageTypeFormat, PageTypeForma...
+#include "model/StudentVisibility.h"
 #include "util/Assert.h"     // for xoj_assert
 #include "util/i18n.h"       // for _
 
@@ -61,6 +62,8 @@ void XojPage::insertLayer(Layer* layer, Layer::Index index) {
 }
 
 void XojPage::removeLayer(Layer* l) {
+    ++layerRemovals;
+    utn::notifyStudentVisibilityChanged(false);
     if (auto it = std::find(layer.begin(), layer.end(), l); it != layer.end()) {
         this->layer.erase(it);
     }

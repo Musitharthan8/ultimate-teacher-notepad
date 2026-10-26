@@ -14,6 +14,7 @@
 #include "gui/XournalView.h"                 // for XournalView
 #include "model/Document.h"                  // for Document
 #include "model/LayerAudience.h"             // for visibleLayerIdForInk
+#include "model/StudentVisibility.h"
 #include "model/XojPage.h"                   // for XojPage
 #include "undo/InsertLayerUndoAction.h"      // for InsertLayerUndoAction
 #include "undo/MergeLayerDownUndoAction.h"   // for MergeLayerDownUndoAction
@@ -140,10 +141,12 @@ void LayerController::updateActions() {
 void LayerController::fireRebuildLayerMenu() {
     for (LayerCtrlListener* l: this->listener) { l->rebuildLayerMenu(); }
     updateActions();
+    utn::notifyStudentVisibilityChanged(true);
 }
 
 void LayerController::fireLayerVisibilityChanged() {
     for (LayerCtrlListener* l: this->listener) { l->layerVisibilityChanged(); }
+    utn::notifyStudentVisibilityChanged(true);
 
     // Rerenders the page - Todo: make this another listener
     control->getWindow()->getXournal()->layerChanged(selectedPage);
