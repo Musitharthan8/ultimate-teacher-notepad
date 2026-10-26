@@ -2539,6 +2539,65 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAlsoCoverTheStudentViewFrame) {
     settle();
 }
 
+TEST_F(ClassroomWorkflow, presentationExitPreservesSavedAnnotationsAndKeepsAnswersHidden) {
+    control->startAnswersLayer();
+    auto page = control->getCurrentPage();
+    auto* answers = page->getSelectedLayer();
+    auto answer = std::make_unique<Text>();
+    answer->setText("Private answer 42");
+    answers->addElement(std::move(answer));
+    control->setAnswersRevealed(false, false);
+
+    auto* lesson = page->getLayers().front();
+    auto annotation = std::make_unique<Text>();
+    annotation->setText("Saved lesson note");
+    annotation->move(100, 100);
+    lesson->addElement(std::move(annotation));
+    ASSERT_FALSE(answers->isVisible());
+
+    // Control is shared by the whole suite. An earlier test that runs an export job directly never reaches the
+    // unblock() of the scheduled job, which would leave every win.* action disabled here.
+    control->unblock();
+    window->show(nullptr);
+    auto* actions = G_ACTION_GROUP(window->getWindow());
+    ASSERT_TRUE(g_action_group_get_action_enabled(actions, "classroom-spotlight"));
+    g_action_group_activate_action(actions, "classroom-spotlight", nullptr);
+    ASSERT_TRUE(control->getToolHandler()->isSpotlightEnabled());
+    auto* exitButton = buttonNamed(window->get("mainOverlay"), "Show the whole page (Esc)");
+    ASSERT_NE(exitButton, nullptr);
+    gtk_button_clicked(GTK_BUTTON(exitButton));
+    settle();
+
+    EXPECT_FALSE(control->getToolHandler()->isSpotlightEnabled());
+    EXPECT_EQ(lesson->getElements().size(), 1U);
+    EXPECT_EQ(answers->getElements().size(), 1U);
+    EXPECT_FALSE(answers->isVisible());
+
+    // Tapping the active Curtain action a second time also exits without changing document content.
+    g_action_group_activate_action(actions, "classroom-curtain", nullptr);
+    ASSERT_TRUE(control->getToolHandler()->isCurtainEnabled());
+    g_action_group_activate_action(actions, "classroom-curtain", nullptr);
+    EXPECT_FALSE(control->getToolHandler()->isCurtainEnabled());
+    EXPECT_EQ(lesson->getElements().size(), 1U);
+    EXPECT_EQ(answers->getElements().size(), 1U);
+    EXPECT_FALSE(answers->isVisible());
+
+    const auto file = Util::getTmpDirSubfolder() / "presentation-exit-preserves-answers.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto reopened = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(reopened, nullptr);
+    ASSERT_EQ(reopened->getPage(0)->getLayers().size(), 2U);
+    EXPECT_EQ(reopened->getPage(0)->getLayers().front()->getElements().size(), 1U);
+    auto* savedAnswers = reopened->getPage(0)->getLayers().at(1);
+    EXPECT_EQ(savedAnswers->getAudience(), LayerAudience::Answers);
+    EXPECT_FALSE(savedAnswers->isVisible());
+    ASSERT_EQ(savedAnswers->getElements().size(), 1U);
+    EXPECT_EQ(static_cast<Text*>(savedAnswers->getElements().front().get())->getText(), "Private answer 42");
+}
+
 // Closer to a teaching session than the single-page stress test: strokes spread over several pages, undo/redo
 // churn, and the real AutosaveJob running on the scheduler while worker threads render. UTN_SOAK_STROKES raises the
 // size (default is small enough for the normal suite). When built with -DUTN_LOCK_AUDIT=ON it also fails on any nested
