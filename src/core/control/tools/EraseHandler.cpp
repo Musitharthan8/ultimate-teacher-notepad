@@ -13,6 +13,7 @@
 #include "control/ToolEnums.h"            // for ERASER_TYPE_DELETE_STROKE
 #include "model/eraser/CircularEraser.h"  // for utn::eraser::circleHitsStroke
 #include "control/ToolHandler.h"          // for ToolHandler
+#include "control/UtnPerf.h"
 #include "gui/LegacyRedrawable.h"         // for Redrawable
 #include "model/Document.h"               // for Document
 #include "model/Element.h"                // for Element, ELEMENT_STROKE
@@ -183,6 +184,7 @@ EraseHandler::~EraseHandler() {
  * Handle eraser event: "Delete Stroke" and "Standard", Whiteout is not handled here
  */
 void EraseHandler::erase(double x, double y) {
+    utn::perf::ScopedTimer eraseTimer(utn::perf::Metric::EraseEvent);
     if (!std::isfinite(x) || !std::isfinite(y)) {
         previousPoint.reset();
         return;
@@ -356,6 +358,7 @@ void EraseHandler::eraseWithMask(Layer* layer, double startX, double startY, dou
             stroke = eraseUndoAction->beginMaskedEdit(layer, stroke, originalPos);
             originalDeletePositions.emplace(stroke, originalPos);
             stroke->addErasure({{startX, startY}, {endX, endY}, radius, {}});
+            utn::perf::record(utn::perf::Metric::ErasuresPerStroke, static_cast<double>(stroke->getErasures().size()));
             // Only remove an element when this capsule provably covers its
             // entire bounds. Small holes keep the editable vector stroke.
             bool covers = true;

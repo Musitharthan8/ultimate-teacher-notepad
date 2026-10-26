@@ -14,6 +14,7 @@
 #include "control/ToolHandler.h"                            // for ToolHandler
 #include "control/layer/LayerController.h"                  // for LayerController
 #include "control/settings/Settings.h"                      // for Settings
+#include "control/UtnPerf.h"                                // for utn::perf
 #include "control/settings/SettingsEnums.h"                 // for EmptyLastPageAppendType
 #include "control/shaperecognizer/ShapeRecognizer.h"        // for ShapeRecognizer
 #include "control/tools/InputHandler.h"                     // for InputHandler::P...
@@ -166,6 +167,7 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     if (!stroke) {
         return;
     }
+    utn::perf::ScopedTimer penUpTimer(utn::perf::Metric::PenUp);
     finalizeStroke(pos.pressure);
 
     Range finalizationRange;
@@ -195,7 +197,11 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
     if (h->getDrawingType() == DRAWING_TYPE_SHAPE_RECOGNIZER) {
         ShapeRecognizer reco;
 
-        auto recognized = reco.recognizePatterns(stroke.get(), control->getSettings()->getStrokeRecognizerMinSize());
+        std::unique_ptr<Stroke> recognized;
+        {
+            utn::perf::ScopedTimer recognizerTimer(utn::perf::Metric::Recognizer);
+            recognized = reco.recognizePatterns(stroke.get(), control->getSettings()->getStrokeRecognizerMinSize());
+        }
 
         if (recognized) {
             // strokeRecognizerDetected handles the repainting and the deletion of the views.
@@ -206,7 +212,10 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
 
     auto ptr = stroke.get();
     Document* doc = control->getDocument();
-    doc->lock();
+    {
+        utn::perf::ScopedTimer lockTimer(utn::perf::Metric::PenUpLockWait);
+        doc->lock();
+    }
     layer->addElement(std::move(stroke));
     doc->unlock();
 

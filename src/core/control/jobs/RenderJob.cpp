@@ -9,6 +9,7 @@
 #include "control/Control.h"            // for Control
 #include "control/ToolEnums.h"          // for TOOL_PLAY_OBJECT
 #include "control/ToolHandler.h"        // for ToolHandler
+#include "control/UtnPerf.h"            // for utn::perf
 #include "control/jobs/Job.h"           // for JOB_TYPE_RENDER, JobType
 #include "gui/PageView.h"               // for XojPageView
 #include "gui/XournalView.h"            // for XournalView
@@ -116,6 +117,7 @@ void RenderJob::renderToBuffer(cairo_t* cr) const {
         localView.setHiddenAnswersOpacity(0.4);
     }
 
+    utn::perf::ScopedTimer renderTimer(utn::perf::Metric::RenderJob);
     std::shared_lock<Document> lock(*this->view->xournal->getDocument());
     localView.drawPage(this->view->page, cr, false);
 }

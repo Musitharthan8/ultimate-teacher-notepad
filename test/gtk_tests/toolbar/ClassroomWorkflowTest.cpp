@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <set>
@@ -11,6 +12,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/UtnPerf.h"
 #include "control/actions/ActionDatabase.h"
 #include "control/jobs/AutosaveJob.h"
 #include "control/jobs/XournalScheduler.h"
@@ -28,6 +30,7 @@
 #include "gui/FloatingToolbox.h"
 #include "gui/PdfFloatingToolbox.h"
 #include "gui/PageView.h"
+#include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
@@ -39,6 +42,7 @@
 #include "model/Text.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
+#include "model/eraser/MaskedStrokeCodec.h"
 #include "util/PathUtil.h"
 #include "util/PopupWindowWrapper.h"
 #include "util/XojMsgBox.h"
@@ -167,6 +171,19 @@ unsigned studentPixel(GtkWidget* student, double pageX, double pageY) {
     const unsigned pixel = reinterpret_cast<unsigned*>(row)[x] & 0xFFFFFF;
     cairo_surface_destroy(surface);
     return pixel;
+}
+
+/**
+ * The fixture builds Control and MainWindow without starting the job thread (XournalMain does that in the real
+ * application), so queued render and autosave jobs never ran in these tests. The soak tests start it, once: Scheduler
+ * cannot be restarted and its destructor stops it.
+ */
+void ensureSchedulerRunning(Control* control) {
+    static bool started = false;
+    if (!started) {
+        control->getScheduler()->start();
+        started = true;
+    }
 }
 
 void addMarker(Layer* layer, double y) {
@@ -1235,6 +1252,38 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) 
     }
 }
 
+namespace {
+bool answersShowing(Control* control) {
+    auto page = control->getCurrentPage();
+    for (const Layer* layer: page->getLayersView()) {
+        if (layer->getAudience() == LayerAudience::Answers && layer->isVisible()) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+// Revealing everything to a class that may be watching must not be one accidental tap, and every reveal can be undone.
+
+// The M2 field test: a "Drag the divider to resize settings" tooltip covered the worksheet while annotating. The
+// divider must stay draggable (and keyboard operable) without any tooltip on the panes around the worksheet.
+TEST_F(ClassroomWorkflow, noPaneAroundTheWorksheetCarriesATooltip) {
+    window->show(nullptr);
+    settle();
+    for (const char* name: {"utnInspectorPaned", "mainContentContainer", "panelMainContents"}) {
+        GtkWidget* pane = window->get(name);
+        ASSERT_NE(pane, nullptr) << name;
+        EXPECT_FALSE(gtk_widget_get_has_tooltip(pane)) << name << " would show a tooltip over the worksheet";
+        EXPECT_EQ(gtk_widget_get_tooltip_text(pane), nullptr) << name;
+    }
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    EXPECT_FALSE(gtk_widget_get_has_tooltip(canvas)) << "the drawing area must never show a tooltip";
+    EXPECT_TRUE(gtk_widget_get_can_focus(window->get("utnInspectorPaned"))) << "the divider stays keyboard operable";
+}
+
+// Spotlight and Curtain were drawn on the teacher's canvas only, so a teacher who covered the page still projected it.
+
 // Closer to a teaching session than the single-page stress test: strokes spread over several pages, undo/redo
 // churn, and the real AutosaveJob running on the scheduler while worker threads render. UTN_SOAK_STROKES raises the
 // size (default is small enough for the normal suite). When built with -DUTN_LOCK_AUDIT=ON it also fails on any nested
@@ -1256,6 +1305,7 @@ TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocument
     }
     window->show(nullptr);
     settle();
+    ensureSchedulerRunning(control.get());
 #ifdef UTN_LOCK_AUDIT
     const unsigned nestedBefore = utn::lockaudit::nestedViolations();
 #endif
@@ -1318,6 +1368,164 @@ TEST_F(ClassroomWorkflow, longSessionWithAutosaveAndSeveralPagesKeepsTheDocument
 #endif
     std::error_code ec;
     fs::remove(fs::path(lesson).replace_filename(".soak-lesson.autosave.xopp"), ec);
+}
+
+// What the first soak does not do: erase, highlight, vary the pressure, keep Student View open on the dense pages and
+// autosave while erased strokes exist. The failure it looks for is the field one, a session that gets slower the longer
+// it runs, so besides the usual tripwires it compares the last third of the session with the first.
+// UTN_SOAK_STROKES scales it (default is small enough for the normal suite).
+TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutosaveDoesNotSlowDown) {
+    const char* requested = g_getenv("UTN_SOAK_STROKES");
+    const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 120;
+    const int iterations = static_cast<int>(std::clamp<gint64>(parsed, 12, 20000));
+    constexpr size_t PAGES = 3;
+
+    Document* doc = control->getDocument();
+    const auto lesson = Util::getTmpDirSubfolder() / "soak-heavy-lesson.xopp";
+    doc->lock();
+    doc->setFilepath(lesson);
+    doc->unlock();
+    while (doc->getPageCount() < PAGES) {
+        control->insertNewPage(doc->getPageCount(), true);
+    }
+    window->show(nullptr);
+    settle();
+    ensureSchedulerRunning(control.get());
+
+    utn::perf::setEnabled(true);
+    utn::perf::reset();
+#ifdef UTN_LOCK_AUDIT
+    const unsigned nestedBefore = utn::lockaudit::nestedViolations();
+#endif
+
+    // The class is watching: Student View is open and redraws while the teacher writes
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    ASSERT_NE(buttonNamed(menu, "Open on the projector"), nullptr);
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open on the projector")));
+    settle();
+    ASSERT_NE(studentWindow(), nullptr);
+
+    auto* tools = control->getToolHandler();
+    tools->setEraserType(ERASER_TYPE_DEFAULT);
+
+    std::vector<gint64> latencies;
+    latencies.reserve(static_cast<size_t>(iterations));
+    size_t penStrokes = 0;
+    for (int i = 0; i < iterations; ++i) {
+        const size_t pageNo = static_cast<size_t>(i) % PAGES;
+        auto* view = window->getXournal()->getViewFor(pageNo);
+        ASSERT_NE(view, nullptr);
+        const double zoom = view->getZoom();
+        PositionInputData pos{};
+        pos.pressure = 0.5;
+        const auto begin = g_get_monotonic_time();
+
+        if (i % 7 == 6) {
+            // A curved eraser sweep through the ink the earlier strokes left
+            control->selectTool(TOOL_ERASER);
+            tools->setEraserType(ERASER_TYPE_DEFAULT);
+            pos.x = 80 * zoom;
+            pos.y = 120 * zoom;
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int step = 1; step <= 90; ++step) {
+                const double a = step * 0.07;
+                pos.x = (80 + step * 3.0) * zoom;
+                pos.y = (120 + 60 * std::sin(a) + step * 2.0) * zoom;
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            view->onButtonReleaseEvent(pos);
+        } else {
+            const bool highlight = i % 5 == 4;
+            control->selectTool(highlight ? TOOL_HIGHLIGHTER : TOOL_PEN);
+            tools->setDrawingType(DRAWING_TYPE_DEFAULT);
+            pos.x = (60 + (i * 37) % 200) * zoom;
+            pos.y = (80 + (i * 53) % 300) * zoom;
+            ASSERT_TRUE(view->onButtonPressEvent(pos));
+            for (int point = 1; point <= 60; ++point) {
+                pos.x += (highlight ? 3.0 : 2.0) * zoom;
+                pos.y += (point % 5 - 2) * 1.5 * zoom;
+                pos.pressure = 0.3 + 0.5 * std::abs(std::sin(point * 0.2));
+                pos.timestamp += 8;
+                view->onMotionNotifyEvent(pos);
+            }
+            view->onButtonReleaseEvent(pos);
+            ++penStrokes;
+        }
+        if (i % 11 == 10) {
+            control->getUndoRedoHandler()->undo();
+            control->getUndoRedoHandler()->redo();
+        }
+        if (i % 15 == 14) {
+            auto* job = new AutosaveJob(control.get());
+            control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
+            job->unref();
+        }
+        for (int event = 0; event < 40 && gtk_events_pending(); ++event) {
+            gtk_main_iteration_do(false);
+        }
+        latencies.push_back(g_get_monotonic_time() - begin);
+    }
+    // Let the queued renders and the last autosave finish before the numbers are read
+    for (int i = 0; i < 80; ++i) {
+        settle();
+    }
+
+    // Compare the end of the session with its beginning, in the order it happened
+    const size_t third = latencies.size() / 3;
+    auto p95 = [](std::vector<gint64> part) {
+        std::sort(part.begin(), part.end());
+        return part[(part.size() - 1) * 95 / 100];
+    };
+    const gint64 early = p95({latencies.begin(), latencies.begin() + static_cast<std::ptrdiff_t>(third)});
+    const gint64 late = p95({latencies.end() - static_cast<std::ptrdiff_t>(third), latencies.end()});
+    RecordProperty("heavy_iterations", iterations);
+    RecordProperty("heavy_early_p95_us", std::to_string(early));
+    RecordProperty("heavy_late_p95_us", std::to_string(late));
+    const gint64 slowest = *std::max_element(latencies.begin(), latencies.end());
+    RecordProperty("heavy_max_us", std::to_string(slowest));
+    EXPECT_LT(slowest, 5 * G_USEC_PER_SEC);
+    // Generous on purpose (a noisy CI machine), but a session that keeps getting slower fails it
+    EXPECT_LE(late, 2 * early + 50 * 1000) << "the session got slower the longer it ran";
+
+    for (auto metric: {utn::perf::Metric::PenUp, utn::perf::Metric::PenUpLockWait, utn::perf::Metric::RenderJob,
+                       utn::perf::Metric::Autosave, utn::perf::Metric::AutosaveLockHold,
+                       utn::perf::Metric::StudentFrame, utn::perf::Metric::EraseEvent,
+                       utn::perf::Metric::ErasuresPerStroke, utn::perf::Metric::DocLockWaitExclusive}) {
+        const auto stats = utn::perf::stats(metric);
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_n", static_cast<int>(stats.count));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_mean", std::to_string(stats.mean()));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_p95", std::to_string(stats.p95));
+        RecordProperty(std::string("perf_") + utn::perf::name(metric) + "_max", std::to_string(stats.max));
+    }
+    // Merged eraser capsules keep a stroke that was swept many times cheap to draw and still saveable with its data
+    EXPECT_LE(utn::perf::stats(utn::perf::Metric::ErasuresPerStroke).max,
+              static_cast<double>(utn::eraser::MASKED_STROKE_MAX_ERASURES));
+    // The student window is throttled by its own cost: it may not take most of the session's UI time
+    const auto frames = utn::perf::stats(utn::perf::Metric::StudentFrame);
+    double sessionMs = 0;
+    for (gint64 latency: latencies) {
+        sessionMs += static_cast<double>(latency) / 1000.0;
+    }
+    RecordProperty("heavy_student_frame_share", std::to_string(frames.total / sessionMs));
+    EXPECT_LT(frames.total, 0.2 * sessionMs) << "Student View took a large share of the UI thread";
+    EXPECT_GT(penStrokes, 0U);
+#ifdef UTN_LOCK_AUDIT
+    EXPECT_EQ(utn::lockaudit::nestedViolations(), nestedBefore) << "nested Document lock acquisition on one thread";
+    RecordProperty("heavy_longest_lock_wait_ms", std::to_string(utn::lockaudit::longestWaitMs()));
+    RecordProperty("heavy_slow_lock_waits", static_cast<int>(utn::lockaudit::slowAcquisitions()));
+#endif
+
+    gtk_widget_destroy(studentWindow());
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+    utn::perf::setEnabled(false);
+    std::error_code ec;
+    fs::remove(fs::path(lesson).replace_filename(".soak-heavy-lesson.autosave.xopp"), ec);
 }
 
 namespace {

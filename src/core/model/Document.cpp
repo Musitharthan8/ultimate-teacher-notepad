@@ -1,5 +1,6 @@
 #include "Document.h"
 
+#include <chrono>
 #include <codecvt>  // for codecvt_utf8_utf16
 #include <cstddef>
 #include <ctime>  // for size_t, localtime, strf...
@@ -12,6 +13,7 @@
 
 #include <glib-object.h>  // for g_object_unref, G_TYPE_...
 
+#include "control/UtnPerf.h"                  // for utn::perf
 #include "model/DocumentChangeType.h"         // for DOCUMENT_CHANGE_CLEARED
 #include "model/DocumentHandler.h"            // for DocumentHandler
 #include "model/DocumentLockAudit.h"          // for utn::lockaudit (no-ops unless UTN_LOCK_AUDIT)
@@ -68,7 +70,14 @@ auto Document::freeTreeContentEntry(GtkTreeModel* treeModel, GtkTreePath* path, 
 // Optional diagnostics identify this mutex; native locking operations remain unchanged.
 void Document::lock() {
     auto attempt = utn::lockaudit::begin(&this->documentLock, true, true);
-    this->documentLock.lock();
+    if (utn::perf::enabled()) {
+        const auto start = std::chrono::steady_clock::now();
+        this->documentLock.lock();
+        utn::perf::record(utn::perf::Metric::DocLockWaitExclusive,
+                          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    } else {
+        this->documentLock.lock();
+    }
     utn::lockaudit::acquired(attempt);
 }
 void Document::unlock() {
@@ -85,7 +94,14 @@ auto Document::try_lock() -> bool {
 }
 void Document::lock_shared() {
     auto attempt = utn::lockaudit::begin(&this->documentLock, false, true);
-    this->documentLock.lock_shared();
+    if (utn::perf::enabled()) {
+        const auto start = std::chrono::steady_clock::now();
+        this->documentLock.lock_shared();
+        utn::perf::record(utn::perf::Metric::DocLockWaitShared,
+                          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    } else {
+        this->documentLock.lock_shared();
+    }
     utn::lockaudit::acquired(attempt);
 }
 void Document::unlock_shared() {

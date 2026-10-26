@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "control/Control.h"
+#include "control/UtnPerf.h"
 #include "gui/MainWindow.h"
 #include "gui/XournalView.h"
 #include "model/Document.h"
@@ -530,7 +531,10 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
         cairo_paint(cr);
         return FALSE;
     }
-    renderStudentFrame(self->control, cr, width, height);
+    {
+        utn::perf::ScopedTimer frameTimer(utn::perf::Metric::StudentFrame);
+        renderStudentFrame(self->control, cr, width, height);
+    }
     return FALSE;
 }
 
