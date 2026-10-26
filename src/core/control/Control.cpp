@@ -334,6 +334,10 @@ auto Control::autosaveCallback(Control* control) -> bool {
         return true;
     }
 
+    // Note the undo position here, on the main thread that owns the undo list. The job used to do it from its worker
+    // thread, reading the list while the main thread could be pushing to it.
+    control->undoRedo->documentAutosaved();
+
     auto* job = new AutosaveJob(control);
     control->scheduler->addJob(job, JOB_PRIORITY_NONE);
     job->unref();

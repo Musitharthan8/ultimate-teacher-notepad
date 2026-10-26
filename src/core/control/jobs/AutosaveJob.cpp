@@ -27,8 +27,7 @@ void AutosaveJob::run() {
     utn::perf::ScopedTimer autosaveTimer(utn::perf::Metric::Autosave);
     SaveHandler handler;
 
-    control->getUndoRedoHandler()->documentAutosaved();
-
+    // The undo position is recorded by Control::autosaveCallback on the main thread before this job is scheduled.
     Document* doc = control->getDocument();
 
     fs::path filepath;
