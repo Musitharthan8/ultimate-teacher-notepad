@@ -185,6 +185,7 @@ void sampleProcess() {
 
 namespace {
 constexpr guint HEARTBEAT_MS = 20;
+constexpr double UI_STALL_THRESHOLD_MS = 30.0;
 constexpr gint64 WATCHDOG_STALL_US = 2 * G_USEC_PER_SEC;
 std::atomic<bool> heartbeatRunning{false};
 std::atomic<bool> shuttingDown{false};
@@ -215,7 +216,9 @@ gboolean beat(gpointer) {
     const gint64 previous = lastBeat.exchange(now);
     if (previous != 0) {
         const double late = static_cast<double>(now - previous) / 1000.0 - HEARTBEAT_MS;
-        if (late > 8.0) {
+        // GLib timers on Windows tick at about 15.6 ms, so an idle 20 ms timer is "late" by 10 to 12 ms every time.
+        // Only lateness beyond two ticks is a stall worth counting.
+        if (late > UI_STALL_THRESHOLD_MS) {
             record(Metric::UiStall, late);
         }
     }
