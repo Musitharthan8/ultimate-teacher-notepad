@@ -244,3 +244,105 @@ lock-audit suites and the four soak runs above were repeated; the full GTK suite
 Unchanged from section 7, plus: no physical-stylus evidence; a full-page render still holds the shared lock for the page;
 the `.utn-tmp` file of a crash mid-export is left beside the destination (harmless, the destination is intact); private
 bytes in long sessions are unexplained. Do not describe the freeze as fixed until the hardware run in section 8.
+
+## 13. Final safety corrections (second review, on `889234f09`)
+
+Two release-blocking defects from the second Codex review. Nothing in the performance work was changed.
+
+### 13.1 A failed export must keep the previous file
+
+Cause: `SaveHandler::saveAtomically` finished with `Util::safeRenameFile(temp, destination)`, which calls
+`fs::remove(destination)` before `fs::rename`. If the rename then failed, the last valid copy was already gone.
+
+Fix, in `src/util/PathUtil.cpp` (new functions; `safeRenameFile` is unchanged because its other callers were not audited
+for this change) and `SaveHandler::saveAtomically`:
+
+- `Util::createExclusiveSiblingFile` makes the temporary file next to the destination with exclusive creation
+  (`CreateFileW(CREATE_NEW)` on Windows, `open(O_CREAT | O_EXCL)` elsewhere). The name contains the process id, random
+  bits and a counter, so two saves, threads or processes never share one, and a leftover `*.utn-tmp` file from an
+  interrupted save (old or new naming) is neither used nor removed.
+- The file is written and closed completely before anything touches the destination.
+- `Util::replaceFileKeepingOld`:
+  - Windows, destination exists: `ReplaceFileW` with a private backup name and `REPLACEFILE_WRITE_THROUGH`. The documented
+    failure modes of `ReplaceFileW` without a backup name can leave the destination missing; with one, both files keep
+    their names, and if the destination is nevertheless missing afterwards it is moved back from the backup. The backup is
+    deleted after success.
+  - Windows, no destination: `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`, so a file that appeared meanwhile makes it
+    retry through `ReplaceFileW` instead of being overwritten without protection.
+  - Elsewhere: `rename(2)`, which replaces in one step on one filesystem.
+  - Never throws; errors become the message returned to the caller.
+- Every step of `saveAtomically` is inside a try/catch; only the save's own temporary file is removed on failure.
+- Concurrent saves to one destination: each takes a ticket (per destination, per process). Replacement is serialised, and
+  a save whose ticket is older than the newest one already committed does not replace the file
+  (`wasSupersededByNewerSave()`). Saves from other processes to the same file are not coordinated.
+
+What this does and does not guarantee: replacement is as atomic as the filesystem makes `ReplaceFileW` / `rename`; I did
+not test power loss, network shares or antivirus holding the file, and I make no claim about them. The teacher's own
+Save (`SaveJob`) and autosave still use their older strategy (backup file `name~`, and rename with `swap`), which is not
+part of this change.
+
+Tests (`SaveReplace.*`, 13, in `test/unit_tests/control/SaveIntegrityTest.cpp`): existing destination replaced and nothing
+left behind; new destination; Unicode path; locked destination (opened with no sharing, Windows) fails with the old bytes
+intact and nothing left, then succeeds once released; simulated replace failure keeps the old file byte for byte;
+unexpected exception is reported, not thrown; missing folder; foreign and interrupted temporary files are untouched;
+1600 temporary names from 8 threads never collide; eight concurrent saves leave one loadable file; an older slow save
+(held inside the write) does not overwrite a newer completed one; direct `replaceFileKeepingOld` cases. The earlier
+failed-student-export test (old file kept, no temp file) is unchanged.
+
+### 13.2 Frozen Student View after real visibility changes
+
+Cause: the freeze re-checked itself only when a page-change notification reached `requestRedraw`. The earlier test sent
+that notification by hand. Teacher-only changes, layer removal and some structure changes had no such path, and the check
+compared only whether an overlay was present, so Spotlight to Curtain kept the less restrictive picture.
+
+Fix:
+
+- `model/StudentVisibility.{h,cpp}`: one listener registry. `Layer::setVisible`, `Layer::setAudience` and
+  `XojPage::removeLayer` announce from the model (the listener must defer: these run under the Document lock and on any
+  thread). `LayerController::fireLayerVisibilityChanged` / `fireRebuildLayerMenu` and `ToolHandler`'s
+  `setSpotlightEnabled` / `setCurtainEnabled` / `clearPresentationOverlay` announce synchronously after their locks are gone.
+- `ToolStudentView::onStudentVisibilityChanged`: synchronous path checks the frozen frame on the UI thread at once and
+  redraws urgently if the student-visible layers or the overlay changed; the deferred path queues a high-priority idle
+  check, and only when a frozen frame exists.
+- `drawStudentView` checks the frozen frame before painting it and paints black if it is unsafe, then drops it. A delayed
+  redraw, an exposure or a timer therefore cannot show it.
+- The frozen frame records the overlay it was drawn under (`OverlayKind`). Any other overlay blanks it: Spotlight to
+  Curtain, Curtain to Spotlight, and switching an overlay on. Switching the overlay off keeps the freeze, because the frozen
+  picture was already covered at least as much. There is no separate "scope" for an overlay in the code, so none is checked.
+- `XojPage::getLayerRemovalCount()` makes any layer removal on the frozen page unsafe, even if a new layer reuses the address.
+- Revealing answers, new ink, a new layer, a pen switch and hiding something that was never in the picture keep the freeze.
+
+Tests (GTK, `ClassroomWorkflow.*`): nothing is announced by the test; each action calls what the widget calls.
+`frozenStudentViewIsBlankedByTheRealLayerAndOverlayActions` (layer checkbox path `LayerController::setLayerVisible`, hide
+all layers, `hideAnswersFromUi`, a teacher-only change with only the model setter, a delayed redraw queued first and eight
+rounds of notifications afterwards), `frozenStudentViewIsBlankedWhenAnOverlayChanges` (Curtain on, Spotlight on, Spotlight
+to Curtain, Curtain to Spotlight, overlay off keeps the freeze, through `ToolPresentationKit::runClassroomAction`),
+`frozenStudentViewIsBlankedWhenTheAnswersLayerIsRemoved` (`deleteCurrentLayer`),
+`ordinaryChangesKeepTheFreezeAndLiveAndBlankStillWork`. They read the state before the main loop runs again and assert the
+pixels the Student View draws. Mutation checks: with the new listener calls and the draw check disabled the teacher-only
+case fails; with the overlay rule reverted to "an overlay was already there" Spotlight to Curtain and Curtain to Spotlight
+fail. `StudentVisibility.*` (3 unit tests) cover the announcements.
+
+Honest note: the layer-hide checkbox path was already reaching the freeze through the canvas-changed listener (the page view
+re-renders), so that case passes even without the new listener; the new calls make it independent of that.
+Not covered: moving an object from a visible layer to a private one, projector reconnect (hardware), element-level changes.
+
+### 13.3 Verification on these commits (`2db0b453f`, `6b231631b`)
+
+Debug with lock audit and RelWithDebInfo with lock audit, `TMP`/`TEMP`/`TMPDIR` isolated:
+
+- Debug: 398 unit tests, 73 GTK tests, 6 lock-audit tests passed. One earlier full GTK run had 2 layout failures
+  (`inspectorWorkspaceModesPreserveToolStateAndPersist`, `answerBoxSettingsPopoverFitsAShortWindow...`: paned position and
+  popover height) in tests that run before any of the new ones and pass alone and on the repeat; I did not find the cause
+  (window geometry on this desktop is the suspect) and I do not call it fixed.
+- RelWithDebInfo: 398 unit tests, 73 GTK tests passed.
+- Heavy soak, 2400 iterations, Student View open: six Debug runs and four RelWithDebInfo runs, all passed their assertions.
+  Means were stable across runs (Debug: pen-up lock wait 0.20 to 0.42 ms, autosave shared lock held 2.7 to 3.3 ms mean and
+  at most 11 ms, Student View frame 43 to 45 ms mean and 14% of loop time; RelWithDebInfo: 0.34 to 0.47 ms, 0.9 to 1.2 ms
+  mean and at most 7.7 ms, 39 to 46 ms, 14%). Last/first third p95 ratio stayed below 1.
+- Occasional spikes: one Debug run had a render job of 806 ms, an erase event of 855 ms, a UI stall of 1.2 s and a longest
+  lock wait of 803 ms together, and one RelWithDebInfo run had a pen-up wait of 479 ms and another a UI stall of 1.5 s.
+  The Debug spike hit every thread at once, which points at the machine (other applications are running), but I cannot rule
+  out the known weakness that a full-page render holds the shared lock for the whole page (section 7). They did not occur in
+  the first sampling in section 12 (longest wait 98 to 99 ms) and I did not run the previous commit again to compare, so
+  the comparison is of means only.
