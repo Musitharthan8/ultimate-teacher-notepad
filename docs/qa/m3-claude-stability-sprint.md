@@ -172,7 +172,75 @@ Curtain while Student View is Blank; delete a page while Student View is open.
 ## 11. Portable build for the hardware run
 
 `C:\Users\musit\Documents\utn-claude-stability-oct31-release\utn-release\UTN-0.2.1-beta-Windows-x64-Portable.zip`
-SHA-256 `ce11c412d85a3722199194b046fdb2832a346d265db394a7a3c16ce81b9497d9`, built from `7ff8a19a9` (later commits change only
-tests and documents). `RelWithDebInfo` with `-DUTN_LOCK_AUDIT=ON`: it logs any document-lock wait over 50 ms and any
-nested acquisition, with a stack, through GLib. It is unsigned. Extract it completely and run `bin\UTN.exe`. It started and
-wrote `utn-perf.log` in a 12-second smoke run on this machine; nothing else was exercised by hand.
+SHA-256 `6bc46937ffbb889cff6b9b189da096322e1c9e248ec9a7e508383161ae13a329`, rebuilt after the review corrections from
+`a47afdf68` (the earlier bundle, `ce11c412...`, is superseded). `RelWithDebInfo` with `-DUTN_LOCK_AUDIT=ON`: it logs any
+document-lock wait over 50 ms and any nested acquisition, with a stack, through GLib. It is unsigned. Extract it
+completely and run `bin\UTN.exe`. It starts and writes `utn-perf.log` (a 75-second smoke run showed the 30-second
+summaries); nothing else was exercised by hand.
+
+## 12. Corrections after the independent review (Codex, on `944f21798`)
+
+Supersedes sections 2 and 3 where they differ. Commits `b85fc2062`, `46b5d3b5d`, `a47afdf68`.
+
+1. **Compatibility export held the Document lock** (`CustomExportJob::run`). The shared lock now ends right after
+   `prepareSave`; `SaveHandler::saveAtomically` draws and writes with no lock. The prepared tree owns snapshots of erased
+   strokes and reference-counted image surfaces (same ownership as autosave and `SaveJob`). Test: the real job runs while the
+   test thread draws, erases and queues autosaves; the worst edit wait was 559 ms with the old lock scope (mutation
+   checked) and stays under the 250 ms bound now. `SaveIntegrity.rasterWorkHappensInResolveNotInPrepare` counts calls to
+   `rasterizeMaskedStroke` (new `rasterizeMaskedStrokeCallCount()`), and `editingIsNotBlockedWhileADenseDocumentIsSaved`
+   saves 150 erased strokes on one thread while another edits.
+2. **A student copy never succeeds with an annotation missing.** `resolveDeferredStrokes` now sets the error (not a
+   warning) when a student copy's erased stroke cannot be drawn, before any file is created. Erased ink is never written
+   back into a student copy. `saveAtomically` writes `<file>.utn-tmp` and replaces the destination only with a whole file;
+   on any failure the existing file is untouched and the temporary file is removed. Callers: `CustomExportJob` (student
+   `.xoj`) uses it; `SaveJob`, `AutosaveJob`, `CrashHandler` and the CLI are teacher saves and keep the "keep the ink,
+   warn" fallback. Tests: a failed student export keeps the previous file byte for byte and leaves no temporary file;
+   whole-file replacement; an unwritable folder; the rasterisation failure itself.
+3. **Frozen Student View kept revealed answers.** The frame records which layers students could see; every redraw request
+   re-checks them. If students may now see less (answers hidden on this page or everywhere, a layer made private,
+   invisible or removed, Curtain or Spotlight switched on after the freeze, or the check cannot be made) the frozen bitmap
+   is destroyed and the screen goes blank immediately, with a toast; "Show the page again" resumes live. Ordinary changes
+   keep the freeze. Test `frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee` asserts real Student View pixels for each
+   transition, Blank over Freeze, ordinary ink keeping the freeze, and resizing. Projector reconnect cannot be simulated
+   here: monitor events only change the pill and the opt-in ghosting, and do not touch the frame (hardware task).
+4. **Measurements.** `UtnPerf` statistics now carry two labelled populations: *all* (every sample) and *window* (the last up
+   to 65536), so mean, p95 and max are never mixed (before, p95 was over the last 512 only). The XML properties are named
+   `*_all_*` and `*_win_*`. The soak asserts the temporary folder works, that autosave wrote a file that reopens, and
+   records UI stalls (heartbeat lateness above two Windows timer ticks), memory, GDI/USER objects and handles. The soak now
+   queues an autosave only when none is pending, like the real timer; before, it queued a backlog of about 160 jobs that
+   teardown waited minutes for (that, not a deadlock, is what a stuck test process was).
+
+### Fresh like-for-like measurements
+
+Same test, same machine, one run each, isolated temp folders (`TMP`, `TEMP`, `TMPDIR` set to a folder under
+`C:\Users\musit\utn-tmp`), lock audit on, scheduler running, 2400 iterations, Student View open. "Baseline" is
+`diagnostics/utn-claude-stability-baseline-instrumented` (measurement only). Debug / RelWithDebInfo:
+
+| | baseline | fixed |
+| --- | --- | --- |
+| pen-up wait for the exclusive lock, all: mean / max | 30.8 / 1221 and 28.6 / 1217 ms | 0.38 / 49 and 0.40 / 39 ms |
+| same, window p95 | 117 and 89 ms | 0.29 and 0.04 ms |
+| autosave shared lock held, all: mean / max | 660 / 1438 and 661 / 1328 ms | 3.2 / 11 and 0.95 / 4.2 ms |
+| slowest iteration | 2239 and 2280 ms | 626 and 493 ms |
+| p95 of the last / first third of the session | 1020 / 257 ms (4.0x) and 889 / 226 ms (3.9x) | 71 / 79 ms (0.9x) and 52 / 65 ms (0.8x) |
+| UI heartbeat late by over 30 ms: count, window p95 | 1155 / 701 ms and 1039 / 746 ms | 167 / 152 ms and 108 / 150 ms |
+| Student View frame: all mean, window p95 | 166 / 304 and 158 / 288 ms | 43 / 129 and 42 / 133 ms |
+| Student View share of loop time | 47% and 46% | 14% and 14% |
+| lock waits over 50 ms / longest | 226 / 1406 and 196 / 1217 ms | 3 / 98 and 2 / 99 ms |
+| result of the same assertions | fails (slower over time, Student View share) | passes |
+
+Memory: private bytes started at 64 to 66 MiB in all four runs. The last sample is not a trend (baseline 84 and 441 MiB,
+fixed 159 and 157 MiB) because it depends on when the allocator last released pages; the maxima were 205 to 475 MiB
+(baseline) and 210 MiB (fixed). Kernel handles and GDI objects did not grow in any run. I do not claim a memory fix.
+
+### Verification on these commits
+
+382 unit tests, 69 GTK tests (including the heavy session, compatibility export, frozen Student View) and 6 lock-audit
+tests passed (Debug, lock audit on, `TMP` isolated). After the last commit (`a47afdf68`, the stall threshold) the unit and
+lock-audit suites and the four soak runs above were repeated; the full GTK suite was last run on `46b5d3b5d`.
+
+### Remaining
+
+Unchanged from section 7, plus: no physical-stylus evidence; a full-page render still holds the shared lock for the page;
+the `.utn-tmp` file of a crash mid-export is left beside the destination (harmless, the destination is intact); private
+bytes in long sessions are unexplained. Do not describe the freeze as fixed until the hardware run in section 8.
