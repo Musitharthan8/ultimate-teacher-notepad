@@ -23,6 +23,7 @@
 #include "control/Tool.h"                                        // for Tool
 #include "control/ToolHandler.h"                                 // for Tool...
 #include "control/actions/ActionDatabase.h"                      // for Acti...
+#include "control/UtnPerf.h"                                      // for utn::perf
 #include "control/jobs/AutosaveJob.h"                            // for Auto...
 #include "control/jobs/BaseExportJob.h"                          // for Base...
 #include "control/jobs/CustomExportJob.h"                        // for Cust...
@@ -326,6 +327,9 @@ void Control::initWindow(MainWindow* win) {
     this->clipboardHandler = new ClipboardHandler(this, win->getXournal()->getWidget());
 
     this->enableAutosave(settings->isAutosaveEnabled());
+
+    // Only does anything when UTN_PERF=1 is set in the environment (see UtnPerf.h)
+    utn::perf::startHeartbeat();
 }
 
 auto Control::autosaveCallback(Control* control) -> bool {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <mutex>
 #include <sstream>
@@ -171,29 +172,80 @@ void sampleProcess() {
 
 namespace {
 constexpr guint HEARTBEAT_MS = 20;
+constexpr gint64 WATCHDOG_STALL_US = 2 * G_USEC_PER_SEC;
 std::atomic<bool> heartbeatRunning{false};
-gint64 lastBeat = 0;
+std::atomic<bool> shuttingDown{false};
+std::atomic<gint64> lastBeat{0};
 gint64 lastSample = 0;
 gint64 lastReport = 0;
 
+/// Appends to UTN_PERF_FILE, or utn-perf.log in the temp folder. A hung application cannot log from its main thread,
+/// so everything the watchdog thread learns goes to a file that survives the hang.
+void appendToLog(const std::string& text) {
+    const char* configured = std::getenv("UTN_PERF_FILE");
+    gchar* fallback = g_build_filename(g_get_tmp_dir(), "utn-perf.log", nullptr);
+    FILE* file = std::fopen(configured && *configured ? configured : fallback, "a");
+    g_free(fallback);
+    if (!file) {
+        return;
+    }
+    GDateTime* now = g_date_time_new_now_local();
+    gchar* stamp = g_date_time_format(now, "%Y-%m-%d %H:%M:%S");
+    std::fprintf(file, "[%s] %s\n", stamp, text.c_str());
+    g_free(stamp);
+    g_date_time_unref(now);
+    std::fclose(file);
+}
+
 gboolean beat(gpointer) {
     const gint64 now = g_get_monotonic_time();
-    if (lastBeat != 0) {
-        const double late = static_cast<double>(now - lastBeat) / 1000.0 - HEARTBEAT_MS;
+    const gint64 previous = lastBeat.exchange(now);
+    if (previous != 0) {
+        const double late = static_cast<double>(now - previous) / 1000.0 - HEARTBEAT_MS;
         if (late > 8.0) {
             record(Metric::UiStall, late);
         }
     }
-    lastBeat = now;
     if (now - lastSample > 5 * G_USEC_PER_SEC) {
         lastSample = now;
         sampleProcess();
     }
     if (now - lastReport > 30 * G_USEC_PER_SEC) {
         lastReport = now;
-        g_message("%s", report().c_str());
+        const std::string summary = report();
+        g_message("%s", summary.c_str());
+        appendToLog(summary);
     }
     return G_SOURCE_CONTINUE;
+}
+
+/// Runs off the main thread, so it can still speak while the main thread is stuck. Reports each stall once, when it
+/// passes WATCHDOG_STALL_US, and again with its length when it ends.
+void watchdog() {
+    bool reported = false;
+    gint64 stalledSince = 0;
+    while (!shuttingDown.load()) {
+        g_usleep(250 * 1000);
+        if (shuttingDown.load()) {
+            break;
+        }
+        const gint64 beatAt = lastBeat.load();
+        const gint64 now = g_get_monotonic_time();
+        if (beatAt == 0) {
+            continue;
+        }
+        if (now - beatAt > WATCHDOG_STALL_US) {
+            if (!reported) {
+                reported = true;
+                stalledSince = beatAt;
+                appendToLog("UI THREAD NOT RESPONDING for over 2 s. " + report());
+            }
+        } else if (reported) {
+            reported = false;
+            appendToLog("UI thread responding again after " +
+                        std::to_string((now - stalledSince) / G_USEC_PER_SEC) + " s");
+        }
+    }
 }
 }  // namespace
 
@@ -203,6 +255,12 @@ void startHeartbeat() {
     }
     lastBeat = lastSample = lastReport = g_get_monotonic_time();
     g_timeout_add(HEARTBEAT_MS, beat, nullptr);
+    std::atexit([] { shuttingDown.store(true); });
+    appendToLog("UTN perf logging started");
+    g_thread_unref(g_thread_new("utn-perf-watchdog", [](gpointer) -> gpointer {
+        watchdog();
+        return nullptr;
+    }, nullptr));
 }
 
 }  // namespace utn::perf

@@ -2,8 +2,9 @@
  * Ultimate Teacher Notepad
  *
  * Opt-in performance counters for the classroom stability work. Off by default (one relaxed atomic load per call
- * site). Enable with UTN_PERF=1 in the environment; a summary is then written to the log every 30 s and at exit.
- * Tests call setEnabled(true) and read stats() directly.
+ * site). Enable with UTN_PERF=1 in the environment; a summary is then written to the log every 30 s.
+ * The summary and any UI hang of more than 2 s (reported from a watchdog thread, so it works during the hang) are
+ * appended to UTN_PERF_FILE, or utn-perf.log in the temp folder. Tests call setEnabled(true) and read stats() directly.
  *
  * Based on Xournal++ GPLv2+
  */
