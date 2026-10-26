@@ -1792,6 +1792,7 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     std::vector<gint64> latencies;
     latencies.reserve(static_cast<size_t>(iterations));
     size_t penStrokes = 0;
+    size_t autosavesQueued = 0;
     for (int i = 0; i < iterations; ++i) {
         const size_t pageNo = static_cast<size_t>(i) % PAGES;
         auto* view = window->getXournal()->getViewFor(pageNo);
@@ -1837,10 +1838,13 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
             control->getUndoRedoHandler()->undo();
             control->getUndoRedoHandler()->redo();
         }
-        if (i % 15 == 14) {
+        // The real autosave is a timer: it never queues a second job while the last is still running. Queueing one every
+        // 15 strokes regardless built a backlog of minutes (and teardown waited for all of it).
+        if (i % 15 == 14 && utn::perf::stats(utn::perf::Metric::Autosave).count >= autosavesQueued) {
             auto* job = new AutosaveJob(control.get());
             control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
             job->unref();
+            ++autosavesQueued;
         }
         for (int event = 0; event < 40 && gtk_events_pending(); ++event) {
             gtk_main_iteration_do(false);
@@ -1854,6 +1858,10 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
     for (int i = 0; i < 80; ++i) {
         settle();
     }
+    for (int i = 0; i < 600 && utn::perf::stats(utn::perf::Metric::Autosave).count < autosavesQueued; ++i) {
+        settle();  // an autosave on a dense lesson takes seconds
+    }
+    ASSERT_GE(utn::perf::stats(utn::perf::Metric::Autosave).count, autosavesQueued) << "an autosave job never finished";
     utn::perf::sampleProcess();
 
     // The autosave must really have written its file, and it must reopen: otherwise every autosave number is a lie
