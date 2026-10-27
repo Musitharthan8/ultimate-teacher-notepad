@@ -7,6 +7,7 @@
 
 #include "control/Control.h"              // for Control
 #include "control/jobs/BlockingJob.h"     // for BlockingJob
+#include "control/xojfile/SaveBackup.h"   // for saveWithBackup
 #include "control/xojfile/SaveHandler.h"  // for SaveHandler
 #include "model/Document.h"               // for Document
 #include "model/PageRef.h"                // for PageRef
@@ -122,46 +123,29 @@ auto SaveJob::save() -> bool {
 
     auto const createBackup = doc->shouldCreateBackupOnSave();
 
-    if (createBackup) {
-        try {
-            // Note: The backup must be created for the target as this is the filepath
-            // which will be written to. Do not use the `filepath` variable!
-            // Copy, never move: the previous good file must stay at `target` until saveTo() replaces it atomically,
-            // otherwise a failed or interrupted save leaves no file under the real name.
-            if (fs::exists(target)) {
-                fs::copy_file(target, fs::path{target} += "~", fs::copy_options::overwrite_existing);
-            }
-        } catch (const fs::filesystem_error& fe) {
-            g_warning("Could not create backup! Failed with %s", fe.what());
-            this->lastError = FS(_F("Save file error, can't backup: {1}") % std::string(fe.what()));
-            if (!control->getWindow()) {
-                g_error("%s", this->lastError.c_str());
-            }
-            return false;
+    // Backup and save are one transaction (see SaveBackup): the destination and any older backup stay recoverable
+    // until the new file has replaced the destination.
+    auto outcome = SaveBackup::saveWithBackup(h, target, createBackup, this->control);
+    if (!outcome.saveAttempted) {
+        this->lastError = outcome.error;
+        if (!control->getWindow()) {
+            g_error("%s", this->lastError.c_str());
         }
+        return false;
     }
-
-    h.saveAtomically(target, this->control);
 
     doc->lock();
     h.updateDocumentInfo(doc);
     doc->setFilepath(target);
     doc->unlock();
 
-    if (!h.getErrorMessage().empty()) {
-        this->lastError = FS(_F("Save file error: {1}") % h.getErrorMessage());
+    if (!outcome.error.empty()) {
+        this->lastError = outcome.error;
         if (!control->getWindow()) {
             g_error("%s", this->lastError.c_str());
         }
         return false;
-    } else if (createBackup) {
-        try {
-            // If a backup was created it can be removed now since no error occured during the save
-            fs::remove(fs::path{target} += "~");
-        } catch (const fs::filesystem_error& fe) {
-            g_warning("Could not delete backup! Failed with %s", fe.what());
-        }
-    } else {
+    } else if (!createBackup) {
         doc->setCreateBackupOnSave(true);
     }
 
