@@ -6,6 +6,7 @@
 
 #include "StudentVisibility.h"
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -14,6 +15,7 @@ namespace utn {
 namespace {
 std::recursive_mutex listenersMutex;
 size_t nextId = 1;
+std::atomic<uint64_t> privateTransfers{0};
 std::vector<std::pair<size_t, StudentVisibilityListener>> listeners;
 }  // namespace
 
@@ -40,4 +42,13 @@ void notifyStudentVisibilityChanged(bool mayCheckNow) {
     }
 }
 
+}  // namespace utn
+
+namespace utn {
+uint64_t privateTransferCount() { return privateTransfers.load(); }
+
+void noteContentEnteredPrivateLayer() {
+    privateTransfers.fetch_add(1);
+    notifyStudentVisibilityChanged(false);
+}
 }  // namespace utn

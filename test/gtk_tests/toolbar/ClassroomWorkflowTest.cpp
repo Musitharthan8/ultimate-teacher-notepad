@@ -20,6 +20,7 @@
 #include "control/actions/ActionDatabase.h"
 #include "control/jobs/AutosaveJob.h"
 #include "control/jobs/CustomExportJob.h"
+#include "control/jobs/SaveJob.h"
 #include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
@@ -1790,6 +1791,112 @@ TEST_F(ClassroomWorkflow, frozenStudentViewIsBlankedWhenTheAnswersLayerIsRemoved
     rig.expectBlankImmediately("answers layer deleted");
 }
 
+// Moving ink that students could see into a teacher-only layer changes no layer's visibility and removes no layer, yet
+// the frozen picture still shows that ink. The real actions: select all (Ctrl+A), move the selection up one layer (the
+// keyboard shortcut's action), finish the selection, undo, redo.
+TEST_F(ClassroomWorkflow, movingVisibleInkToAPrivateLayerBlanksTheFrozenStudentView) {
+    window->show(nullptr);
+    auto page = control->getCurrentPage();
+    auto* layers = control->getLayerController();
+    auto* actions = control->getActionDatabase();
+    Layer* open = page->getSelectedLayer();
+    addMarker(open, 100);
+    layers->addNewLayer(false);
+    Layer* priv = page->getSelectedLayer();
+    priv->setAudience(LayerAudience::TeacherOnly);
+    layers->switchToLay(1);
+    ASSERT_EQ(page->getSelectedLayer(), open);
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto click = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+    click("Open on the projector");
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+    auto freeze = [&]() {
+        if (students->getState() == ToolStudentView::State::Blank) click("Show the page again");
+        if (students->getState() == ToolStudentView::State::Frozen) click("Resume live view");
+        control->firePageChanged(0);  // set-up only: the live frame must show the ink before it is frozen
+        settle();
+        click("Freeze this page");
+        ASSERT_EQ(students->getState(), ToolStudentView::State::Frozen);
+        ASSERT_EQ(studentPixel(student, 100, 100), 0U) << "the visible ink is on the frozen picture";
+    };
+    auto expectBlankNow = [&](const char* what) {  // no settle(): before the next main-loop iteration
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Blank) << what;
+        EXPECT_EQ(studentPixel(student, 100, 100), 0U) << what;
+        EXPECT_EQ(studentPixel(student, 300, 700), 0U) << what << ": the old picture must be gone";
+    };
+    auto moveSelectionUpAndFinish = [&]() {
+        settle();  // the page view must exist before select-all can work on it
+        control->selectAllOnPage();  // what Ctrl+A runs
+        ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+        actions->fireActivateAction(Action::MOVE_SELECTION_LAYER_UP);
+        control->clearSelectionEndText();  // the selection is put into the selected (private) layer
+    };
+
+    freeze();
+    moveSelectionUpAndFinish();
+    ASSERT_EQ(priv->getElements().size(), 1U) << "the ink really is in the private layer now";
+    expectBlankNow("ink moved to a teacher-only layer");
+
+    // Delayed redraws cannot bring the picture back
+    for (int i = 0; i < 4; ++i) {
+        control->firePageChanged(0);
+        settle();
+        g_usleep(60 * 1000);
+    }
+    expectBlankNow("after delayed redraws");
+
+    // Undo puts it back where students can see it; redo moves it into the private layer again
+    click("Show the page again");
+    control->getUndoRedoHandler()->undo();
+    settle();
+    ASSERT_EQ(open->getElements().size(), 1U);
+    freeze();
+    control->getUndoRedoHandler()->redo();
+    ASSERT_EQ(priv->getElements().size(), 1U);
+    expectBlankNow("redo moved the ink to the teacher-only layer");
+
+    // The same through a hidden (not teacher-only) layer, and undo of the move while frozen
+    click("Show the page again");
+    control->getUndoRedoHandler()->undo();
+    settle();
+    priv->setAudience(LayerAudience::Everyone);
+    layers->setLayerVisible(2, false);
+    settle();
+    freeze();
+    control->getUndoRedoHandler()->redo();
+    expectBlankNow("redo moved the ink to a hidden layer");
+
+    // Harmless: new ink and moves inside the private layer keep a safe frozen picture
+    click("Show the page again");
+    priv->setAudience(LayerAudience::TeacherOnly);
+    layers->setLayerVisible(2, true);
+    layers->switchToLay(2);
+    settle();
+    click("Freeze this page");
+    ASSERT_EQ(students->getState(), ToolStudentView::State::Frozen);
+    addMarker(priv, 400);
+    control->firePageChanged(0);
+    actions->fireActivateAction(Action::SELECT_ALL);
+    control->clearSelectionEndText();
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen) << "private work must not destroy the freeze";
+
+    gtk_widget_destroy(student);
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
 TEST_F(ClassroomWorkflow, ordinaryChangesKeepTheFreezeAndLiveAndBlankStillWork) {
     FrozenRig rig(control.get(), window.get());
     ASSERT_NE(rig.student, nullptr);
@@ -2756,4 +2863,85 @@ TEST_F(ClassroomWorkflow, answerBoxSettingsPopoverFitsAShortWindowAndKeepsEveryC
     gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 800);
     settle();
     control->selectTextMode(TextMode::Plain);
+}
+
+// A save or autosave whose final replace fails must leave the previous good file exactly as it was, under its own name,
+// and must not leave rotation leftovers (.swap, stray temporary files) behind.
+TEST_F(ClassroomWorkflow, saveAndAutosaveKeepTheLastGoodFileWhenTheReplaceFails) {
+    const auto folder = Util::getTmpDirSubfolder() / "p0-save-failure";
+    fs::remove_all(folder);
+    fs::create_directories(folder);
+    const auto lesson = folder / "lesson.xopp";
+    auto bytesOf = [](const fs::path& p) {
+        std::ifstream in(p, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    auto autosaveFile = [&]() {
+        for (const auto& entry: fs::directory_iterator(folder)) {
+            const auto name = entry.path().filename().string();
+            if (name.size() > 14 && name.compare(name.size() - 14, 14, ".autosave.xopp") == 0) {
+                return entry.path();
+            }
+        }
+        return fs::path{};
+    };
+
+    Document* doc = control->getDocument();
+    doc->lock();
+    doc->setFilepath(lesson);
+    doc->unlock();
+    addMarker(control->getCurrentPage()->getSelectedLayer(), 100);
+
+    // A good save and a good autosave first
+    {
+        auto* job = new SaveJob(control.get());
+        EXPECT_TRUE(job->save());
+        job->unref();
+        auto* autosave = new AutosaveJob(control.get());
+        autosave->run();
+        autosave->unref();
+    }
+    ASSERT_TRUE(fs::exists(lesson));
+    const auto savedBefore = bytesOf(lesson);
+    const auto autosavePath = autosaveFile();
+    ASSERT_FALSE(autosavePath.empty()) << "the autosave wrote no file";
+    const auto autosavedBefore = bytesOf(autosavePath);
+    ASSERT_FALSE(savedBefore.empty());
+    ASSERT_FALSE(autosavedBefore.empty());
+
+    // More ink, then both writes fail at the very last step
+    addMarker(control->getCurrentPage()->getSelectedLayer(), 300);
+    SaveHandler::setReplaceStepForTesting(+[](const fs::path&, const fs::path&, std::string& error) {
+        error = "injected failure";
+        return false;
+    });
+    {
+        auto* job = new SaveJob(control.get());
+        EXPECT_FALSE(job->save());
+        job->unref();
+        auto* autosave = new AutosaveJob(control.get());
+        autosave->run();
+        autosave->unref();
+    }
+    SaveHandler::setReplaceStepForTesting(nullptr);
+    settle();
+
+    ASSERT_TRUE(fs::exists(lesson)) << "the real file vanished";
+    EXPECT_EQ(bytesOf(lesson), savedBefore) << "the real file changed";
+    ASSERT_TRUE(fs::exists(autosavePath)) << "the last autosave vanished";
+    EXPECT_EQ(bytesOf(autosavePath), autosavedBefore) << "the last autosave changed";
+    for (const auto& entry: fs::directory_iterator(folder)) {
+        const auto name = entry.path().filename().string();
+        EXPECT_TRUE(name == "lesson.xopp" || name == "lesson.xopp~" || entry.path() == autosavePath)
+                << "left behind: " << name;
+    }
+
+    // And with the replace working again, the next save goes through
+    {
+        auto* job = new SaveJob(control.get());
+        EXPECT_TRUE(job->save());
+        job->unref();
+    }
+    EXPECT_NE(bytesOf(lesson), savedBefore);
+    fs::remove_all(folder);
 }

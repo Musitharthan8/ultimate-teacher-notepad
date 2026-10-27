@@ -38,6 +38,7 @@ struct StudentFrameContent {
     std::shared_ptr<XojPage> page;
     std::vector<const Layer*> visibleLayers;  // compared by address only, never dereferenced unless on page
     uint64_t layerRemovals = 0;  ///< XojPage::getLayerRemovalCount() when the frame was drawn
+    uint64_t privateTransfers = 0;  ///< utn::privateTransferCount() when the frame was drawn
 };
 
 /// Spotlight and Curtain are different overlays: switching from one to the other is a change, not a continuation

@@ -9,10 +9,33 @@
 
 #include "model/Element.h"  // for Element, Element::Index, Element::Inval...
 #include "model/ElementInsertionPosition.h"
+#include "model/LayerAudience.h"
 #include "model/StudentVisibility.h"
 #include "util/Assert.h"      // for xoj_assert
 #include "util/Stacktrace.h"  // for Stacktrace
 #include "util/safe_casts.h"
+
+namespace {
+/// An element is leaving `layer`: remember whether students could see it there
+void leaving(const Layer& layer, Element* e) {
+    if (e) {
+        e->leftStudentVisibleLayer = utn::visibleToStudents(layer);
+    }
+}
+
+/// An element is arriving in `layer`. Content that students could see and is now in a layer they cannot is the one change
+/// no layer setting reveals, so announce it. Content new to the page, or moved between private layers, is not.
+void arriving(const Layer& layer, Element* e) {
+    if (!e) {
+        return;
+    }
+    const bool wasVisible = e->leftStudentVisibleLayer;
+    e->leftStudentVisibleLayer = false;
+    if (wasVisible && !utn::visibleToStudents(layer)) {
+        utn::noteContentEnteredPrivateLayer();
+    }
+}
+}  // namespace
 
 Layer::Layer() = default;
 
@@ -40,6 +63,7 @@ void Layer::addElement(ElementPtr e) {
         return;
     }
 
+    arriving(*this, e.get());
     this->elements.emplace_back(std::move(e));
 }
 
@@ -49,6 +73,8 @@ void Layer::insertElement(ElementPtr e, Element::Index pos) {
         Stacktrace::printStacktrace();
         return;
     }
+
+    arriving(*this, e.get());
 
     // prevent crash, even if this never should happen,
     // but there was a bug before which cause this error
@@ -78,6 +104,7 @@ auto Layer::removeElement(const Element* e) -> InsertionPosition {
     for (unsigned int i = 0; i < this->elements.size(); i++) {
         if (e == this->elements[i].get()) {
             auto res = std::move(this->elements[i]);
+            leaving(*this, res.get());
             this->elements.erase(this->elements.begin() + i);
             return InsertionPosition{std::move(res), i};
         }
@@ -92,6 +119,7 @@ auto Layer::removeElementAt(const Element* e, Element::Index pos) -> InsertionPo
     if (pos >= 0 && as_unsigned(pos) < elements.size() && this->elements[as_unsigned(pos)].get() == e) {
         auto iter = std::next(this->elements.begin(), pos);
         auto res = std::move(*iter);
+        leaving(*this, res.get());
         this->elements.erase(iter);
         return InsertionPosition{std::move(res), pos};
     }
@@ -113,13 +141,19 @@ auto Layer::removeElementsAt(InsertionOrderRef const& elts) -> InsertionOrder {
                 continue;
             }
         }
+        leaving(*this, elements[static_cast<size_t>(pos)].get());
         res.emplace_back(std::move(elements[static_cast<size_t>(pos)]), pos);
     }
     this->elements.erase(std::remove(this->elements.begin(), this->elements.end(), nullptr), this->elements.end());
     return res;
 }
 
-auto Layer::clearNoFree() -> std::vector<ElementPtr> { return std::move(this->elements); }
+auto Layer::clearNoFree() -> std::vector<ElementPtr> {
+    for (const auto& e: this->elements) {
+        leaving(*this, e.get());
+    }
+    return std::move(this->elements);
+}
 
 auto Layer::isAnnotated() const -> bool { return !this->elements.empty(); }
 

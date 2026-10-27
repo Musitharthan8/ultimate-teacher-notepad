@@ -10,6 +10,7 @@
 #include "model/Layer.h"             // for Layer
 #include "model/PageRef.h"           // for PageRef
 #include "model/XojPage.h"           // for XojPage
+#include "model/StudentVisibility.h"
 #include "undo/PageLayerPosEntry.h"  // for PageLayerPosEntry, operator<
 #include "undo/UndoAction.h"         // for UndoAction
 #include "util/i18n.h"               // for _
@@ -34,13 +35,18 @@ auto MoveSelectionToLayerUndoAction::undo(Control* control) -> bool {
     }
 
     Document* doc = control->getDocument();
+    const auto transfersBefore = utn::privateTransferCount();
     doc->lock();
     for (const auto& elem: elements) {
         this->oldLayer->addElement(elem.layer->removeElement(elem.element).e);
     }
 
-    this->layerController->switchToLay(oldLayerNo + 1);
     doc->unlock();
+    // switchToLay takes its own shared lock; under the exclusive lock it self-deadlocks
+    this->layerController->switchToLay(oldLayerNo + 1);
+    if (utn::privateTransferCount() != transfersBefore) {
+        utn::notifyStudentVisibilityChanged(true);
+    }
     this->undone = false;
     return true;
 }
@@ -52,13 +58,17 @@ auto MoveSelectionToLayerUndoAction::redo(Control* control) -> bool {
     }
 
     Document* doc = control->getDocument();
+    const auto transfersBefore = utn::privateTransferCount();
     doc->lock();
     for (const auto& elem: elements) {
         elem.layer->insertElement(this->oldLayer->removeElement(elem.element).e, elem.pos);
     }
 
-    this->layerController->switchToLay(newLayerNo + 1);
     doc->unlock();
+    this->layerController->switchToLay(newLayerNo + 1);
+    if (utn::privateTransferCount() != transfersBefore) {
+        utn::notifyStudentVisibilityChanged(true);
+    }
     this->undone = true;
     return true;
 }

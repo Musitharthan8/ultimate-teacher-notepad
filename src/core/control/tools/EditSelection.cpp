@@ -20,6 +20,7 @@
 #include "gui/PageView.h"                          // for XojPageView
 #include "gui/XournalView.h"                       // for XournalView
 #include "gui/XournalppCursor.h"                   // for XournalppCursor
+#include "model/StudentVisibility.h"
 #include "model/Document.h"                        // for Document
 #include "model/Element.h"                         // for Element::Index
 #include "model/ElementInsertionPosition.h"
@@ -283,6 +284,7 @@ void EditSelection::finalizeSelection() {
 
 
     auto* doc = view->getXournal()->getControl()->getDocument();
+    const auto transfersBefore = utn::privateTransferCount();
     doc->lock();
 
     Layer* destinationLayer = this->view->getPage()->getSelectedLayer();
@@ -295,6 +297,9 @@ void EditSelection::finalizeSelection() {
         }
     }
     doc->unlock();
+    if (utn::privateTransferCount() != transfersBefore) {
+        utn::notifyStudentVisibilityChanged(true);  // visible ink went into a private layer: do not wait for a redraw
+    }
 
 
     // Calculate new clip region delta due to rotation:

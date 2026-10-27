@@ -58,6 +58,12 @@ public:
 public:
     ElementType getType() const;
 
+    /**
+     * UTN privacy. Set by Layer when this element is taken out of a layer students could see, cleared when it is put
+     * into one. Put into a layer students cannot see while set, it is content that has just become private.
+     */
+    bool leftStudentVisibleLayer = false;
+
     virtual const xoj::util::Point<double>& getOrigin() const = 0;
 
     virtual void move(double dx, double dy) = 0;

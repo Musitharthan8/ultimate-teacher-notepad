@@ -73,6 +73,7 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
         // students would now be allowed to see less
         content->page = page;
         content->layerRemovals = page->getLayerRemovalCount();
+        content->privateTransfers = utn::privateTransferCount();
         for (const Layer* layer: page->getLayersView()) {
             if (utn::visibleToStudents(*layer)) {
                 content->visibleLayers.push_back(layer);
@@ -351,6 +352,11 @@ bool ToolStudentView::frozenFrameIsSafe() {
     }
     if (!frozenContent.page) {
         return true;  // frozen before there was a page: nothing private in it
+    }
+    // Visible content moved into a layer students cannot see since the frame was drawn: no layer setting shows that,
+    // and it needs no Document lock to know.
+    if (utn::privateTransferCount() != frozenContent.privateTransfers) {
+        return false;
     }
     // Never block (this runs inside document notifications), but do not guess either: try a few times, then treat
     // "cannot tell" as unsafe. A blank screen is always the safe answer.
