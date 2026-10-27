@@ -157,7 +157,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
 
     // for crashhandling
     setEmergencyDocument(this->doc);
-
+    watchForShutdownRequests([this](int) { this->shutdownAfterSignal(); });
 
     this->zoom = new ZoomControl();
     this->zoom->setZoomStep(this->settings->getZoomStep() / 100.0);
@@ -182,6 +182,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
 }
 
 Control::~Control() {
+    unwatchForShutdownRequests();
     g_source_remove(this->changeTimout);
     this->enableAutosave(false);
 
@@ -2411,7 +2412,18 @@ void Control::resetSavedStatus() {
     this->updateWindowTitle();
 }
 
-void Control::quit(bool allowCancel) {
+void Control::shutdownAfterSignal() {
+    if (this->shuttingDownAfterSignal) {
+        return;
+    }
+    this->shuttingDownAfterSignal = true;
+    if (undoRedo->isChanged()) {
+        emergencySave();
+    }
+    quit(false, true);
+}
+
+void Control::quit(bool allowCancel, bool forceClose) {
     g_message("Quitting");
     auto afterClosed = [this, allowCancel](bool closed) {
         if (!closed) {
@@ -2438,7 +2450,7 @@ void Control::quit(bool allowCancel) {
         }
     };
 
-    this->close(std::move(afterClosed), true, allowCancel);
+    this->close(std::move(afterClosed), true, allowCancel, forceClose);
 }
 
 void Control::close(std::function<void(bool)> callback, const bool allowDestroy, const bool allowCancel,

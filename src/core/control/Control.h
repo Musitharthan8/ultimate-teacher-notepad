@@ -121,7 +121,13 @@ public:
     void print();
     void exportAsPdf();
     void exportAs();
-    void quit(bool allowCancel = true);
+    void quit(bool allowCancel = true, bool forceClose = false);
+
+    /**
+     * @brief SIGINT/SIGTERM arrived (delivered from the main loop, not from the signal handler): keep unsaved changes
+     * in the recovery file, then leave without asking anything.
+     */
+    void shutdownAfterSignal();
 
     /**
      * @brief Asynchronously saves the document and calls callback afterwards with boolean parameter true on success.
@@ -592,6 +598,7 @@ private:
      */
     guint autosaveTimeout = 0;
     fs::path lastAutosaveFilename;
+    bool shuttingDownAfterSignal = false;
 
     XournalScheduler* scheduler;
 
