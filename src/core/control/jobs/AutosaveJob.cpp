@@ -3,6 +3,7 @@
 #include <glib.h>  // for g_message, g_warning
 
 #include "control/Control.h"              // for Control
+#include "control/RecoveryFiles.h"        // for autosavePathFor
 #include "control/UtnPerf.h"              // for utn::perf
 #include "control/jobs/Job.h"             // for JOB_TYPE_AUTOSAVE, JobType
 #include "control/xojfile/SaveHandler.h"  // for SaveHandler
@@ -38,13 +39,14 @@ void AutosaveJob::run() {
         doc->lock_shared();
         filepath = doc->getFilepath();
 
+        // The names are the ones RecoveryFiles::discover() looks for at the next start
         if (filepath.empty()) {
             filepath = Util::getAutosaveFilepath();
+            Util::clearExtensions(filepath);
+            filepath += ".autosave.xopp";
         } else {
-            filepath.replace_filename(fs::path(".") += filepath.filename());
+            filepath = RecoveryFiles::autosavePathFor(filepath);
         }
-        Util::clearExtensions(filepath);
-        filepath += ".autosave.xopp";
 
         handler.prepareSave(doc, filepath);
         doc->unlock_shared();

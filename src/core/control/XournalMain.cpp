@@ -22,6 +22,7 @@
 #include <libintl.h>      // for bindtextdomain, textdomain
 
 #include "control/RecentManager.h"           // for RecentManager
+#include "control/RecoveryFiles.h"           // for discover
 #include "control/jobs/BaseExportJob.h"      // for ExportBackgroundType
 #include "control/jobs/XournalScheduler.h"   // for XournalScheduler
 #include "control/settings/LatexSettings.h"  // for LatexSettings
@@ -126,31 +127,87 @@ static void deleteFile(const fs::path& file, GtkWindow* win) {
     }
 }
 
-void checkForEmergencySave(Control* control) {
-    auto file = Util::getConfigFile("emergencysave.xopp");
+/// Saved documents that may have an autosave next to them: the one just opened and the recent ones
+static std::vector<fs::path> documentsWithPossibleAutosave(Control* control) {
+    std::vector<fs::path> documents;
+    control->getDocument()->lock_shared();
+    fs::path current = control->getDocument()->getFilepath();
+    control->getDocument()->unlock_shared();
+    if (!current.empty()) {
+        documents.push_back(std::move(current));
+    }
+    for (const auto& info: RecentManager::getRecentFiles().recentXoppFiles) {
+        if (auto path = Util::fromUri(gtk_recent_info_get_uri(info.get()))) {
+            documents.push_back(std::move(*path));
+        }
+    }
+    return documents;
+}
 
-    if (!fs::exists(file)) {
+/**
+ * Offers the recovery files one after the other. Restoring one ends the offer: the restored document is unsaved, and a
+ * second restore would silently replace it. The files that were not dealt with are offered again at the next start.
+ * Nothing is deleted before the teacher chose "Delete file" or the restored document has loaded.
+ */
+static void offerRecoveryFile(Control* ctrl, std::vector<RecoveryFiles::Candidate> candidates, size_t index) {
+    if (index >= candidates.size()) {
         return;
     }
+    const RecoveryFiles::Candidate& candidate = candidates[index];
 
-    const std::string msg = _("Xournal++ crashed last time. Would you like to restore the last edited file?");
+    std::string msg;
+    if (candidate.kind == RecoveryFiles::Kind::Emergency) {
+        msg = _("Xournal++ crashed last time. Would you like to restore the last edited file?");
+    } else {
+        msg = FS(_F("An unsaved copy of your work from an earlier session was found:\n{1}\nWould you like to restore "
+                    "it?") %
+                 candidate.file.u8string());
+        if (!candidate.original.empty()) {
+            msg += "\n" + FS(_F("It belongs to \"{1}\", which stays as it is.") % candidate.original.u8string());
+        }
+    }
+
     enum { DELETE_FILE = 1, RESTORE_FILE };
     XojMsgBox::askQuestion(
-            control->getGtkWindow(), _("Recovery file detected"), msg,
+            ctrl->getGtkWindow(), _("Recovery file detected"), msg,
             {{_("Delete file"), DELETE_FILE}, {_("Restore file"), RESTORE_FILE}},
-            [file = std::move(file), ctrl = control](int response) mutable {
+            [ctrl, candidates = std::move(candidates), index](int response) mutable {
+                const fs::path file = candidates[index].file;
                 if (response == DELETE_FILE) {
                     deleteFile(file, ctrl->getGtkWindow());
+                    offerRecoveryFile(ctrl, std::move(candidates), index + 1);
                 } else if (response == RESTORE_FILE) {
-                    ctrl->openFileWithoutSavingTheCurrentDocument(file, false, -1, [ctrl, file](bool) {
-                        ctrl->getDocument()->setFilepath("");
+                    // Asks to save or discard whatever is open now, so the restore never silently replaces it
+                    ctrl->close([ctrl, file](bool closed) {
+                        if (!closed) {
+                            return;
+                        }
+                        ctrl->openFileWithoutSavingTheCurrentDocument(file, false, -1, [ctrl, file](bool opened) {
+                            if (!opened) {
+                                return;  // the recovery file stays where it is
+                            }
+                            ctrl->getDocument()->setFilepath("");
 
-                        // Todo Make sure the document is changed + ask for saving
-                        ctrl->getUndoRedoHandler()->addUndoAction(std::make_unique<EmergencySaveRestore>());
-                        deleteFile(file, ctrl->getGtkWindow());
+                            // The restored document is unsaved: mark it changed so closing asks about saving it
+                            ctrl->getUndoRedoHandler()->addUndoAction(std::make_unique<EmergencySaveRestore>());
+                            deleteFile(file, ctrl->getGtkWindow());
+                        });
                     });
                 }
+                // Any other answer (dialog dismissed): keep every file for the next start
             });
+}
+
+void checkForRecoveryFiles(Control* control) {
+    RecoveryFiles::Sources sources;
+    sources.emergencyFile = Util::getConfigFile("emergencysave.xopp");
+    sources.autosaveFolder = Util::getCacheSubfolder("autosaves");
+    sources.documents = documentsWithPossibleAutosave(control);
+
+    auto candidates = RecoveryFiles::discover(sources);
+    if (!candidates.empty()) {
+        offerRecoveryFile(control, std::move(candidates), 0);
+    }
 }
 
 namespace {
@@ -505,7 +562,7 @@ void on_startup(GApplication* application, XMPtr app_data) {
             [ctrl = app_data->control.get(), app = GTK_APPLICATION(application)](bool) {
                 ctrl->getScheduler()->start();
 
-                checkForEmergencySave(ctrl);
+                checkForRecoveryFiles(ctrl);
 
                 // There is a timing issue with the layout
                 // This fixes it, see #405
