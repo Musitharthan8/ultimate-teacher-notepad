@@ -34,7 +34,8 @@ void emergencySave() {
 
     SaveHandler handler;
     handler.prepareSave(document, filepath);
-    handler.saveTo(filepath);
+    // An earlier emergency save is replaced in one step: dying again half way through must not destroy it
+    handler.saveAtomically(filepath);
 
     if (!handler.getErrorMessage().empty()) {
         std::cerr << "Error: " << handler.getErrorMessage() << std::endl;

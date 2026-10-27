@@ -126,7 +126,11 @@ auto SaveJob::save() -> bool {
         try {
             // Note: The backup must be created for the target as this is the filepath
             // which will be written to. Do not use the `filepath` variable!
-            Util::safeRenameFile(target, fs::path{target} += "~");
+            // Copy, never move: the previous good file must stay at `target` until saveTo() replaces it atomically,
+            // otherwise a failed or interrupted save leaves no file under the real name.
+            if (fs::exists(target)) {
+                fs::copy_file(target, fs::path{target} += "~", fs::copy_options::overwrite_existing);
+            }
         } catch (const fs::filesystem_error& fe) {
             g_warning("Could not create backup! Failed with %s", fe.what());
             this->lastError = FS(_F("Save file error, can't backup: {1}") % std::string(fe.what()));
@@ -137,7 +141,7 @@ auto SaveJob::save() -> bool {
         }
     }
 
-    h.saveTo(target, this->control);
+    h.saveAtomically(target, this->control);
 
     doc->lock();
     h.updateDocumentInfo(doc);

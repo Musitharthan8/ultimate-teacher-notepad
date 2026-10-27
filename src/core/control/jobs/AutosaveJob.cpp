@@ -52,9 +52,9 @@ void AutosaveJob::run() {
 
     g_message("%s", FS(_F("Autosaving to {1}") % filepath.string()).c_str());
 
-    fs::path tempfile = filepath;
-    tempfile += u8"~";
-    handler.saveTo(tempfile);
+    // Writes a uniquely named temporary file and replaces the previous autosave in one step: the last good autosave
+    // is never moved aside or removed first, so a crash or error at any point leaves it intact.
+    handler.saveAtomically(filepath);
 
     doc->lock();
     handler.updateDocumentInfo(doc);
@@ -64,22 +64,7 @@ void AutosaveJob::run() {
     if (!this->error.empty()) {
         callAfterRun();
     } else {
-        try {
-            if (fs::exists(filepath)) {
-                fs::path swaptmpfile = filepath;
-                swaptmpfile += u8".swap";
-                Util::safeRenameFile(filepath, swaptmpfile);
-                Util::safeRenameFile(tempfile, filepath);
-                // All went well, we can delete the old autosave file
-                fs::remove(swaptmpfile);
-            } else {
-                Util::safeRenameFile(tempfile, filepath);
-            }
-            control->setLastAutosaveFile(filepath);
-        } catch (const fs::filesystem_error& e) {
-            auto fmtstr = _F("Could not rename autosave file from \"{1}\" to \"{2}\": {3}");
-            this->error = FS(fmtstr % tempfile.u8string() % filepath.u8string() % e.what());
-        }
+        control->setLastAutosaveFile(filepath);
     }
 }
 
