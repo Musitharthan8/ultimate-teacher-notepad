@@ -276,6 +276,7 @@ MainWindow::~MainWindow() {
     // GtkSettings is shared and can outlive this window.
     g_signal_handlers_disconnect_by_data(gtk_widget_get_settings(this->window), this);
     destroyPenSettingsMenu();
+    penSettingsBar.reset();
     // Release dynamic toolbar widgets before their signal-handler owners, including detached/hidden toolbars.
     clearToolbar();
 }
@@ -885,8 +886,9 @@ void MainWindow::destroyPenSettingsMenu() {
         gtk_widget_destroy(penSettingsPopover);
         penSettingsPopover = nullptr;
     }
+    penSettingsHeading = nullptr;
     penSettingsContent.reset();
-    penSettingsBar.reset();
+    // penSettingsBar lives as long as the window: the tool handler keeps its listener, so a new bar per reload would add one more each time
 }
 
 void MainWindow::appendPenSettingsMenu() {
@@ -913,11 +915,14 @@ void MainWindow::appendPenSettingsMenu() {
     gtk_widget_add_css_class(heading, "utn-paper-heading");
     gtk_widget_set_halign(heading, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(card), heading);
+    penSettingsHeading = heading;
 
-    penSettingsBar = std::make_unique<ToolUtnContextBar>("UTN_PEN_PROPERTIES_POPOVER", control);
+    if (!penSettingsBar) {
+        penSettingsBar = std::make_unique<ToolUtnContextBar>("UTN_PEN_PROPERTIES_POPOVER", control);
+    }
     penSettingsContent = penSettingsBar->createItem(false);
     gtk_widget_add_css_class(penSettingsContent.get(), "utn-paper-properties");
-    gtk_widget_set_size_request(penSettingsContent.get(), 344, 330);
+    gtk_widget_set_size_request(penSettingsContent.get(), 344, 400);
     gtk_box_append(GTK_BOX(card), penSettingsContent.get());
 
     GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -951,6 +956,18 @@ void MainWindow::appendPenSettingsMenu() {
     // A popover is not a child of the tool item, so show_all on the item never reaches its card
     gtk_widget_show_all(card);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
+    // The toolbar may destroy the button (and with it the popover) before destroyPenSettingsMenu() runs, e.g. on reloadToolbars()
+    g_signal_connect(popover, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
+                         auto* self = static_cast<MainWindow*>(data);
+                         self->penSettingsPopover = nullptr;
+                         self->penSettingsHeading = nullptr;
+                         self->penSettingsFocusAnchor = nullptr;
+                     }), this);
+    g_signal_connect(button, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
+                         auto* self = static_cast<MainWindow*>(data);
+                         self->penSettingsButton = nullptr;
+                         self->inkDockToggle = nullptr;
+                     }), this);
     g_signal_connect(popover, "closed", G_CALLBACK(+[](GtkPopover*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
                          GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(self->window));
@@ -985,7 +1002,7 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     gtk_widget_add_css_class(dock, "utn-paper-dock");
     gtk_widget_set_halign(dock, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(dock, GTK_ALIGN_END);
-    gtk_widget_set_margin_bottom(dock, 18);
+    gtk_widget_set_margin_bottom(dock, 64);
     gtk_widget_set_margin_start(dock, 12);
     gtk_widget_set_margin_end(dock, 12);
 
@@ -1015,17 +1032,19 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
         gtk_box_append(GTK_BOX(dock), swatch);
     }
 
-    const std::array<std::pair<const char*, ToolSize>, 3> sizes{{
-            {"S", TOOL_SIZE_FINE}, {"M", TOOL_SIZE_MEDIUM}, {"L", TOOL_SIZE_THICK},
+    const std::array<std::pair<const char*, ToolSize>, 5> sizes{{
+            {"XS", TOOL_SIZE_VERY_FINE}, {"S", TOOL_SIZE_FINE}, {"M", TOOL_SIZE_MEDIUM}, {"L", TOOL_SIZE_THICK},
+            {"XL", TOOL_SIZE_VERY_THICK},
     }};
+    const std::array<const char*, 5> sizeNames{{N_("Very fine pen"), N_("Fine pen"), N_("Medium pen"), N_("Thick pen"), N_("Very thick pen")}};
     GtkWidget* sizeGroup = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_add_css_class(sizeGroup, "utn-paper-size-group");
     for (size_t i = 0; i < sizes.size(); ++i) {
         GtkWidget* size = i == 0 ? gtk_radio_button_new_with_label(nullptr, sizes[i].first) :
                                    gtk_radio_button_new_with_label_from_widget(
                                            GTK_RADIO_BUTTON(inkDockSizes[0]), sizes[i].first);
-        gtk_widget_set_tooltip_text(size, i == 0 ? _("Fine pen") : i == 1 ? _("Medium pen") : _("Thick pen"));
-        utn::setAccessibleName(size, i == 0 ? _("Fine pen") : i == 1 ? _("Medium pen") : _("Thick pen"));
+        gtk_widget_set_tooltip_text(size, _(sizeNames[i]));
+        utn::setAccessibleName(size, _(sizeNames[i]));
         g_object_set_data(G_OBJECT(size), "utn-ink-size", GINT_TO_POINTER(static_cast<int>(sizes[i].second)));
         g_signal_connect(size, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                              if (!gtk_toggle_button_get_active(button)) return;
@@ -1082,6 +1101,20 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
 void MainWindow::updateInkDock() {
     if (!inkDock) return;
     const auto* tools = control->getToolHandler();
+    {
+        // The card edits whichever tool is active, so its title and tooltip must name that tool
+        const char* name = _("Tool");
+        switch (tools->getToolType()) {
+            case TOOL_PEN: name = _("Pen"); break;
+            case TOOL_HIGHLIGHTER: name = _("Highlighter"); break;
+            case TOOL_ERASER: name = _("Eraser"); break;
+            case TOOL_TEXT: name = _("Text"); break;
+            default: break;
+        }
+        const std::string title = FS(_F("{1} settings") % name);
+        if (penSettingsHeading) gtk_label_set_text(GTK_LABEL(penSettingsHeading), title.c_str());
+        if (penSettingsButton) gtk_widget_set_tooltip_text(penSettingsButton, title.c_str());
+    }
     const bool pen = tools->getToolType() == TOOL_PEN;
     const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
     gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher);
@@ -1095,7 +1128,7 @@ void MainWindow::updateInkDock() {
                                                   active.blue == candidate.blue);
     }
     const ToolSize activeSize = tools->getPenSize();
-    const std::array<ToolSize, 3> sizes{{TOOL_SIZE_FINE, TOOL_SIZE_MEDIUM, TOOL_SIZE_THICK}};
+    const std::array<ToolSize, 5> sizes{{TOOL_SIZE_VERY_FINE, TOOL_SIZE_FINE, TOOL_SIZE_MEDIUM, TOOL_SIZE_THICK, TOOL_SIZE_VERY_THICK}};
     syncingInkDock = true;
     for (size_t i = 0; i < inkDockSizes.size(); ++i) {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(inkDockSizes[i]), activeSize == sizes[i]);

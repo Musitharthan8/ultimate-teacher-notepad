@@ -3538,3 +3538,43 @@ TEST_F(ClassroomWorkflow, manualPanelChoiceMadeWhileThePolicyIsQueuedIsNotUndone
     window->updateCompactLayout(realWidth);
     settle();
 }
+
+// reloadToolbars() destroys the Pen settings button (and its popover) before toolbarSelected() tears the menu down.
+// Repeated reloads must neither touch a stale popover nor leave several settings buttons, and the card must stay usable.
+TEST_F(ClassroomWorkflow, toolbarReloadsKeepOnePenSettingsButtonAndAWorkingPopover) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    control->selectTool(TOOL_PEN);
+    settle();
+    for (int i = 0; i < 5; ++i) {
+        window->reloadToolbars();
+        settle();
+    }
+    GtkWidget* trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(trigger));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(trigger)));
+    ASSERT_TRUE(GTK_IS_POPOVER(popover));
+    gtk_popover_popup(GTK_POPOVER(popover));
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(popover));
+    EXPECT_GT(gtk_widget_get_allocated_height(popover), 250);
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    settle();
+
+    // The dock offers every pen size and shows the real one
+    auto* tools = control->getToolHandler();
+    const ToolSize previous = tools->getPenSize();
+    for (ToolSize size: {TOOL_SIZE_VERY_FINE, TOOL_SIZE_FINE, TOOL_SIZE_MEDIUM, TOOL_SIZE_THICK, TOOL_SIZE_VERY_THICK}) {
+        tools->setPenSize(size);
+        tools->fireToolChanged();
+        settle();
+        int active = 0;
+        for (const char* name: {"Very fine pen", "Fine pen", "Medium pen", "Thick pen", "Very thick pen"}) {
+            auto* radio = buttonAccessibleNamed(window->get("mainOverlay"), name);
+            ASSERT_NE(radio, nullptr) << name;
+            active += gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(radio)) ? 1 : 0;
+        }
+        EXPECT_EQ(active, 1) << "exactly one size is shown as selected, size " << static_cast<int>(size);
+    }
+    tools->setPenSize(previous);
+}

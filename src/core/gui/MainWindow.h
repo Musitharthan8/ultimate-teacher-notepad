@@ -244,7 +244,8 @@ private:
     GtkWidget* inkDockSettingsButton = nullptr;
     GtkWidget* inkDockToggle = nullptr;
     std::array<GtkWidget*, 5> inkDockSwatches{};
-    std::array<GtkWidget*, 3> inkDockSizes{};
+    std::array<GtkWidget*, 5> inkDockSizes{};
+    GtkWidget* penSettingsHeading = nullptr;
     std::unique_ptr<ToolUtnContextBar> penSettingsBar;
     xoj::util::WidgetSPtr penSettingsContent;
     xoj::util::WidgetSPtr inspectorPanedOwner;
