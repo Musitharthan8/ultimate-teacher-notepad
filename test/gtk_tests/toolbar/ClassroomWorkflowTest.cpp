@@ -511,7 +511,7 @@ GtkWidget* labelWithText(GtkWidget* widget, const char* text) {
 }
 }  // namespace
 
-TEST_F(ClassroomWorkflow, compactAppBarKeepsRoomForFreezeBlankAndPresentByHidingTheBrandText) {
+TEST_F(ClassroomWorkflow, appBarReducesSecondaryCaptionsBeforeItsCompactBreakpoint) {
     window->toolbarSelected("UTN Teacher");
     gtk_widget_show(window->getWindow());
     settle();
@@ -525,14 +525,20 @@ TEST_F(ClassroomWorkflow, compactAppBarKeepsRoomForFreezeBlankAndPresentByHiding
     ASSERT_NE(blank, nullptr) << "the default Teacher layout carries Blank";
 
     window->updateCompactLayout(1280);
-    EXPECT_TRUE(gtk_widget_get_visible(brand));
+    EXPECT_FALSE(gtk_widget_get_visible(brand)) << "the document title gets room before the narrow-window breakpoint";
     window->updateCompactLayout(1008);
     EXPECT_FALSE(gtk_widget_get_visible(brand)) << "compact: the title bar already names the app";
     EXPECT_TRUE(gtk_widget_get_visible(freeze)) << "Freeze is never hidden";
     EXPECT_TRUE(gtk_widget_get_visible(blank)) << "Blank is never hidden";
-    window->updateCompactLayout(1280);
+    window->updateCompactLayout(1400);
+    EXPECT_FALSE(gtk_widget_get_visible(brand)) << "the reduced captions persist through the hysteresis band";
+    window->updateCompactLayout(1401);
     EXPECT_TRUE(gtk_widget_get_visible(brand));
     window->updateCompactLayout(realWidth);
+    window->toolbarSelected("UTN Present");
+    EXPECT_TRUE(gtk_style_context_has_class(gtk_widget_get_style_context(window->getWindow()), "utnPresent"));
+    window->toolbarSelected("UTN Teacher");
+    EXPECT_FALSE(gtk_style_context_has_class(gtk_widget_get_style_context(window->getWindow()), "utnPresent"));
 }
 
 // The real Workspace menu buttons, which is how a teacher changes the mode
@@ -854,14 +860,25 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     settle();
     EXPECT_TRUE(gtk_widget_get_visible(popover));
     {
-        // Regression: the card was never shown, so the real popover was a small blank bubble
+        // Regression: the card was never shown, so the real popover was a small blank bubble.
         auto* pin = buttonNamed(popover, "Pin to side");
         ASSERT_NE(pin, nullptr);
         EXPECT_TRUE(gtk_widget_get_visible(pin));
         EXPECT_GT(gtk_widget_get_allocated_height(popover), 250);
         EXPECT_GT(gtk_widget_get_allocated_width(popover), 300);
+        auto* width = widgetNamed(popover, "utnPenWidthScale");
+        ASSERT_TRUE(GTK_IS_RANGE(width));
+        auto* preview = widgetNamed(popover, "utnPenStrokePreview");
+        EXPECT_TRUE(GTK_IS_DRAWING_AREA(preview));
+        auto* advanced = widgetNamed(popover, "utnPenAdvancedOptions");
+        EXPECT_TRUE(GTK_IS_EXPANDER(advanced));
     }
     capture("ACTUAL-GTK-BUILD-paper-ink-workspace-popover-open-main-window.png");
+    if (captureDir) {
+        gchar* path = g_build_filename(captureDir, "ACTUAL-GTK-BUILD-paper-ink-pen-properties-popover.png", nullptr);
+        captureWindow(popover, path);
+        g_free(path);
+    }
     auto* blue = buttonAccessibleNamed(popover, "Blue");
     ASSERT_NE(blue, nullptr);
     gtk_button_clicked(GTK_BUTTON(blue));
@@ -869,6 +886,11 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     EXPECT_EQ(selectedColour.red, 0x1eU);
     EXPECT_EQ(selectedColour.green, 0x5bU);
     EXPECT_EQ(selectedColour.blue, 0xd8U);
+
+    // The compact width control maps to the existing five discrete model presets.
+    auto* width = widgetNamed(popover, "utnPenWidthScale");
+    gtk_range_set_value(GTK_RANGE(width), static_cast<double>(TOOL_SIZE_VERY_THICK));
+    EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_VERY_THICK);
 
     gtk_button_clicked(GTK_BUTTON(dockToggle));
     settle();
@@ -925,6 +947,7 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     EXPECT_EQ(window->getTeacherWorkspace(), 0);
     EXPECT_TRUE(waitUntilHidden(popover));
     EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), trigger);
+    capture("ACTUAL-GTK-BUILD-paper-ink-properties-pinned.png");
 
     auto* close = buttonAccessibleNamed(dock, "Hide ink dock");
     ASSERT_NE(close, nullptr);
@@ -937,6 +960,51 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     tools->setPenSize(previousSize);
     window->setTeacherWorkspace(previousWorkspace);
     window->toolbarSelected(previousToolbar);
+}
+
+TEST_F(ClassroomWorkflow, documentHeaderShowsTheCurrentNameAndDirtyStateAndHidesWhenCompact) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* title = widgetNamed(window->getWindow(), "utnDocumentTitle");
+    auto* status = widgetNamed(window->getWindow(), "utnDocumentSaveStatus");
+    ASSERT_TRUE(GTK_IS_LABEL(title));
+    ASSERT_TRUE(GTK_IS_LABEL(status));
+    window->updateCompactLayout(1450);
+    auto* headerItem = gtk_widget_get_parent(gtk_widget_get_parent(title));
+
+    gtk_window_set_title(GTK_WINDOW(window->getWindow()), "lesson.xopp - Ultimate Teacher Notepad");
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(title)), "lesson.xopp");
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "✓");
+    EXPECT_TRUE(gtk_widget_get_visible(headerItem));
+    gtk_window_set_title(GTK_WINDOW(window->getWindow()), "*lesson.xopp - Ultimate Teacher Notepad");
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Modified");
+
+    window->updateCompactLayout(900);
+    EXPECT_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(title))));
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 900, 720);
+    settle();
+    int railWidth = -1;
+    auto* railScroller = widgetNamed(window->getWindow(), "tbLeft1Scroller");
+    auto* railHost = widgetNamed(window->getWindow(), "utnRailHost");
+    auto* expandSettings = widgetNamed(window->getWindow(), "utnExpandInspector");
+    ASSERT_TRUE(GTK_IS_BUTTON(expandSettings));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "");
+    EXPECT_NE(gtk_button_get_image(GTK_BUTTON(expandSettings)), nullptr);
+    EXPECT_STREQ(gtk_widget_get_tooltip_text(expandSettings), "Show tool settings");
+    gtk_widget_get_size_request(railScroller, &railWidth, nullptr);
+    EXPECT_EQ(railWidth, 72);
+    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)), 72);
+    EXPECT_FALSE(gtk_scrolled_window_get_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller)));
+    EXPECT_LE(gtk_widget_get_allocated_width(railHost), 100);
+    window->updateCompactLayout(1450);
+    EXPECT_TRUE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(title))));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "Show settings");
+    gtk_widget_get_size_request(widgetNamed(window->getWindow(), "tbLeft1Scroller"), &railWidth, nullptr);
+    EXPECT_EQ(railWidth, -1);
+    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)), -1);
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 800);
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, paperInkControlsStayHiddenInClassicLayouts) {

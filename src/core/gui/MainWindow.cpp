@@ -73,6 +73,9 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
         toolbar(std::make_unique<ToolMenuHandler>(control, this)),
         menubar(std::make_unique<Menubar>()) {
     gtk_window_set_application(GTK_WINDOW(getWindow()), parent);
+    g_signal_connect(this->window, "notify::title", G_CALLBACK(+[](GObject*, GParamSpec*, gpointer data) {
+                         static_cast<MainWindow*>(data)->updateDocumentHeader();
+                     }), this);
 
     panedContainerWidget.reset(get("panelMainContents"), xoj::util::ref);
     boxContainerWidget.reset(get("mainContentContainer"), xoj::util::ref);
@@ -81,7 +84,14 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     inspectorPaned = get("utnInspectorPaned");
     inspectorHost = get("utnInspectorHost");
     railScroller = get("tbLeft1Scroller");
-    g_signal_connect(get("utnExpandInspector"), "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+    railHost = get("utnRailHost");
+    expandInspectorButton = get("utnExpandInspector");
+    gtk_button_set_image(GTK_BUTTON(expandInspectorButton),
+                         gtk_image_new_from_icon_name("document-properties-symbolic", GTK_ICON_SIZE_BUTTON));
+    gtk_button_set_always_show_image(GTK_BUTTON(expandInspectorButton), true);
+    gtk_widget_set_tooltip_text(expandInspectorButton, _("Show tool settings"));
+    utn::setAccessibleName(expandInspectorButton, _("Show tool settings"));
+    g_signal_connect(expandInspectorButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<MainWindow*>(data)->setTeacherWorkspace(0);
                      }), this);
     // Keep the pane and canvas alive while the canvas is reparented for compact workspace states.
@@ -797,6 +807,11 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     } else {
         gtk_style_context_remove_class(context, "utnShell");
     }
+    if (utnShell && d->getId() == "UTN Present") {
+        gtk_style_context_add_class(context, "utnPresent");
+    } else {
+        gtk_style_context_remove_class(context, "utnPresent");
+    }
 }
 
 auto MainWindow::clearToolbar() -> const ToolbarData* {
@@ -821,8 +836,85 @@ void MainWindow::loadToolbar(ToolbarData* d) {
     this->floatingToolbox->flagRecalculateSizeRequired();
 }
 
+void MainWindow::appendDocumentHeader() {
+    GtkToolbar* top = GTK_TOOLBAR(this->toolbarWidgets[0].get());
+    for (int i = 0; i < gtk_toolbar_get_n_items(top); ++i) {
+        GtkToolItem* current = gtk_toolbar_get_nth_item(top, i);
+        GtkWidget* child = gtk_bin_get_child(GTK_BIN(current));
+        if (!child || g_strcmp0(gtk_widget_get_name(child), "utnBrand") != 0) {
+            continue;
+        }
+
+        GtkToolItem* item = gtk_tool_item_new();
+        GtkWidget* content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_add_css_class(content, "utn-document-header");
+        GtkWidget* title = gtk_label_new("");
+        gtk_widget_set_name(title, "utnDocumentTitle");
+        gtk_widget_add_css_class(title, "utn-document-title");
+        gtk_label_set_ellipsize(GTK_LABEL(title), PANGO_ELLIPSIZE_END);
+        gtk_label_set_max_width_chars(GTK_LABEL(title), 28);
+        GtkWidget* status = gtk_label_new("");
+        gtk_widget_set_name(status, "utnDocumentSaveStatus");
+        gtk_widget_add_css_class(status, "utn-document-status");
+        gtk_box_append(GTK_BOX(content), title);
+        gtk_box_append(GTK_BOX(content), status);
+        gtk_widget_set_tooltip_text(content, _("Document name and save status"));
+        gtk_container_add(GTK_CONTAINER(item), content);
+        gtk_tool_item_set_homogeneous(item, false);
+        gtk_tool_item_set_expand(item, true);
+        gtk_toolbar_insert(top, item, i + 1);
+        documentHeader = GTK_WIDGET(item);
+        documentHeaderTitle = title;
+        documentHeaderStatus = status;
+        g_signal_connect(item, "destroy", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             if (self->documentHeader == widget) {
+                                 self->documentHeader = nullptr;
+                                 self->documentHeaderTitle = nullptr;
+                                 self->documentHeaderStatus = nullptr;
+                             }
+                         }), this);
+        gtk_widget_show_all(GTK_WIDGET(item));
+        gtk_widget_set_visible(GTK_WIDGET(item), !compactLayout);
+        updateDocumentHeader();
+        return;
+    }
+}
+
+void MainWindow::updateDocumentHeader() {
+    if (!documentHeaderTitle || !documentHeaderStatus) {
+        return;
+    }
+    const char* rawTitle = gtk_window_get_title(GTK_WINDOW(window));
+    std::string title = rawTitle ? rawTitle : _("Untitled document");
+    const size_t appSuffix = title.rfind(" - Ultimate Teacher Notepad");
+    if (appSuffix != std::string::npos) {
+        title.resize(appSuffix);
+    }
+    const size_t pagePrefix = title.find("]  ");
+    if (!title.empty() && title.front() == '[' && pagePrefix != std::string::npos) {
+        title.erase(0, pagePrefix + 3);
+    }
+    bool modified = !title.empty() && title.front() == '*';
+    if (modified) {
+        title.erase(0, 1);
+    }
+    const size_t pathPrefix = title.find("] - ");
+    if (!title.empty() && title.front() == '[' && pathPrefix != std::string::npos) {
+        title.erase(0, pathPrefix + 4);
+    }
+    const bool unsaved = title == _("Unsaved Document");
+    gtk_label_set_text(GTK_LABEL(documentHeaderTitle), title.c_str());
+    const char* status = unsaved ? _("Not saved") : modified ? _("Modified") : _("Saved");
+    gtk_label_set_text(GTK_LABEL(documentHeaderStatus), modified || unsaved ? status : "✓");
+    gtk_widget_set_tooltip_text(documentHeaderStatus, status);
+    utn::setAccessibleName(documentHeaderStatus, status);
+    gtk_widget_set_tooltip_text(documentHeaderTitle, title.c_str());
+}
+
 void MainWindow::appendWorkspaceMenu() {
     GtkToolbar* top = GTK_TOOLBAR(this->toolbarWidgets[0].get());
+    appendDocumentHeader();
     GtkToolItem* item = gtk_tool_item_new();
     GtkWidget* menu = gtk_menu_button_new();
     gtk_button_set_label(GTK_BUTTON(menu), _("Workspace"));
@@ -887,6 +979,10 @@ void MainWindow::destroyPenSettingsMenu() {
         penSettingsPopover = nullptr;
     }
     penSettingsHeading = nullptr;
+    penWidthScale = nullptr;
+    penWidthLabel = nullptr;
+    penStrokePreview = nullptr;
+    penPropertySwatches.fill(nullptr);
     penSettingsContent.reset();
     // penSettingsBar lives as long as the window: the tool handler keeps its listener, so a new bar per reload would add one more each time
 }
@@ -911,7 +1007,7 @@ void MainWindow::appendPenSettingsMenu() {
     gtk_widget_set_margin_end(card, 12);
     gtk_widget_set_margin_top(card, 12);
     gtk_widget_set_margin_bottom(card, 12);
-    GtkWidget* heading = gtk_label_new(_("Pen properties"));
+    GtkWidget* heading = gtk_label_new(_("Pen settings"));
     gtk_widget_add_css_class(heading, "utn-paper-heading");
     gtk_widget_set_halign(heading, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(card), heading);
@@ -920,10 +1016,100 @@ void MainWindow::appendPenSettingsMenu() {
     if (!penSettingsBar) {
         penSettingsBar = std::make_unique<ToolUtnContextBar>("UTN_PEN_PROPERTIES_POPOVER", control);
     }
+    GtkWidget* hint = gtk_label_new(_("Applies to new strokes"));
+    gtk_widget_add_css_class(hint, "utn-paper-hint");
+    gtk_widget_set_halign(hint, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), hint);
+
+    GtkWidget* colourTitle = gtk_label_new(_("Ink colour"));
+    gtk_widget_add_css_class(colourTitle, "utn-context-title");
+    gtk_widget_set_halign(colourTitle, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), colourTitle);
+    GtkWidget* colourGrid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(colourGrid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(colourGrid), 8);
+    gtk_widget_add_css_class(colourGrid, "utn-paper-palette");
+    const std::array<std::pair<const char*, Color>, 8> propertyColours{{
+            {N_("Ink"), Color{0x20U, 0x25U, 0x2BU}}, {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
+            {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}}, {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
+            {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}}, {N_("Orange"), Color{0xEFU, 0x6CU, 0x00U}},
+            {N_("Gold"), Color{0xC0U, 0x8BU, 0x00U}}, {N_("Teal"), Color{0x00U, 0x7FU, 0x73U}},
+    }};
+    for (size_t i = 0; i < propertyColours.size(); ++i) {
+        const auto& [name, colour] = propertyColours[i];
+        GtkWidget* swatch = utn::createColourSwatch(colour, _(name));
+        gtk_widget_set_size_request(swatch, 34, 34);
+        gtk_widget_set_focus_on_click(swatch, false);
+        g_object_set_data_full(G_OBJECT(swatch), "utn-property-colour", new Color(colour),
+                               +[](gpointer data) { delete static_cast<Color*>(data); });
+        g_signal_connect(swatch, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             auto* colour = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-property-colour"));
+                             self->control->getToolHandler()->setColor(*colour, true);
+                             self->updateInkDock();
+                         }), this);
+        penPropertySwatches[i] = swatch;
+        gtk_grid_attach(GTK_GRID(colourGrid), swatch, static_cast<int>(i % 4), static_cast<int>(i / 4), 1, 1);
+    }
+    gtk_box_append(GTK_BOX(card), colourGrid);
+
+    GtkWidget* widthTitle = gtk_label_new(_("Stroke width"));
+    gtk_widget_add_css_class(widthTitle, "utn-context-title");
+    gtk_widget_set_halign(widthTitle, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), widthTitle);
+    GtkWidget* widthRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    penWidthScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 4, 1);
+    gtk_scale_set_draw_value(GTK_SCALE(penWidthScale), false);
+    gtk_widget_set_size_request(penWidthScale, 220, 32);
+    gtk_widget_set_hexpand(penWidthScale, true);
+    gtk_widget_set_name(penWidthScale, "utnPenWidthScale");
+    utn::setAccessibleName(penWidthScale, _("Pen stroke width"));
+    penWidthLabel = gtk_label_new("");
+    gtk_widget_add_css_class(penWidthLabel, "utn-paper-width-label");
+    gtk_box_append(GTK_BOX(widthRow), penWidthScale);
+    gtk_box_append(GTK_BOX(widthRow), penWidthLabel);
+    gtk_box_append(GTK_BOX(card), widthRow);
+    g_signal_connect(penWidthScale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                         auto* self = static_cast<MainWindow*>(data);
+                         if (self->syncingPenSettings || !self->control->getActionDatabase()) return;
+                         self->control->getToolHandler()->setPenSize(
+                                 static_cast<ToolSize>(static_cast<int>(std::lround(gtk_range_get_value(range)))));
+                         self->updateInkDock();
+                     }), this);
+
+    penStrokePreview = gtk_drawing_area_new();
+    gtk_widget_set_name(penStrokePreview, "utnPenStrokePreview");
+    gtk_widget_set_size_request(penStrokePreview, 280, 42);
+    gtk_widget_add_css_class(penStrokePreview, "utn-paper-stroke-preview");
+    gtk_widget_set_tooltip_text(penStrokePreview, _("Preview of the selected pen colour and width"));
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(penStrokePreview),
+                                   +[](GtkDrawingArea*, cairo_t* cr, int width, int height, gpointer data) {
+                                       auto* self = static_cast<MainWindow*>(data);
+                                       const auto* tools = self->control->getToolHandler();
+                                       const Color colour = tools->getTool(TOOL_PEN).getColor();
+                                       const GdkRGBA rgba = Util::argb_to_GdkRGBA(colour);
+                                       cairo_set_source_rgba(cr, rgba.red, rgba.green, rgba.blue, 1.0);
+                                       const ToolSize size = tools->getPenSize();
+                                       const double line = std::clamp(tools->getTool(TOOL_PEN).getThickness(size) * 2.4, 1.5, 12.0);
+                                       cairo_set_line_width(cr, line);
+                                       cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+                                       cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                                       cairo_move_to(cr, width * 0.08, height * 0.58);
+                                       cairo_curve_to(cr, width * 0.28, height * 0.08, width * 0.45, height * 0.95,
+                                                      width * 0.65, height * 0.45);
+                                       cairo_curve_to(cr, width * 0.76, height * 0.18, width * 0.86, height * 0.70,
+                                                      width * 0.94, height * 0.40);
+                                       cairo_stroke(cr);
+                                   }, this, nullptr);
+    gtk_box_append(GTK_BOX(card), penStrokePreview);
+
+    GtkWidget* advanced = gtk_expander_new(_("Shape and stroke options"));
+    gtk_widget_set_name(advanced, "utnPenAdvancedOptions");
     penSettingsContent = penSettingsBar->createItem(false);
     gtk_widget_add_css_class(penSettingsContent.get(), "utn-paper-properties");
-    gtk_widget_set_size_request(penSettingsContent.get(), 344, 400);
-    gtk_box_append(GTK_BOX(card), penSettingsContent.get());
+    gtk_widget_set_size_request(penSettingsContent.get(), 330, 240);
+    gtk_container_add(GTK_CONTAINER(advanced), penSettingsContent.get());
+    gtk_box_append(GTK_BOX(card), advanced);
 
     GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget* pin = gtk_button_new_with_label(_("Pin to side"));
@@ -1119,6 +1305,24 @@ void MainWindow::updateInkDock() {
     const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
     gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher);
     const Color active = tools->getTool(TOOL_PEN).getColor();
+    const std::array<Color, 8> propertyColours{{Color{0x20U, 0x25U, 0x2BU}, Color{0x1EU, 0x5BU, 0xD8U},
+                                                Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
+                                                Color{0x6AU, 0x1BU, 0x9AU}, Color{0xEFU, 0x6CU, 0x00U},
+                                                Color{0xC0U, 0x8BU, 0x00U}, Color{0x00U, 0x7FU, 0x73U}}};
+    for (size_t i = 0; i < penPropertySwatches.size(); ++i) {
+        if (penPropertySwatches[i]) {
+            utn::setSwatchSelected(penPropertySwatches[i], active == propertyColours[i]);
+        }
+    }
+    if (penWidthScale && penWidthLabel && penStrokePreview) {
+        const ToolSize activeWidth = tools->getPenSize();
+        const std::array<const char*, 5> widthLabels{{N_("XS"), N_("S"), N_("M"), N_("L"), N_("XL")}};
+        syncingPenSettings = true;
+        gtk_range_set_value(GTK_RANGE(penWidthScale), static_cast<int>(activeWidth));
+        syncingPenSettings = false;
+        gtk_label_set_text(GTK_LABEL(penWidthLabel), _(widthLabels[std::clamp(static_cast<int>(activeWidth), 0, 4)]));
+        gtk_widget_queue_draw(penStrokePreview);
+    }
     const std::array<Color, 5> swatches{{Color{0x00U, 0x00U, 0x00U}, Color{0x1EU, 0x5BU, 0xD8U},
                                         Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
                                         Color{0x6AU, 0x1BU, 0x9AU}}};
@@ -1396,9 +1600,14 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     // The decision itself (with hysteresis) lives in ResponsiveLayout.h so it is tested at any logical width
     updatePanelPolicy(width, fromAllocation);
     const bool wasCompact = this->compactLayout;
+    const bool wasCompactHeader = this->compactHeader;
     this->layoutWidth = width;
     this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
-    if (wasCompact == this->compactLayout && !this->compactLayoutDirty) {
+    this->compactHeader = wasCompactHeader ? width <= 1400 : width < 1320;
+    if (documentHeader) {
+        gtk_widget_set_visible(documentHeader, !this->compactLayout);
+    }
+    if (wasCompact == this->compactLayout && wasCompactHeader == this->compactHeader && !this->compactLayoutDirty) {
         return;
     }
     this->compactLayoutDirty = false;
@@ -1409,14 +1618,42 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
         gtk_style_context_remove_class(context, "utnCompact");
     }
     if (workspaceMenu) {
-        hideButtonCaption(workspaceMenu, this->compactLayout);
+        hideButtonCaption(workspaceMenu, this->compactHeader);
     }
-    // Compact rail: icons only; names stay in tooltips and accessible names
+    if (expandInspectorButton) {
+        // Changing the label property (rather than only hiding its GtkLabel) updates the button's
+        // natural requisition too; GTK otherwise keeps the old caption width in the rail host.
+        gtk_button_set_label(GTK_BUTTON(expandInspectorButton), this->compactHeader ? "" : _("Show settings"));
+    }
+    if (railScroller) {
+        // GtkScrolledWindow's natural-width propagation otherwise preserves the old 150 px rail even
+        // after captions are hidden. Keep the compact rail narrow so the worksheet gets that space.
+        gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller), !this->compactLayout);
+        gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(railScroller), this->compactLayout ? 58 : -1);
+        gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(railScroller), this->compactLayout ? 72 : -1);
+        gtk_widget_set_size_request(railScroller, this->compactLayout ? 72 : -1, -1);
+    }
+    if (railHost) {
+        // The Show settings caption used to set the rail host's natural width above the scroller cap.
+        // With the caption hidden its symbolic button and rail fit the compact card.
+        gtk_widget_set_size_request(railHost, this->compactLayout ? 72 : -1, -1);
+        if (this->compactLayout) {
+            gtk_style_context_add_class(gtk_widget_get_style_context(railHost), "utnCompactRail");
+        } else {
+            gtk_style_context_remove_class(gtk_widget_get_style_context(railHost), "utnCompactRail");
+        }
+    }
+    // Hide the long app-bar captions before they squeeze the document title; at <1080 the entire
+    // chrome also switches to the compact size. Names remain in tooltips and accessible names.
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
             setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));
-            setCompactHidden(GTK_WIDGET(toolbar.get()), this->compactLayout);
+            setCompactHidden(GTK_WIDGET(toolbar.get()), this->compactHeader);
         }
+    }
+    // The document title is deliberately retained in the wider compact-header state.
+    if (documentHeader) {
+        gtk_widget_set_visible(documentHeader, !this->compactLayout);
     }
 }
 

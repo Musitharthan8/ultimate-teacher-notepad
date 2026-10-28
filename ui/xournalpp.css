@@ -1214,6 +1214,9 @@ window.utnShell #tbTop1 button {
 window.utnShell #tbTop1 button:hover {
     background-color: shade(@utn_paper_desk, 1.04);
 }
+window.utnShell .utn-document-header { padding: 0 12px; }
+window.utnShell .utn-document-title { font-weight: 600; color: @utn_paper_text; }
+window.utnShell .utn-document-status { font-size: 0.85em; color: @utn_paper_muted; }
 /* Teach / Mark / Present as one segmented control */
 window.utnShell .utnWorkspaceSwitch {
     background-color: @utn_paper_desk;
@@ -1239,6 +1242,11 @@ window.utnShell .utn-sv-quick {
     padding: 3px;
     box-shadow: 0 1px 3px alpha(black, 0.10);
 }
+window.utnShell #tbTop1 .utn-sv-pill {
+    border-radius: 11px;
+    padding: 2px 9px;
+    border: 1px solid @utn_paper_hairline;
+}
 window.utnShell .utn-sv-quick button {
     border-radius: 9px;
 }
@@ -1262,6 +1270,14 @@ window.utnShell #tbLeft1 button:hover {
 window.utnShell #tbLeft1 button:checked {
     box-shadow: inset 3px 0 0 @utn_paper_accent;
 }
+/* The options remain a separate, keyboard-operable hit target; reduce only its arrow glyph to a quiet marker. */
+window.utnShell #tbLeft1 .utn-tool-arrow arrow {
+    min-width: 4px;
+    min-height: 4px;
+    border-radius: 999px;
+    background-color: @utn_paper_muted;
+    color: transparent;
+}
 window.utnShell.darkMode #tbTop1 { border-bottom-color: @utn_paper_dark_hairline; }
 window.utnShell.darkMode .utnWorkspaceSwitch { background-color: @utn_paper_dark_desk; }
 window.utnShell.darkMode .utnWorkspaceSwitch .utnWorkspaceButton { color: @utn_paper_dark_muted; }
@@ -1273,11 +1289,99 @@ window.utnShell.darkMode .utn-sv-quick {
     background-color: @utn_paper_dark_surface;
     border-color: @utn_paper_dark_hairline;
 }
+window.utnShell.darkMode .utn-document-title { color: @utn_paper_dark_text; }
+window.utnShell.darkMode .utn-document-status { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode #tbTop1 .utn-sv-pill { border-color: @utn_paper_dark_hairline; }
 window.utnShell.darkMode #tbLeft1 button { color: @utn_paper_dark_muted; }
 window.utnShell.darkMode #tbLeft1 button:hover { color: @utn_paper_dark_text; }
+window.utnShell.darkMode #tbLeft1 .utn-tool-arrow arrow { background-color: @utn_paper_dark_muted; }
 window.utnShell.utnHighContrast #tbTop1 button,
 window.utnShell.utnHighContrast #tbLeft1 button {
     border: 1px solid #ffffff;
     background-color: #000000;
     color: #ffffff;
+}
+window.utnShell.utnHighContrast .utn-document-title,
+window.utnShell.utnHighContrast .utn-document-status { color: #ffffff; }
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-pill { border: 2px solid #ffffff; }
+window.utnShell.utnHighContrast #tbLeft1 .utn-tool-arrow arrow {
+    min-width: 6px;
+    min-height: 6px;
+    background-color: #ffffff;
+}
+
+/* Pen properties: compact paper card with a real palette, width control and live mark preview. */
+window.utnShell .utn-paper-hint {
+    color: @utn_paper_muted;
+    font-size: 0.9em;
+}
+window.utnShell .utn-paper-palette button {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 2px;
+    border-radius: 999px;
+}
+window.utnShell .utn-paper-width-label {
+    min-width: 30px;
+    font-weight: 600;
+    color: @utn_paper_accent;
+}
+window.utnShell .utn-paper-stroke-preview {
+    background-color: @utn_paper_desk;
+    border-radius: 9px;
+    padding: 4px;
+}
+window.utnShell .utn-paper-card > expander > label { font-weight: 600; }
+window.utnShell.darkMode .utn-paper-hint { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode .utn-paper-width-label { color: @utn_paper_dark_accent; }
+window.utnShell.darkMode .utn-paper-stroke-preview { background-color: @utn_paper_dark_desk; }
+window.utnShell.utnHighContrast .utn-paper-hint,
+window.utnShell.utnHighContrast .utn-paper-width-label { color: #ffffff; }
+window.utnShell.utnHighContrast .utn-paper-stroke-preview {
+    background-color: #000000;
+    border: 1px solid #ffffff;
+}
+
+/* Present is a workspace, not a privacy state: tint the app chrome while leaving the selected label explicit. */
+window.utnShell.utnPresent #tbTop1 {
+    background-color: @utn_paper_accent_soft;
+    border-bottom-color: @utn_paper_accent;
+}
+window.utnShell.utnPresent .utnWorkspaceSwitch .utnWorkspaceButton:checked {
+    background-color: @utn_paper_accent;
+    color: #ffffff;
+}
+window.utnShell.darkMode.utnPresent #tbTop1 {
+    background-color: @utn_paper_dark_desk;
+    border-bottom-color: @utn_paper_dark_accent;
+}
+window.utnShell.darkMode.utnPresent .utnWorkspaceSwitch .utnWorkspaceButton:checked {
+    background-color: @utn_paper_dark_accent;
+    color: #101818;
+}
+window.utnShell.utnHighContrast.utnPresent #tbTop1,
+window.utnShell.utnHighContrast.utnPresent #tbLeft1 {
+    border: 2px solid #ffff00;
+}
+
+/* GTK measures the toolbar's natural width before applying the scroller's content cap.
+   Constrain its host as well so the retained Show settings affordance cannot widen the rail. */
+window.utnShell.utnCompact #utnRailHost,
+window.utnShell #utnRailHost.utnCompactRail {
+    min-width: 72px;
+}
+window.utnShell.utnCompact #utnExpandInspector {
+    min-width: 48px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+window.utnShell.utnCompact #tbLeft1 button {
+    min-width: 0;
+    padding: 4px;
+    margin: 0;
+}
+window.utnShell.utnCompact #tbLeft1 button.utn-tool-arrow {
+    min-width: 14px;
+    min-height: 28px;
+    padding: 0;
 }

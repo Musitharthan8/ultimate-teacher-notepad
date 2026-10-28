@@ -236,6 +236,7 @@ public:
 
     xoj::util::WidgetSPtr createItem(bool) override {
         auto* label = gtk_label_new("UTN");
+        gtk_widget_set_name(label, "utnBrand");
         gtk_widget_add_css_class(label, "utn-brand");
         gtk_widget_add_css_class(label, "utn-compact-hidden");
         gtk_widget_set_tooltip_text(label, _("Ultimate Teacher Notepad. Your classroom workspace."));

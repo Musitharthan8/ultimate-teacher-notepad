@@ -111,7 +111,8 @@ void Settings::loadDefault() {
 
     this->stylusCursorType = STYLUS_CURSOR_DOT;
     this->eraserVisibility = ERASER_VISIBILITY_ALWAYS;
-    this->iconTheme = ICON_THEME_COLOR;
+    // Paper-and-ink starts with a consistent monochrome rail. Existing explicit choices are still loaded below.
+    this->iconTheme = ICON_THEME_LUCIDE;
     this->themeVariant = THEME_VARIANT_USE_SYSTEM;
     this->highlightPosition = false;
     this->cursorHighlightColor = 0x80FFFF00;  // Yellow with 50% opacity

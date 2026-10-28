@@ -160,6 +160,8 @@ private:
     void updateTeacherWorkspace();
     void updateInspectorBounds();
     void appendWorkspaceMenu();
+    void appendDocumentHeader();
+    void updateDocumentHeader();
     void appendPenSettingsMenu();
     void destroyPenSettingsMenu();
     void createInkDock(GtkOverlay* overlay);
@@ -211,6 +213,7 @@ private:
     int presentationOverlayState = 0;
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     bool compactLayout = false;
+    bool compactHeader = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
     bool thumbnailsAway = false;         ///< width policy: the sidebar should be out of the way
     bool inspectorFolded = false;        ///< width policy: the inspector should be folded
@@ -236,7 +239,12 @@ private:
     GtkWidget* inspectorPaned = nullptr;
     GtkWidget* inspectorHost = nullptr;
     GtkWidget* railScroller = nullptr;
+    GtkWidget* railHost = nullptr;
+    GtkWidget* expandInspectorButton = nullptr;
     GtkWidget* workspaceMenu = nullptr;
+    GtkWidget* documentHeader = nullptr;
+    GtkWidget* documentHeaderTitle = nullptr;
+    GtkWidget* documentHeaderStatus = nullptr;
     GtkWidget* penSettingsButton = nullptr;
     GtkWidget* penSettingsPopover = nullptr;
     GtkWidget* penSettingsFocusAnchor = nullptr;
@@ -245,7 +253,12 @@ private:
     GtkWidget* inkDockToggle = nullptr;
     std::array<GtkWidget*, 5> inkDockSwatches{};
     std::array<GtkWidget*, 5> inkDockSizes{};
+    std::array<GtkWidget*, 8> penPropertySwatches{};
     GtkWidget* penSettingsHeading = nullptr;
+    GtkWidget* penWidthScale = nullptr;
+    GtkWidget* penWidthLabel = nullptr;
+    GtkWidget* penStrokePreview = nullptr;
+    bool syncingPenSettings = false;
     std::unique_ptr<ToolUtnContextBar> penSettingsBar;
     xoj::util::WidgetSPtr penSettingsContent;
     xoj::util::WidgetSPtr inspectorPanedOwner;
