@@ -42,6 +42,7 @@ class UtnToast;
 class GladeSearchpath;
 
 class Menubar;
+class ToolUtnContextBar;
 
 typedef std::array<xoj::util::WidgetSPtr, TOOLBAR_DEFINITIONS_LEN> ToolbarWidgetArray;
 
@@ -159,6 +160,10 @@ private:
     void updateTeacherWorkspace();
     void updateInspectorBounds();
     void appendWorkspaceMenu();
+    void appendPenSettingsMenu();
+    void destroyPenSettingsMenu();
+    void createInkDock(GtkOverlay* overlay);
+    void updateInkDock();
 
     /**
      * Update the position of the separator in the paned container, adjusting it to the saved sidebar width.
@@ -214,11 +219,14 @@ private:
     bool applyingPanelPolicy = false;
     bool thumbnailsManualChoice = false;  ///< the teacher chose since the last width crossing: the policy must not undo it
     bool inspectorManualChoice = false;
+    bool inkDockEnabled = false;
     bool panelPolicyPending = false;
     void updatePanelPolicy(int width, bool fromAllocation);
     void applyPanelPolicy();
     int layoutWidth = 0;             ///< last width passed to updateCompactLayout()
-    int teacherWorkspace = 0;
+    // Fresh profiles start with the rail visible and the inspector available from tool popovers.
+    // A previously saved workspaceTools value still overrides this default.
+    int teacherWorkspace = 1;
     int inspectorWidth = 250;
     int inspectorAvailableWidth = 0;
     int toolLabels = 0;  ///< automatic, show, hide
@@ -228,6 +236,15 @@ private:
     GtkWidget* inspectorHost = nullptr;
     GtkWidget* railScroller = nullptr;
     GtkWidget* workspaceMenu = nullptr;
+    GtkWidget* penSettingsButton = nullptr;
+    GtkWidget* penSettingsPopover = nullptr;
+    GtkWidget* inkDock = nullptr;
+    GtkWidget* inkDockSettingsButton = nullptr;
+    GtkWidget* inkDockToggle = nullptr;
+    std::array<GtkWidget*, 5> inkDockSwatches{};
+    std::array<GtkWidget*, 3> inkDockSizes{};
+    std::unique_ptr<ToolUtnContextBar> penSettingsBar;
+    xoj::util::WidgetSPtr penSettingsContent;
     xoj::util::WidgetSPtr inspectorPanedOwner;
     xoj::util::WidgetSPtr inspectorContentOwner;
 

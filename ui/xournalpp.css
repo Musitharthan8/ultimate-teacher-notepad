@@ -25,6 +25,25 @@
 @define-color utn_border #d5dce4;
 @define-color utn_border_soft #e4e9ef;
 @define-color utn_border_dark #3a424d;
+/* Paper-and-ink vertical-slice tokens. GTK3 uses @define-color rather than CSS custom properties. */
+@define-color utn_paper_app #fbfaf7;
+@define-color utn_paper_surface #ffffff;
+@define-color utn_paper_desk #ece9e2;
+@define-color utn_paper_hairline #e3dfd6;
+@define-color utn_paper_text #1b2a2e;
+@define-color utn_paper_muted #56666a;
+@define-color utn_paper_accent #0f766e;
+@define-color utn_paper_accent_soft #d9efea;
+@define-color utn_paper_ring #0b4f4a;
+@define-color utn_paper_dark_app #161b1d;
+@define-color utn_paper_dark_surface #1e2528;
+@define-color utn_paper_dark_desk #101416;
+@define-color utn_paper_dark_hairline #394548;
+@define-color utn_paper_dark_text #e8efed;
+@define-color utn_paper_dark_muted #9fb2b4;
+@define-color utn_paper_dark_accent #4fd1c0;
+@define-color utn_paper_dark_accent_soft #17403b;
+@define-color utn_paper_dark_ring #9cf0e4;
 #pdfFloatingToolGrid {
     padding: 7px;
 }
@@ -629,6 +648,126 @@ window.utnShell.utnTouch #utnContextSide .utn-shape-picker button {
 }
 window.utnShell.utnHighContrast #utnContextSide .utn-shape-picker button:checked {
     border-width: 3px;
+}
+
+/* Paper-and-ink vertical slice: a restrained card treatment for the Pen rail state,
+   its live properties popover and the optional quick-ink dock. */
+window.utnShell {
+    background-color: @utn_paper_app;
+    color: @utn_paper_text;
+}
+window.utnShell #tbTop1,
+window.utnShell #tbBottom1 {
+    background-color: @utn_paper_surface;
+    border-color: @utn_paper_hairline;
+}
+window.utnShell #tbLeft1 {
+    background-color: @utn_paper_surface;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 14px;
+    box-shadow: 0 2px 5px alpha(black, 0.10);
+}
+window.utnShell #tbLeft1 button:checked {
+    background-color: @utn_paper_accent_soft;
+    color: @utn_paper_accent;
+    border-color: @utn_paper_accent;
+    box-shadow: inset 3px 0 0 @utn_paper_accent;
+}
+window.utnShell popover.utn-paper-popover {
+    background-color: @utn_paper_surface;
+    color: @utn_paper_text;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 12px;
+    box-shadow: 0 8px 22px alpha(black, 0.16);
+}
+window.utnShell .utn-paper-card,
+window.utnShell .utn-paper-dock {
+    background-color: @utn_paper_surface;
+    color: @utn_paper_text;
+}
+window.utnShell .utn-paper-heading {
+    color: @utn_paper_text;
+    font-size: 15px;
+    font-weight: 600;
+}
+window.utnShell .utn-paper-dock {
+    padding: 6px 8px;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 18px;
+    box-shadow: 0 4px 14px alpha(black, 0.16);
+}
+window.utnShell .utn-paper-dock-title {
+    color: @utn_paper_muted;
+    font-weight: 600;
+    padding: 0 4px;
+}
+window.utnShell .utn-paper-dock button {
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 9px;
+}
+window.utnShell button:focus,
+window.utnShell scale:focus,
+window.utnShell checkbutton:focus {
+    outline: 2px solid @utn_paper_ring;
+    outline-offset: 2px;
+}
+window.utnShell.darkMode {
+    background-color: @utn_paper_dark_app;
+    color: @utn_paper_dark_text;
+}
+window.utnShell.darkMode #tbTop1,
+window.utnShell.darkMode #tbBottom1 {
+    background-color: @utn_paper_dark_surface;
+    color: @utn_paper_dark_text;
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.darkMode #tbLeft1,
+window.utnShell.darkMode popover.utn-paper-popover,
+window.utnShell.darkMode .utn-paper-card,
+window.utnShell.darkMode .utn-paper-dock {
+    background-color: @utn_paper_dark_surface;
+    color: @utn_paper_dark_text;
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.darkMode #tbLeft1 button:checked {
+    background-color: @utn_paper_dark_accent_soft;
+    color: @utn_paper_dark_accent;
+    border-color: @utn_paper_dark_accent;
+    box-shadow: inset 3px 0 0 @utn_paper_dark_accent;
+}
+window.utnShell.darkMode .utn-paper-heading { color: @utn_paper_dark_text; }
+window.utnShell.darkMode .utn-paper-dock-title { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode button:focus,
+window.utnShell.darkMode scale:focus,
+window.utnShell.darkMode checkbutton:focus {
+    outline-color: @utn_paper_dark_ring;
+}
+window.utnShell.utnHighContrast #tbLeft1,
+window.utnShell.utnHighContrast popover.utn-paper-popover,
+window.utnShell.utnHighContrast .utn-paper-card,
+window.utnShell.utnHighContrast .utn-paper-dock {
+    background-color: #000000;
+    color: #ffffff;
+    border: 2px solid #ffffff;
+    box-shadow: none;
+}
+window.utnShell.utnHighContrast #tbLeft1 button:checked {
+    background-color: #000000;
+    color: #ffff00;
+    border: 3px solid #ffff00;
+    box-shadow: none;
+}
+window.utnShell.utnHighContrast .utn-paper-heading,
+window.utnShell.utnHighContrast .utn-paper-dock-title {
+    color: #ffffff;
+}
+window.utnShell.utnTouch .utn-paper-dock button {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell.utnTouch .utn-paper-dock {
+    padding: 8px 10px;
 }
 
 /* Adjacent Eraser tool panel: four always-visible modes, not a hidden arrow dropdown.

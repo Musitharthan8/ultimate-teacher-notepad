@@ -73,6 +73,41 @@ GtkWidget* buttonNamed(GtkWidget* widget, const char* label) {
     return nullptr;
 }
 
+GtkWidget* widgetNamed(GtkWidget* widget, const char* name) {
+    if (g_strcmp0(gtk_widget_get_name(widget), name) == 0) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = widgetNamed(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+GtkWidget* buttonAccessibleNamed(GtkWidget* widget, const char* name) {
+    if (GTK_IS_BUTTON(widget)) {
+        AtkObject* accessible = gtk_widget_get_accessible(widget);
+        if (accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0) {
+            return widget;
+        }
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = buttonAccessibleNamed(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
 GtkWidget* menuButtonAccessibleNamed(GtkWidget* widget, const char* name) {
     if (GTK_IS_MENU_BUTTON(widget)) {
         if (AtkObject* accessible = gtk_widget_get_accessible(widget);
@@ -771,6 +806,102 @@ TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEra
     gtk_button_clicked(GTK_BUTTON(button("Pen")));
     gtk_button_clicked(GTK_BUTTON(eraser));
     EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
+}
+
+TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
+    window->toolbarSelected("UTN Teacher");
+    window->setTeacherWorkspace(1);
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 720);
+    window->show(nullptr);
+    settle();
+
+    const char* captureDir = g_getenv("UTN_VISUAL_CAPTURE_DIR");
+    auto capture = [&](const char* name) {
+        if (!captureDir) return;
+        g_mkdir_with_parents(captureDir, 0755);
+        gchar* path = g_build_filename(captureDir, name, nullptr);
+        captureWindow(window->getWindow(), path);
+        g_free(path);
+    };
+    capture("ACTUAL-GTK-BUILD-paper-ink-light-workspace.png");
+
+    auto* tools = control->getToolHandler();
+    const Color previousColour = tools->getTool(TOOL_PEN).getColor();
+    const ToolSize previousSize = tools->getPenSize();
+    const int previousWorkspace = window->getTeacherWorkspace();
+    control->selectTool(TOOL_PEN);
+
+    GtkWidget* trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(trigger));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(trigger)));
+    ASSERT_TRUE(GTK_IS_POPOVER(popover));
+    GtkWidget* dock = widgetNamed(window->get("mainOverlay"), "utnInkDock");
+    ASSERT_NE(dock, nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+
+    gtk_popover_popup(GTK_POPOVER(popover));
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(popover));
+    capture("ACTUAL-GTK-BUILD-paper-ink-pen-properties.png");
+    auto* blue = buttonAccessibleNamed(popover, "Blue");
+    ASSERT_NE(blue, nullptr);
+    gtk_button_clicked(GTK_BUTTON(blue));
+    const Color selectedColour = tools->getTool(TOOL_PEN).getColor();
+    EXPECT_EQ(selectedColour.red, 0x1eU);
+    EXPECT_EQ(selectedColour.green, 0x5bU);
+    EXPECT_EQ(selectedColour.blue, 0xd8U);
+
+    auto* dockToggle = buttonNamed(popover, "Show ink dock");
+    ASSERT_NE(dockToggle, nullptr);
+    gtk_button_clicked(GTK_BUTTON(dockToggle));
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(dock));
+    capture("ACTUAL-GTK-BUILD-paper-ink-ink-dock.png");
+
+    auto* green = buttonAccessibleNamed(dock, "Green");
+    ASSERT_NE(green, nullptr);
+    gtk_button_clicked(GTK_BUTTON(green));
+    EXPECT_EQ(tools->getTool(TOOL_PEN).getColor().green, 0x7dU);
+    auto* thick = buttonNamed(dock, "L");
+    ASSERT_NE(thick, nullptr);
+    gtk_button_clicked(GTK_BUTTON(thick));
+    EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_THICK);
+
+    const ThemeVariant originalTheme = control->getSettings()->getThemeVariant();
+    control->getSettings()->setThemeVariant(THEME_VARIANT_FORCE_DARK);
+    window->updateColorscheme();
+    settle();
+    capture("ACTUAL-GTK-BUILD-paper-ink-dark-pen-properties.png");
+    control->getSettings()->setThemeVariant(originalTheme);
+    window->updateColorscheme();
+    settle();
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    ASSERT_TRUE(waitUntilHidden(popover));
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 900, 720);
+    settle();
+    capture("ACTUAL-GTK-BUILD-paper-ink-compact-900.png");
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 720);
+    settle();
+
+    window->setTeacherWorkspace(1);
+    gtk_popover_popup(GTK_POPOVER(popover));
+    settle();
+    auto* pin = buttonNamed(popover, "Pin to side");
+    ASSERT_NE(pin, nullptr);
+    gtk_button_clicked(GTK_BUTTON(pin));
+    EXPECT_EQ(window->getTeacherWorkspace(), 0);
+    EXPECT_TRUE(waitUntilHidden(popover));
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), trigger);
+
+    auto* close = buttonAccessibleNamed(dock, "Hide ink dock");
+    ASSERT_NE(close, nullptr);
+    gtk_button_clicked(GTK_BUTTON(close));
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dockToggle)));
+
+    tools->setColor(previousColour, true);
+    tools->setPenSize(previousSize);
+    window->setTeacherWorkspace(previousWorkspace);
 }
 
 TEST_F(ClassroomWorkflow, classroomMenuUsesSharedPresentationActions) {
