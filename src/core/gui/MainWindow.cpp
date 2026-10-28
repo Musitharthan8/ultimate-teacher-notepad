@@ -91,6 +91,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     workspace.getInt("inspectorWidth", inspectorWidth);
     workspace.getInt("workspaceTools", teacherWorkspace);
     workspace.getInt("toolLabels", toolLabels);
+    workspace.getBool("inkDockEnabled", inkDockEnabled);
     inspectorWidth = std::clamp(inspectorWidth, 150, 420);
     teacherWorkspace = std::clamp(teacherWorkspace, 0, 2);
     toolLabels = std::clamp(toolLabels, 0, 2);
@@ -878,6 +879,7 @@ void MainWindow::destroyPenSettingsMenu() {
     // Clearing these first prevents the popover's "closed" callback from
     // trying to restore focus into a toolbar that is being rebuilt/destroyed.
     penSettingsButton = nullptr;
+    penSettingsFocusAnchor = nullptr;
     inkDockToggle = nullptr;
     if (penSettingsPopover) {
         gtk_widget_destroy(penSettingsPopover);
@@ -935,6 +937,8 @@ void MainWindow::appendPenSettingsMenu() {
     g_signal_connect(dockToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* toggle, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
                          self->inkDockEnabled = gtk_toggle_button_get_active(toggle);
+                         self->control->getSettings()->getCustomElement("utn").setBool("inkDockEnabled",
+                                                                                      self->inkDockEnabled);
                          self->updateInkDock();
                      }), this);
     inkDockToggle = dockToggle;
@@ -947,8 +951,22 @@ void MainWindow::appendPenSettingsMenu() {
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
     g_signal_connect(popover, "closed", G_CALLBACK(+[](GtkPopover*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
-                         if (self->penSettingsButton && gtk_widget_get_visible(self->penSettingsButton)) {
-                             gtk_widget_grab_focus(self->penSettingsButton);
+                         GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(self->window));
+                         const bool focusWasInPopover = focus &&
+                                                        (focus == self->penSettingsPopover ||
+                                                         gtk_widget_is_ancestor(focus, self->penSettingsPopover));
+                         GtkWidget* anchor = self->penSettingsFocusAnchor ? self->penSettingsFocusAnchor :
+                                                                          self->penSettingsButton;
+                         if (anchor && !gtk_widget_get_visible(anchor)) {
+                             anchor = self->penSettingsButton;
+                         }
+                         if ((!focus || focusWasInPopover) && anchor && gtk_widget_get_visible(anchor)) {
+                             gtk_widget_grab_focus(anchor);
+                         }
+                         self->penSettingsFocusAnchor = nullptr;
+                         if (self->penSettingsButton && self->penSettingsPopover) {
+                             gtk_popover_set_relative_to(GTK_POPOVER(self->penSettingsPopover),
+                                                         self->penSettingsButton);
                          }
                      }), this);
 
@@ -1010,6 +1028,7 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
         g_signal_connect(size, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                              if (!gtk_toggle_button_get_active(button)) return;
                              auto* self = static_cast<MainWindow*>(data);
+                             if (self->syncingInkDock) return;
                              const auto value = static_cast<ToolSize>(GPOINTER_TO_INT(
                                      g_object_get_data(G_OBJECT(button), "utn-ink-size")));
                              // The first radio may become active while the window is being
@@ -1029,6 +1048,9 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     g_signal_connect(inkDockSettingsButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
                          if (self->penSettingsPopover) {
+                             self->penSettingsFocusAnchor = self->inkDockSettingsButton;
+                             gtk_popover_set_relative_to(GTK_POPOVER(self->penSettingsPopover),
+                                                         self->inkDockSettingsButton);
                              gtk_popover_popup(GTK_POPOVER(self->penSettingsPopover));
                          }
                      }), this);
@@ -1040,6 +1062,7 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     g_signal_connect(close, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
                          self->inkDockEnabled = false;
+                         self->control->getSettings()->getCustomElement("utn").setBool("inkDockEnabled", false);
                          if (self->inkDockToggle) {
                              gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->inkDockToggle), false);
                          }
@@ -1058,7 +1081,8 @@ void MainWindow::updateInkDock() {
     if (!inkDock) return;
     const auto* tools = control->getToolHandler();
     const bool pen = tools->getToolType() == TOOL_PEN;
-    gtk_widget_set_visible(inkDock, inkDockEnabled && pen);
+    const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
+    gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher);
     const Color active = tools->getTool(TOOL_PEN).getColor();
     const std::array<Color, 5> swatches{{Color{0x00U, 0x00U, 0x00U}, Color{0x1EU, 0x5BU, 0xD8U},
                                         Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
@@ -1070,9 +1094,11 @@ void MainWindow::updateInkDock() {
     }
     const ToolSize activeSize = tools->getPenSize();
     const std::array<ToolSize, 3> sizes{{TOOL_SIZE_FINE, TOOL_SIZE_MEDIUM, TOOL_SIZE_THICK}};
+    syncingInkDock = true;
     for (size_t i = 0; i < inkDockSizes.size(); ++i) {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(inkDockSizes[i]), activeSize == sizes[i]);
     }
+    syncingInkDock = false;
 }
 
 void MainWindow::setTeacherWorkspace(int mode) {
@@ -1119,6 +1145,10 @@ void MainWindow::updateTeacherWorkspace() {
     if (workspaceMenu) {
         gtk_widget_set_visible(workspaceMenu, teacher);
     }
+    if (penSettingsButton) {
+        gtk_widget_set_no_show_all(penSettingsButton, !teacher);
+        gtk_widget_set_visible(penSettingsButton, teacher);
+    }
     gtk_widget_set_visible(railScroller, mode != 2 && control->getSettings()->isToolbarVisible());
 
     const bool shouldAttach = mode == 0;
@@ -1148,6 +1178,7 @@ void MainWindow::updateTeacherWorkspace() {
     }
     gtk_widget_set_visible(get("utnCollapseInspector"), teacher && mode == 0);
     gtk_widget_set_visible(get("utnExpandInspector"), teacher && mode == 1);
+    updateInkDock();
 }
 
 void MainWindow::reloadToolbars() {

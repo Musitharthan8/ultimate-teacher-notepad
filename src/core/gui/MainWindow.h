@@ -220,6 +220,7 @@ private:
     bool thumbnailsManualChoice = false;  ///< the teacher chose since the last width crossing: the policy must not undo it
     bool inspectorManualChoice = false;
     bool inkDockEnabled = false;
+    bool syncingInkDock = false;
     bool panelPolicyPending = false;
     void updatePanelPolicy(int width, bool fromAllocation);
     void applyPanelPolicy();
@@ -238,6 +239,7 @@ private:
     GtkWidget* workspaceMenu = nullptr;
     GtkWidget* penSettingsButton = nullptr;
     GtkWidget* penSettingsPopover = nullptr;
+    GtkWidget* penSettingsFocusAnchor = nullptr;
     GtkWidget* inkDock = nullptr;
     GtkWidget* inkDockSettingsButton = nullptr;
     GtkWidget* inkDockToggle = nullptr;

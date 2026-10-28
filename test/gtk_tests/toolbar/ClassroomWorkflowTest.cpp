@@ -30,6 +30,7 @@
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
+#include "gui/toolbarMenubar/model/ToolbarData.h"
 #include "gui/ResponsiveLayout.h"
 #include "gui/menus/menubar/Menubar.h"
 #include "gui/dialog/ExportDialog.h"
@@ -825,10 +826,16 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     };
     capture("ACTUAL-GTK-BUILD-paper-ink-light-workspace.png");
 
+    const std::string previousToolbar = window->getSelectedToolbar()->getId();
+    const int previousWorkspace = window->getTeacherWorkspace();
+    window->toolbarSelected("UTN Teacher");
+    window->setTeacherWorkspace(1);
     auto* tools = control->getToolHandler();
     const Color previousColour = tools->getTool(TOOL_PEN).getColor();
     const ToolSize previousSize = tools->getPenSize();
-    const int previousWorkspace = window->getTeacherWorkspace();
+    auto& utnSettings = control->getSettings()->getCustomElement("utn");
+    bool previousDockEnabled = false;
+    utnSettings.getBool("inkDockEnabled", previousDockEnabled);
     control->selectTool(TOOL_PEN);
 
     GtkWidget* trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
@@ -837,12 +844,16 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     ASSERT_TRUE(GTK_IS_POPOVER(popover));
     GtkWidget* dock = widgetNamed(window->get("mainOverlay"), "utnInkDock");
     ASSERT_NE(dock, nullptr);
+    auto* dockToggle = buttonNamed(popover, "Show ink dock");
+    ASSERT_NE(dockToggle, nullptr);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), false);
+    settle();
     EXPECT_FALSE(gtk_widget_get_visible(dock));
 
     gtk_popover_popup(GTK_POPOVER(popover));
     settle();
     EXPECT_TRUE(gtk_widget_get_visible(popover));
-    capture("ACTUAL-GTK-BUILD-paper-ink-pen-properties.png");
+    capture("ACTUAL-GTK-BUILD-paper-ink-workspace-popover-open-main-window.png");
     auto* blue = buttonAccessibleNamed(popover, "Blue");
     ASSERT_NE(blue, nullptr);
     gtk_button_clicked(GTK_BUTTON(blue));
@@ -851,11 +862,12 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     EXPECT_EQ(selectedColour.green, 0x5bU);
     EXPECT_EQ(selectedColour.blue, 0xd8U);
 
-    auto* dockToggle = buttonNamed(popover, "Show ink dock");
-    ASSERT_NE(dockToggle, nullptr);
     gtk_button_clicked(GTK_BUTTON(dockToggle));
     settle();
     EXPECT_TRUE(gtk_widget_get_visible(dock));
+    bool persistedDockEnabled = false;
+    EXPECT_TRUE(utnSettings.getBool("inkDockEnabled", persistedDockEnabled));
+    EXPECT_TRUE(persistedDockEnabled);
     capture("ACTUAL-GTK-BUILD-paper-ink-ink-dock.png");
 
     auto* green = buttonAccessibleNamed(dock, "Green");
@@ -871,7 +883,7 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     control->getSettings()->setThemeVariant(THEME_VARIANT_FORCE_DARK);
     window->updateColorscheme();
     settle();
-    capture("ACTUAL-GTK-BUILD-paper-ink-dark-pen-properties.png");
+    capture("ACTUAL-GTK-BUILD-paper-ink-dark-workspace-dock.png");
     control->getSettings()->setThemeVariant(originalTheme);
     window->updateColorscheme();
     settle();
@@ -882,6 +894,19 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     capture("ACTUAL-GTK-BUILD-paper-ink-compact-900.png");
     gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 720);
     settle();
+
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    ASSERT_TRUE(waitUntilHidden(popover));
+    auto* dockSettings = buttonNamed(dock, "Pen settings");
+    ASSERT_NE(dockSettings, nullptr);
+    gtk_button_clicked(GTK_BUTTON(dockSettings));
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(popover));
+    EXPECT_EQ(gtk_popover_get_relative_to(GTK_POPOVER(popover)), dockSettings);
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    ASSERT_TRUE(waitUntilHidden(popover));
+    EXPECT_EQ(gtk_popover_get_relative_to(GTK_POPOVER(popover)), trigger);
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), dockSettings);
 
     window->setTeacherWorkspace(1);
     gtk_popover_popup(GTK_POPOVER(popover));
@@ -898,10 +923,69 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     gtk_button_clicked(GTK_BUTTON(close));
     EXPECT_FALSE(gtk_widget_get_visible(dock));
     EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dockToggle)));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), previousDockEnabled);
 
     tools->setColor(previousColour, true);
     tools->setPenSize(previousSize);
     window->setTeacherWorkspace(previousWorkspace);
+    window->toolbarSelected(previousToolbar);
+}
+
+TEST_F(ClassroomWorkflow, paperInkControlsStayHiddenInClassicLayouts) {
+    const std::string previousToolbar = window->getSelectedToolbar()->getId();
+    const int previousWorkspace = window->getTeacherWorkspace();
+    window->toolbarSelected("UTN Teacher");
+    window->setTeacherWorkspace(1);
+    control->selectTool(TOOL_PEN);
+    window->show(nullptr);
+    settle();
+
+    GtkWidget* trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(trigger));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(trigger)));
+    ASSERT_TRUE(GTK_IS_POPOVER(popover));
+    GtkWidget* dock = widgetNamed(window->get("mainOverlay"), "utnInkDock");
+    ASSERT_NE(dock, nullptr);
+
+    bool previousDockEnabled = false;
+    auto& utnSettings = control->getSettings()->getCustomElement("utn");
+    utnSettings.getBool("inkDockEnabled", previousDockEnabled);
+    gtk_popover_popup(GTK_POPOVER(popover));
+    settle();
+    auto* dockToggle = buttonNamed(popover, "Show ink dock");
+    ASSERT_NE(dockToggle, nullptr);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), true);
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(dock));
+
+    window->toolbarSelected("Xournal++");
+    settle();
+    trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_NE(trigger, nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(trigger));
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+
+    window->toolbarSelected("UTN Teacher");
+    settle();
+    trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(trigger));
+    dock = widgetNamed(window->get("mainOverlay"), "utnInkDock");
+    ASSERT_NE(dock, nullptr);
+    EXPECT_TRUE(gtk_widget_get_visible(trigger));
+    EXPECT_TRUE(gtk_widget_get_visible(dock));
+
+    auto* close = buttonAccessibleNamed(dock, "Hide ink dock");
+    ASSERT_NE(close, nullptr);
+    gtk_button_clicked(GTK_BUTTON(close));
+    window->setTeacherWorkspace(previousWorkspace);
+    window->toolbarSelected(previousToolbar);
+    if (previousDockEnabled) {
+        GtkWidget* currentPopover = GTK_WIDGET(
+                gtk_menu_button_get_popover(GTK_MENU_BUTTON(widgetNamed(window->getWindow(), "utnPenSettingsButton"))));
+        auto* currentToggle = buttonNamed(currentPopover, "Show ink dock");
+        ASSERT_NE(currentToggle, nullptr);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(currentToggle), true);
+    }
 }
 
 TEST_F(ClassroomWorkflow, classroomMenuUsesSharedPresentationActions) {
