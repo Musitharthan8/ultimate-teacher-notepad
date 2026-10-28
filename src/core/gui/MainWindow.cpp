@@ -948,6 +948,8 @@ void MainWindow::appendPenSettingsMenu() {
     gtk_box_append(GTK_BOX(footer), dockToggle);
     gtk_box_append(GTK_BOX(card), footer);
     gtk_container_add(GTK_CONTAINER(popover), card);
+    // A popover is not a child of the tool item, so show_all on the item never reaches its card
+    gtk_widget_show_all(card);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), popover);
     g_signal_connect(popover, "closed", G_CALLBACK(+[](GtkPopover*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);

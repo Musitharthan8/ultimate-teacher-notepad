@@ -853,6 +853,14 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     gtk_popover_popup(GTK_POPOVER(popover));
     settle();
     EXPECT_TRUE(gtk_widget_get_visible(popover));
+    {
+        // Regression: the card was never shown, so the real popover was a small blank bubble
+        auto* pin = buttonNamed(popover, "Pin to side");
+        ASSERT_NE(pin, nullptr);
+        EXPECT_TRUE(gtk_widget_get_visible(pin));
+        EXPECT_GT(gtk_widget_get_allocated_height(popover), 250);
+        EXPECT_GT(gtk_widget_get_allocated_width(popover), 300);
+    }
     capture("ACTUAL-GTK-BUILD-paper-ink-workspace-popover-open-main-window.png");
     auto* blue = buttonAccessibleNamed(popover, "Blue");
     ASSERT_NE(blue, nullptr);
