@@ -203,7 +203,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     g_signal_connect(this->window, "size-allocate",
                      G_CALLBACK(+[](GtkWidget*, GtkAllocation* allocation, gpointer self) {
                          auto* win = static_cast<MainWindow*>(self);
-                         win->updateCompactLayout(allocation->width);
+                         win->updateCompactLayout(allocation->width, true);
                      }), this);
 
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
@@ -625,6 +625,9 @@ auto MainWindow::deleteEventCallback(GtkWidget* widget, GdkEvent* event, Control
 }
 
 void MainWindow::setSidebarVisible(bool visible) {
+    if (!applyingPanelPolicy) {
+        thumbnailsAutoHidden = false;  // a teacher's choice always wins over the width policy
+    }
     if (!visible && (this->control->getSidebar() != nullptr)) {
         this->control->getSidebar()->saveSize();
     }
@@ -815,6 +818,9 @@ void MainWindow::appendWorkspaceMenu() {
     GtkToolItem* item = gtk_tool_item_new();
     GtkWidget* menu = gtk_menu_button_new();
     gtk_button_set_label(GTK_BUTTON(menu), _("Workspace"));
+    // Icon beside the name, so compact windows can drop the word and keep the control
+    gtk_button_set_image(GTK_BUTTON(menu), gtk_image_new_from_icon_name("view-dual-symbolic", GTK_ICON_SIZE_LARGE_TOOLBAR));
+    gtk_button_set_always_show_image(GTK_BUTTON(menu), true);
     gtk_widget_set_tooltip_text(menu, _("Show or hide classroom tools and choose tool labels"));
     utn::setAccessibleName(menu, _("Workspace layout"));
     GtkWidget* popover = gtk_popover_new();
@@ -862,6 +868,7 @@ void MainWindow::appendWorkspaceMenu() {
 }
 
 void MainWindow::setTeacherWorkspace(int mode) {
+    inspectorAutoFolded = false;
     teacherWorkspace = std::clamp(mode, 0, 2);
     control->getSettings()->getCustomElement("utn").setInt("workspaceTools", teacherWorkspace);
     updateTeacherWorkspace();
@@ -899,7 +906,7 @@ void MainWindow::updateTeacherWorkspace() {
         return;
     }
     const bool teacher = utn::isTeacherLayout(selectedToolbar->getId());
-    const int mode = teacher ? teacherWorkspace : 0;
+    const int mode = teacher ? (teacherWorkspace == 0 && inspectorAutoFolded ? 1 : teacherWorkspace) : 0;
     if (workspaceMenu) {
         gtk_widget_set_visible(workspaceMenu, teacher);
     }
@@ -1086,6 +1093,23 @@ void setCompactHidden(GtkWidget* widget, bool compact) {
 }
 }  // namespace
 
+namespace {
+/// Hides the text of a button that also shows an icon. The label property, tooltip and accessible name are unchanged.
+void hideButtonCaption(GtkWidget* widget, bool hide) {
+    if (GTK_IS_LABEL(widget)) {
+        gtk_widget_set_visible(widget, !hide);
+        return;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            hideButtonCaption(GTK_WIDGET(child->data), hide);
+        }
+        g_list_free(children);
+    }
+}
+}  // namespace
+
 void MainWindow::setToolLabelMode(int mode) {
     this->toolLabels = std::clamp(mode, 0, 2);
     this->control->getSettings()->getCustomElement("utn").setInt("toolLabels", this->toolLabels);
@@ -1093,8 +1117,9 @@ void MainWindow::setToolLabelMode(int mode) {
     updateCompactLayout(this->layoutWidth);
 }
 
-void MainWindow::updateCompactLayout(int width) {
+void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     // The decision itself (with hysteresis) lives in ResponsiveLayout.h so it is tested at any logical width
+    updatePanelPolicy(width, fromAllocation);
     const bool wasCompact = this->compactLayout;
     this->layoutWidth = width;
     this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
@@ -1107,6 +1132,9 @@ void MainWindow::updateCompactLayout(int width) {
         gtk_style_context_add_class(context, "utnCompact");
     } else {
         gtk_style_context_remove_class(context, "utnCompact");
+    }
+    if (workspaceMenu) {
+        hideButtonCaption(workspaceMenu, this->compactLayout);
     }
     // Compact rail: icons only; names stay in tooltips and accessible names
     for (const auto& toolbar: this->toolbarWidgets) {
@@ -1125,4 +1153,61 @@ void MainWindow::setDPI() const {
     } else {
         this->getControl()->getZoomControl()->setZoom100Value(dpi / Util::DPI_NORMALIZATION_FACTOR);
     }
+}
+
+void MainWindow::updatePanelPolicy(int width, bool fromAllocation) {
+    const bool away = utn::layout::nextThumbnailsAway(thumbnailsAway, width);
+    const bool folded = utn::layout::nextInspectorFolded(inspectorFolded, width);
+    if (away == thumbnailsAway && folded == inspectorFolded) {
+        return;
+    }
+    thumbnailsAway = away;
+    inspectorFolded = folded;
+    if (!fromAllocation) {
+        applyPanelPolicy();  // not inside an allocation: nothing to wait for
+        return;
+    }
+    // Never reparent or hide panels while GTK is still allocating this window: apply once the allocation is done
+    if (panelPolicyPending) {
+        return;
+    }
+    panelPolicyPending = true;
+    Util::execInUiThread([this, weakAlive = std::weak_ptr<bool>(this->alive)]() {
+        if (weakAlive.expired()) {
+            return;
+        }
+        panelPolicyPending = false;
+        applyPanelPolicy();
+    });
+}
+
+void MainWindow::applyPanelPolicy() {
+    applyingPanelPolicy = true;
+    Settings* settings = control->getSettings();
+
+    if (thumbnailsAway) {
+        if (sidebarVisible) {
+            setSidebarVisible(false);
+            thumbnailsAutoHidden = true;
+            control->getActionDatabase()->setActionState(Action::SHOW_SIDEBAR, false);
+        }
+    } else if (thumbnailsAutoHidden) {
+        thumbnailsAutoHidden = false;
+        if (settings->isSidebarVisible()) {
+            setSidebarVisible(true);
+            control->getActionDatabase()->setActionState(Action::SHOW_SIDEBAR, true);
+        }
+    }
+
+    const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
+    if (inspectorFolded) {
+        if (teacher && teacherWorkspace == 0 && !inspectorAutoFolded) {
+            inspectorAutoFolded = true;
+            updateTeacherWorkspace();
+        }
+    } else if (inspectorAutoFolded) {
+        inspectorAutoFolded = false;
+        updateTeacherWorkspace();
+    }
+    applyingPanelPolicy = false;
 }

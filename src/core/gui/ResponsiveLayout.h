@@ -38,4 +38,35 @@ constexpr bool railLabelsVisible(int toolLabelMode, bool compact) {
     return toolLabelMode == LABELS_SHOW || (toolLabelMode == LABELS_AUTOMATIC && !compact);
 }
 
+
+/// The page comes first: below these widths the panels that sit beside it give way. Each panel has a lower threshold
+/// to hide at and a higher one to return at, so dragging the window edge does not make it flicker.
+/// Thumbnail sidebar: hidden below 1400 px, back above 1440 px.
+constexpr int THUMBNAILS_HIDE_BELOW = 1400;
+constexpr int THUMBNAILS_RETURN_ABOVE = 1440;
+/// Settings inspector: folded to its "Show settings" handle below 960 px, back above 1000 px.
+constexpr int INSPECTOR_FOLD_BELOW = 960;
+constexpr int INSPECTOR_RETURN_ABOVE = 1000;
+
+/// @return Whether the thumbnail sidebar should be out of the way after the window has been allocated `width`
+constexpr bool nextThumbnailsAway(bool wereAway, int width) {
+    if (!wereAway && width >= MIN_MEANINGFUL_WIDTH && width < THUMBNAILS_HIDE_BELOW) {
+        return true;
+    }
+    if (wereAway && width > THUMBNAILS_RETURN_ABOVE) {
+        return false;
+    }
+    return wereAway;
+}
+
+/// @return Whether the settings inspector should be folded after the window has been allocated `width`
+constexpr bool nextInspectorFolded(bool wasFolded, int width) {
+    if (!wasFolded && width >= MIN_MEANINGFUL_WIDTH && width < INSPECTOR_FOLD_BELOW) {
+        return true;
+    }
+    if (wasFolded && width > INSPECTOR_RETURN_ABOVE) {
+        return false;
+    }
+    return wasFolded;
+}
 }  // namespace utn::layout

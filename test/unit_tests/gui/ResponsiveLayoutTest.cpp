@@ -114,3 +114,44 @@ TEST(ResponsiveLayout, CaptionsAtTheWidthsOfTheCiRunnerAndOfATeacherLaptop) {
         EXPECT_FALSE(railLabelsVisible(LABELS_HIDE, compact)) << c.width;
     }
 }
+
+TEST(ResponsiveLayout, ThumbnailsStepAsideBelow1400AndReturnAbove1440) {
+    EXPECT_TRUE(nextThumbnailsAway(false, THUMBNAILS_HIDE_BELOW - 1));
+    EXPECT_FALSE(nextThumbnailsAway(false, THUMBNAILS_HIDE_BELOW));
+    EXPECT_TRUE(nextThumbnailsAway(true, THUMBNAILS_RETURN_ABOVE));
+    EXPECT_FALSE(nextThumbnailsAway(true, THUMBNAILS_RETURN_ABOVE + 1));
+    for (int width: {900, 1024, 1280, 1399}) {
+        EXPECT_TRUE(nextThumbnailsAway(false, width)) << width;
+    }
+    for (int width: {1400, 1440, 1920, 3440}) {
+        EXPECT_FALSE(nextThumbnailsAway(false, width)) << width;
+    }
+}
+
+TEST(ResponsiveLayout, InspectorFoldsBelow960AndReturnsAbove1000) {
+    EXPECT_TRUE(nextInspectorFolded(false, INSPECTOR_FOLD_BELOW - 1));
+    EXPECT_FALSE(nextInspectorFolded(false, INSPECTOR_FOLD_BELOW));
+    EXPECT_TRUE(nextInspectorFolded(true, INSPECTOR_RETURN_ABOVE));
+    EXPECT_FALSE(nextInspectorFolded(true, INSPECTOR_RETURN_ABOVE + 1));
+    // The three widths the sprint is tested at: only 900 folds the inspector, only 1280 and below hide thumbnails
+    EXPECT_TRUE(nextInspectorFolded(false, 900));
+    EXPECT_FALSE(nextInspectorFolded(false, 1024));
+    EXPECT_FALSE(nextInspectorFolded(false, 1280));
+}
+
+TEST(ResponsiveLayout, PanelPoliciesIgnorePlaceholderSizesAndDoNotFlicker) {
+    for (int width: {0, 1, 199}) {
+        EXPECT_FALSE(nextThumbnailsAway(false, width)) << width;
+        EXPECT_FALSE(nextInspectorFolded(false, width)) << width;
+        EXPECT_TRUE(nextThumbnailsAway(true, width)) << width;
+        EXPECT_TRUE(nextInspectorFolded(true, width)) << width;
+    }
+    bool away = false;
+    int changes = 0;
+    for (int width: {1500, 1420, 1399, 1410, 1380, 1430, 1440, 1441, 1425, 1450}) {
+        const bool next = nextThumbnailsAway(away, width);
+        changes += next != away;
+        away = next;
+    }
+    EXPECT_EQ(changes, 2) << "one change on the way down, one on the way up";
+}

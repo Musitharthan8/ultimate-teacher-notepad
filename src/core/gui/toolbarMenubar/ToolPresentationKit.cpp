@@ -101,9 +101,9 @@ void refreshPresentState(const PresentState& ui, Control* control) {
         } else {
             gtk_style_context_remove_class(context, "utn-present-active");
         }
-        gtk_widget_set_tooltip_text(ui.button, spotlight ? _("Present: Spotlight is on. The page is darkened.") :
-                                               curtain   ? _("Present: Curtain is on. The page is covered.") :
-                                                           _("Present: Spotlight, Curtain and temporary ink"));
+        gtk_widget_set_tooltip_text(ui.button, spotlight ? _("Spotlight is on. The page is darkened.") :
+                                               curtain   ? _("Curtain is on. The page is covered.") :
+                                                           _("Spotlight & Curtain: darken or cover the page, and write temporary ink"));
     }
 }
 
@@ -193,7 +193,10 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
     gtk_box_append(heading, getNewToolIcon());
-    gtk_box_append(heading, gtk_label_new(_("Present")));
+    auto* headingLabel = gtk_label_new(_("Spotlight & Curtain"));
+    gtk_widget_add_css_class(headingLabel, "utn-compact-hidden");  // icon only in compact windows; name stays
+    gtk_box_append(heading, headingLabel);
+    utn::setAccessibleName(GTK_WIDGET(menuButton), _("Spotlight and Curtain"));
     gtk_widget_show_all(GTK_WIDGET(heading));
     gtk_button_set_child(GTK_BUTTON(menuButton), GTK_WIDGET(heading));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
@@ -223,7 +226,7 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 }
 
 auto ToolPresentationKit::getToolDisplayName() const -> std::string {
-    return _("Present");
+    return _("Spotlight & Curtain");
 }
 
 auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {

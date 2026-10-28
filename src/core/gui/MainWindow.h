@@ -105,8 +105,13 @@ public:
     std::string getPresentationBannerText() const;
 
     /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
-    void updateCompactLayout(int width);
+    void updateCompactLayout(int width, bool fromAllocation = false);
     bool isCompactLayout() const { return compactLayout; }
+    /// UTN: the page comes first. Below ~1400 px the thumbnail sidebar steps aside, below ~960 px the settings inspector
+    /// folds to its "Show settings" handle. Neither touches the saved settings, and both come back when the window
+    /// widens, unless the teacher chose otherwise in between.
+    bool isThumbnailsAutoHidden() const { return thumbnailsAutoHidden; }
+    bool isInspectorAutoFolded() const { return inspectorAutoFolded; }
     /// UTN: tool captions under the rail icons: 0 = automatic (follows the width), 1 = show, 2 = hide.
     /// Re-applies at the last width given to updateCompactLayout().
     void setToolLabelMode(int mode);
@@ -202,6 +207,14 @@ private:
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     bool compactLayout = false;
     bool compactLayoutDirty = true;  ///< re-apply after toolbars are rebuilt
+    bool thumbnailsAway = false;         ///< width policy: the sidebar should be out of the way
+    bool inspectorFolded = false;        ///< width policy: the inspector should be folded
+    bool thumbnailsAutoHidden = false;   ///< the policy (not the teacher) hid the sidebar
+    bool inspectorAutoFolded = false;    ///< the policy (not the teacher) folded the inspector
+    bool applyingPanelPolicy = false;
+    bool panelPolicyPending = false;
+    void updatePanelPolicy(int width, bool fromAllocation);
+    void applyPanelPolicy();
     int layoutWidth = 0;             ///< last width passed to updateCompactLayout()
     int teacherWorkspace = 0;
     int inspectorWidth = 250;

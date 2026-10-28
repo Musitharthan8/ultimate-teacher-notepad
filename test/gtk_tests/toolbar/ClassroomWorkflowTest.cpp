@@ -3191,3 +3191,86 @@ TEST_F(ClassroomWorkflow, saveAndAutosaveKeepTheLastGoodFileWhenTheReplaceFails)
     EXPECT_NE(bytesOf(lesson), savedBefore);
     fs::remove_all(folder);
 }
+
+namespace {
+bool sidebarShown(MainWindow* window) { return gtk_widget_get_visible(window->get("sidebar")); }
+
+bool labelShown(GtkWidget* button) {
+    bool shown = false;
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* w) {
+        if (GTK_IS_LABEL(w) && gtk_widget_get_visible(w)) {
+            shown = true;
+        }
+        if (GTK_IS_CONTAINER(w)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(w));
+            for (GList* c = children; c; c = c->next) {
+                walk(GTK_WIDGET(c->data));
+            }
+            g_list_free(children);
+        }
+    };
+    walk(button);
+    return shown;
+}
+}  // namespace
+
+// Canvas first: panels beside the page give way to a narrow window and come back, without touching saved settings
+TEST_F(ClassroomWorkflow, panelsStepAsideInNarrowWindowsAndComeBackWithoutChangingSavedSettings) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* settings = control->getSettings();
+    ASSERT_TRUE(settings->isSidebarVisible());
+    ASSERT_EQ(window->getTeacherWorkspace(), 0);
+
+    window->updateCompactLayout(1500);
+    EXPECT_FALSE(window->isThumbnailsAutoHidden());
+    EXPECT_TRUE(sidebarShown(window.get()));
+
+    window->updateCompactLayout(1280);
+    EXPECT_TRUE(window->isThumbnailsAutoHidden());
+    EXPECT_FALSE(sidebarShown(window.get())) << "thumbnails give the page the room at 1280 px";
+    EXPECT_TRUE(settings->isSidebarVisible()) << "the saved choice is not rewritten";
+    EXPECT_FALSE(window->isInspectorAutoFolded()) << "the settings stay open at 1280 px";
+    EXPECT_TRUE(gtk_widget_get_visible(window->get("utnInspectorHost")));
+
+    window->updateCompactLayout(900);
+    EXPECT_TRUE(window->isInspectorAutoFolded());
+    EXPECT_EQ(window->getTeacherWorkspace(), 0) << "the saved workspace mode is not rewritten";
+    EXPECT_TRUE(gtk_widget_get_visible(window->get("utnExpandInspector"))) << "the way back stays on screen";
+    auto* appBar = window->get("tbTop1");
+    for (const char* label: {"Freeze", "Blank", "Workspace"}) {
+        auto* button = buttonNamed(appBar, label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(gtk_widget_get_visible(button)) << label << " must stay reachable at 900 px";
+    }
+    auto* workspace = buttonNamed(appBar, "Workspace");
+    EXPECT_FALSE(labelShown(workspace)) << "Workspace is icon only at 900 px";
+    EXPECT_NE(buttonNamed(appBar, "Workspace"), nullptr) << "its name is unchanged for assistive technology";
+
+    // Widening brings both back
+    window->updateCompactLayout(1500);
+    EXPECT_TRUE(sidebarShown(window.get()));
+    EXPECT_FALSE(window->isInspectorAutoFolded());
+    EXPECT_TRUE(labelShown(workspace));
+
+    // A teacher's own choice wins over the width policy
+    window->updateCompactLayout(1280);
+    ASSERT_FALSE(sidebarShown(window.get()));
+    control->setShowSidebar(true);
+    EXPECT_TRUE(sidebarShown(window.get()));
+    EXPECT_FALSE(window->isThumbnailsAutoHidden());
+    window->updateCompactLayout(1500);
+    EXPECT_TRUE(sidebarShown(window.get()));
+
+    window->updateCompactLayout(900);
+    ASSERT_TRUE(window->isInspectorAutoFolded());
+    window->setTeacherWorkspace(0);  // "Show settings"
+    EXPECT_FALSE(window->isInspectorAutoFolded());
+    EXPECT_TRUE(gtk_widget_get_visible(window->get("utnInspectorHost")));
+    window->updateCompactLayout(1500);
+    EXPECT_TRUE(gtk_widget_get_visible(window->get("utnInspectorHost")));
+
+    window->updateCompactLayout(realWidth);
+}
