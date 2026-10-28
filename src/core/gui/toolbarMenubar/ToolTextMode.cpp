@@ -36,7 +36,7 @@ void ToolTextMode::syncButton() {
     }
 }
 
-auto ToolTextMode::createItem(bool) -> xoj::util::WidgetSPtr {
+auto ToolTextMode::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* toggle = gtk_toggle_button_new();
     gtk_button_set_child(GTK_BUTTON(toggle), getNewToolIcon());
     gtk_widget_set_focus_on_click(toggle, false);  // keyboard users can still Tab to it
@@ -95,6 +95,8 @@ auto ToolTextMode::createItem(bool) -> xoj::util::WidgetSPtr {
     gtk_widget_set_tooltip_text(options, _("Text settings"));
     utn::setAccessibleName(options, _("Text settings"));
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(options), GTK_WIDGET(popover));
+    // Same chevron direction as every other rail item that opens options
+    gtk_menu_button_set_direction(GTK_MENU_BUTTON(options), horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
     utn::bindActiveToolOptions(button, GTK_MENU_BUTTON(options));
     GtkWidget* group = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(group, "utn-tool-with-options");

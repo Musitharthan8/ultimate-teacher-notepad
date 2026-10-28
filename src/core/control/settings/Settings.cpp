@@ -200,7 +200,7 @@ void Settings::loadDefault() {
     this->preloadPagesAfter = 5U;
     this->eagerPageCleanup = true;
 
-    this->selectionBorderColor = Colors::red;
+    this->selectionBorderColor = Color(0x168B7E);  // UTN teal accent: the current-page frame; red read as an error
     this->selectionMarkerColor = Colors::xopp_cornflowerblue;
     this->activeSelectionColor = Colors::lawngreen;
 
