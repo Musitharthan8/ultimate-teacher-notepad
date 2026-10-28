@@ -1557,15 +1557,16 @@ void setRailLabelsVisible(GtkWidget* widget, bool visible) {
 namespace {
 /// Hide what is only decoration or has another way in (the title bar already names the app) when the window is compact,
 /// so Freeze, Blank, Present and Appearance keep their room in the app bar
-void setCompactHidden(GtkWidget* widget, bool compact) {
+void setCompactHidden(GtkWidget* widget, bool compact, bool preserveBrand) {
     if (gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-compact-hidden")) {
-        gtk_widget_set_visible(widget, !compact);
+        const bool isBrand = g_strcmp0(gtk_widget_get_name(widget), "utnBrand") == 0;
+        gtk_widget_set_visible(widget, !compact || (isBrand && preserveBrand));
         return;
     }
     if (GTK_IS_CONTAINER(widget)) {
         GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
         for (GList* child = children; child; child = child->next) {
-            setCompactHidden(GTK_WIDGET(child->data), compact);
+            setCompactHidden(GTK_WIDGET(child->data), compact, preserveBrand);
         }
         g_list_free(children);
     }
@@ -1648,7 +1649,7 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
             setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));
-            setCompactHidden(GTK_WIDGET(toolbar.get()), this->compactHeader);
+            setCompactHidden(GTK_WIDGET(toolbar.get()), this->compactHeader, width >= 1280);
         }
     }
     // The document title is deliberately retained in the wider compact-header state.

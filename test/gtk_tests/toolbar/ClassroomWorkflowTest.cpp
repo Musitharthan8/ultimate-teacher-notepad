@@ -525,13 +525,13 @@ TEST_F(ClassroomWorkflow, appBarReducesSecondaryCaptionsBeforeItsCompactBreakpoi
     ASSERT_NE(blank, nullptr) << "the default Teacher layout carries Blank";
 
     window->updateCompactLayout(1280);
-    EXPECT_FALSE(gtk_widget_get_visible(brand)) << "the document title gets room before the narrow-window breakpoint";
+    EXPECT_TRUE(gtk_widget_get_visible(brand)) << "the UTN identity remains visible at the primary desktop width";
     window->updateCompactLayout(1008);
     EXPECT_FALSE(gtk_widget_get_visible(brand)) << "compact: the title bar already names the app";
     EXPECT_TRUE(gtk_widget_get_visible(freeze)) << "Freeze is never hidden";
     EXPECT_TRUE(gtk_widget_get_visible(blank)) << "Blank is never hidden";
     window->updateCompactLayout(1400);
-    EXPECT_FALSE(gtk_widget_get_visible(brand)) << "the reduced captions persist through the hysteresis band";
+    EXPECT_TRUE(gtk_widget_get_visible(brand)) << "the UTN identity returns once the wider compact band has room";
     window->updateCompactLayout(1401);
     EXPECT_TRUE(gtk_widget_get_visible(brand));
     window->updateCompactLayout(realWidth);
