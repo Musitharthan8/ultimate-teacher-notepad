@@ -1194,3 +1194,90 @@ window.utnShell.utnCompact .utn-sv-quick button {
 window.utnShell.utnCompact .utn-sv-pill {
     padding: 2px 6px;
 }
+
+/* ===== Paper-and-ink shell (stage 2): app bar, mode switch, class capsule, slim rail =====
+   Tokens are the utn_paper_* colours above; GTK 3.24 has no CSS variables, flexbox or gap. */
+window.utnShell #tbTop1 {
+    padding: 6px 8px;
+    border-bottom: 1px solid @utn_paper_hairline;
+    background-image: none;
+}
+window.utnShell #tbTop1 button {
+    border-radius: 9px;
+    min-height: 32px;
+    padding: 0 6px;
+    background-image: none;
+    background-color: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+}
+window.utnShell #tbTop1 button:hover {
+    background-color: shade(@utn_paper_desk, 1.04);
+}
+/* Teach / Mark / Present as one segmented control */
+window.utnShell .utnWorkspaceSwitch {
+    background-color: @utn_paper_desk;
+    border-radius: 11px;
+    padding: 3px;
+}
+window.utnShell .utnWorkspaceSwitch .utnWorkspaceButton {
+    border-radius: 8px;
+    padding: 0 10px;
+    font-weight: 600;
+    color: @utn_paper_muted;
+}
+window.utnShell .utnWorkspaceSwitch .utnWorkspaceButton:checked {
+    background-color: @utn_paper_surface;
+    color: @utn_paper_accent;
+    box-shadow: 0 1px 3px alpha(black, 0.16);
+}
+/* Class controls (Students, Freeze, Blank) read as one capsule */
+window.utnShell .utn-sv-quick {
+    background-color: @utn_paper_surface;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 14px;
+    padding: 3px;
+    box-shadow: 0 1px 3px alpha(black, 0.10);
+}
+window.utnShell .utn-sv-quick button {
+    border-radius: 9px;
+}
+/* Slim rail card */
+window.utnShell #tbLeft1 {
+    margin: 8px 0 8px 8px;
+    padding: 6px 4px;
+}
+window.utnShell #tbLeft1 button {
+    border-radius: 11px;
+    background-image: none;
+    background-color: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    color: @utn_paper_muted;
+}
+window.utnShell #tbLeft1 button:hover {
+    background-color: shade(@utn_paper_desk, 1.04);
+    color: @utn_paper_text;
+}
+window.utnShell #tbLeft1 button:checked {
+    box-shadow: inset 3px 0 0 @utn_paper_accent;
+}
+window.utnShell.darkMode #tbTop1 { border-bottom-color: @utn_paper_dark_hairline; }
+window.utnShell.darkMode .utnWorkspaceSwitch { background-color: @utn_paper_dark_desk; }
+window.utnShell.darkMode .utnWorkspaceSwitch .utnWorkspaceButton { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode .utnWorkspaceSwitch .utnWorkspaceButton:checked {
+    background-color: @utn_paper_dark_surface;
+    color: @utn_paper_dark_accent;
+}
+window.utnShell.darkMode .utn-sv-quick {
+    background-color: @utn_paper_dark_surface;
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.darkMode #tbLeft1 button { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode #tbLeft1 button:hover { color: @utn_paper_dark_text; }
+window.utnShell.utnHighContrast #tbTop1 button,
+window.utnShell.utnHighContrast #tbLeft1 button {
+    border: 1px solid #ffffff;
+    background-color: #000000;
+    color: #ffffff;
+}

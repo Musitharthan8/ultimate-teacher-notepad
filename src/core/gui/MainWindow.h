@@ -230,7 +230,7 @@ private:
     int teacherWorkspace = 1;
     int inspectorWidth = 250;
     int inspectorAvailableWidth = 0;
-    int toolLabels = 0;  ///< automatic, show, hide
+    int toolLabels = 2;  ///< automatic, show, hide (paper-and-ink default: icon-only rail; a saved choice still wins)
     bool inspectorApplying = false;
     bool inspectorAttached = true;
     GtkWidget* inspectorPaned = nullptr;
