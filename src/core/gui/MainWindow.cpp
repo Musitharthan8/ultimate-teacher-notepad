@@ -627,6 +627,7 @@ auto MainWindow::deleteEventCallback(GtkWidget* widget, GdkEvent* event, Control
 void MainWindow::setSidebarVisible(bool visible) {
     if (!applyingPanelPolicy) {
         thumbnailsAutoHidden = false;  // a teacher's choice always wins over the width policy
+        thumbnailsManualChoice = true;  // ... including over a policy change that is still queued
     }
     if (!visible && (this->control->getSidebar() != nullptr)) {
         this->control->getSidebar()->saveSize();
@@ -869,6 +870,7 @@ void MainWindow::appendWorkspaceMenu() {
 
 void MainWindow::setTeacherWorkspace(int mode) {
     inspectorAutoFolded = false;
+    inspectorManualChoice = true;
     teacherWorkspace = std::clamp(mode, 0, 2);
     control->getSettings()->getCustomElement("utn").setInt("workspaceTools", teacherWorkspace);
     updateTeacherWorkspace();
@@ -1161,6 +1163,12 @@ void MainWindow::updatePanelPolicy(int width, bool fromAllocation) {
     if (away == thumbnailsAway && folded == inspectorFolded) {
         return;
     }
+    if (away != thumbnailsAway) {
+        thumbnailsManualChoice = false;  // a new width crossing hands control back to the policy
+    }
+    if (folded != inspectorFolded) {
+        inspectorManualChoice = false;
+    }
     thumbnailsAway = away;
     inspectorFolded = folded;
     if (!fromAllocation) {
@@ -1186,7 +1194,7 @@ void MainWindow::applyPanelPolicy() {
     Settings* settings = control->getSettings();
 
     if (thumbnailsAway) {
-        if (sidebarVisible) {
+        if (sidebarVisible && !thumbnailsManualChoice) {
             setSidebarVisible(false);
             thumbnailsAutoHidden = true;
             control->getActionDatabase()->setActionState(Action::SHOW_SIDEBAR, false);
@@ -1201,7 +1209,7 @@ void MainWindow::applyPanelPolicy() {
 
     const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
     if (inspectorFolded) {
-        if (teacher && teacherWorkspace == 0 && !inspectorAutoFolded) {
+        if (teacher && teacherWorkspace == 0 && !inspectorAutoFolded && !inspectorManualChoice) {
             inspectorAutoFolded = true;
             updateTeacherWorkspace();
         }

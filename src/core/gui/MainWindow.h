@@ -212,6 +212,8 @@ private:
     bool thumbnailsAutoHidden = false;   ///< the policy (not the teacher) hid the sidebar
     bool inspectorAutoFolded = false;    ///< the policy (not the teacher) folded the inspector
     bool applyingPanelPolicy = false;
+    bool thumbnailsManualChoice = false;  ///< the teacher chose since the last width crossing: the policy must not undo it
+    bool inspectorManualChoice = false;
     bool panelPolicyPending = false;
     void updatePanelPolicy(int width, bool fromAllocation);
     void applyPanelPolicy();

@@ -3274,3 +3274,44 @@ TEST_F(ClassroomWorkflow, panelsStepAsideInNarrowWindowsAndComeBackWithoutChangi
 
     window->updateCompactLayout(realWidth);
 }
+
+// A width change from a real allocation is applied in an idle callback. A teacher's choice made before that callback
+// runs must not be undone by it, and the next width crossing hands control back to the policy.
+TEST_F(ClassroomWorkflow, manualPanelChoiceMadeWhileThePolicyIsQueuedIsNotUndone) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+
+    // Sidebar: the policy for 1280 px is queued, the teacher closes and reopens the sidebar, then the queue runs
+    window->updateCompactLayout(1500);
+    ASSERT_TRUE(sidebarShown(window.get()));
+    window->updateCompactLayout(1280, true);
+    ASSERT_TRUE(sidebarShown(window.get())) << "queued, not applied yet";
+    control->setShowSidebar(false);
+    control->setShowSidebar(true);
+    settle();
+    EXPECT_TRUE(sidebarShown(window.get())) << "the queued policy must not hide what the teacher just opened";
+    EXPECT_FALSE(window->isThumbnailsAutoHidden());
+    window->updateCompactLayout(1500);
+    EXPECT_TRUE(sidebarShown(window.get()));
+    window->updateCompactLayout(1280);  // the next crossing: the policy is in charge again
+    EXPECT_FALSE(sidebarShown(window.get()));
+    EXPECT_TRUE(window->isThumbnailsAutoHidden());
+
+    // Inspector: folding at 900 px is queued, the teacher chooses "Show settings", then the queue runs
+    window->updateCompactLayout(1500);
+    ASSERT_TRUE(gtk_widget_get_visible(window->get("utnInspectorHost")));
+    window->updateCompactLayout(900, true);
+    window->setTeacherWorkspace(0);
+    settle();
+    EXPECT_FALSE(window->isInspectorAutoFolded()) << "the queued policy must not fold what the teacher chose";
+    EXPECT_TRUE(gtk_widget_get_visible(window->get("utnInspectorHost")));
+    EXPECT_FALSE(gtk_widget_get_visible(window->get("utnExpandInspector")));
+    window->updateCompactLayout(1500);
+    window->updateCompactLayout(900);  // the next crossing folds it again
+    EXPECT_TRUE(window->isInspectorAutoFolded());
+
+    window->updateCompactLayout(realWidth);
+    settle();
+}
