@@ -53,6 +53,9 @@ public:
     ~ToolStudentView() override;
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
+    /// Freeze and Blank as two always-visible toggle buttons, for the app bar beside the pill. They drive the same
+    /// state as the pill's menu and follow it.
+    xoj::util::WidgetSPtr createQuickControls(bool horizontal);
 
     std::string getToolDisplayName() const override;
     GtkWidget* getNewToolIcon() const override;
@@ -142,6 +145,9 @@ private:
     GtkWidget* pillLabel = nullptr;
     GtkWidget* freezeToggle = nullptr;
     GtkWidget* blankToggle = nullptr;
+    // The same two actions as app-bar buttons (the latest toolbar instance)
+    GtkWidget* freezeQuick = nullptr;
+    GtkWidget* blankQuick = nullptr;
     GtkWidget* ghostToggle = nullptr;
     GtkWidget* openButton = nullptr;
     GtkWidget* fullButton = nullptr;
@@ -157,4 +163,20 @@ private:
     std::atomic_uint redrawSource{0};
     gulong monitorAddedHandler = 0;
     gulong monitorRemovedHandler = 0;
+};
+
+/// App-bar item holding the Freeze and Blank buttons of a ToolStudentView. A separate item, so a toolbar layout can
+/// place them anywhere, and so ToolStudentView::createItem keeps returning only the status pill.
+class ToolStudentQuick: public AbstractToolItem {
+public:
+    ToolStudentQuick(std::string id, ToolStudentView& students);
+    ~ToolStudentQuick() override = default;
+
+    xoj::util::WidgetSPtr createItem(bool horizontal) override;
+
+    std::string getToolDisplayName() const override;
+    GtkWidget* getNewToolIcon() const override;
+
+private:
+    ToolStudentView& students;
 };

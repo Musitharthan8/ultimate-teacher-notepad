@@ -29,6 +29,10 @@ void appendPopoverHeading(GtkBox* panel, const char* text);
 /// A menu entry: left-aligned label, optional explanation as tooltip. Closes the popover when clicked.
 GtkWidget* appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* label, const char* hint = nullptr);
 
+/// Change the text of an entry made by appendMenuButton and keep it left-aligned. GTK3 rebuilds the label child when
+/// the text changes, which would otherwise centre it.
+void setMenuButtonLabel(GtkWidget* button, const char* label);
+
 /// Pin the full settings inspector beside the worksheet from a tool popover; never changes the active tool.
 GtkWidget* appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* control);
 

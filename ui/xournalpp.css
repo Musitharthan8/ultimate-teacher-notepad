@@ -950,3 +950,108 @@ window.utnShell #tbLeft1Scroller scrollbar,
 window.utnShell #tbLeft1Scroller scrollbar slider {
     min-width: 6px;
 }
+
+/* Classroom quick controls: Freeze and Blank stay one click away in the app bar. The state is written in the label
+   ("Freeze" / "Resume live", "Blank" / "Show page") and coloured, so colour is never the only cue. */
+window.utnShell .utn-sv-quick button {
+    border-radius: 999px;
+    padding: 2px 12px;
+    min-height: 28px;
+    font-weight: 600;
+}
+window.utnShell .utn-quick-freeze:checked {
+    background-image: none;
+    background-color: alpha(#e0a100, 0.28);
+    border-color: #b77900;
+}
+window.utnShell.darkMode .utn-quick-freeze:checked {
+    background-color: alpha(#ffc94a, 0.26);
+    border-color: #ffc94a;
+}
+window.utnShell .utn-quick-blank:checked {
+    background-image: none;
+    background-color: @utn_danger;
+    border-color: @utn_danger;
+    color: #ffffff;
+}
+window.utnShell .utn-quick-blank:checked label {
+    color: #ffffff;
+}
+
+/* Present button while Spotlight or Curtain is on: the page is changed, so the button says so */
+window.utnShell .utn-present-active {
+    background-image: none;
+    background-color: alpha(@utn_accent, 0.22);
+    border: 1px solid @utn_accent;
+    font-weight: 600;
+}
+window.utnShell.darkMode .utn-present-active {
+    background-color: alpha(@utn_accent_dark, 0.28);
+    border-color: @utn_accent_dark;
+}
+/* The toolbar reset above strips idle buttons flat; these two must read as buttons. */
+window.utnShell toolbar .utn-sv-quick button:not(:checked):not(:active) {
+    background-color: @utn_surface_raised;
+    border: 1px solid @utn_border;
+}
+window.utnShell.darkMode toolbar .utn-sv-quick button:not(:checked):not(:active) {
+    background-color: @utn_surface_raised_dark;
+    border-color: @utn_border_dark;
+}
+
+/* The way back from Blank: the cover's white label colour made this button unreadable (white on light grey). */
+.utn-blank-cover button.utn-blank-show {
+    background-image: none;
+    background-color: @utn_accent_dark;
+    border: 2px solid @utn_accent_dark;
+    border-radius: 8px;
+    padding: 8px 28px;
+    min-height: 36px;
+}
+.utn-blank-cover button.utn-blank-show label {
+    color: #0b1f1c;
+    font-weight: 700;
+}
+.utn-blank-cover button.utn-blank-show:focus {
+    outline: 3px solid #ffffff;
+    outline-offset: 3px;
+}
+
+/* Spotlight / Curtain banner: its button used the toast's pale teal on a light button and could not be read. */
+.utn-presentation-banner button {
+    background-image: none;
+    background-color: #ffffff;
+    border: 1px solid #ffffff;
+    border-radius: 8px;
+    padding: 4px 12px;
+}
+.utn-presentation-banner button label {
+    color: #0b1f1c;
+    font-weight: 700;
+}
+.utn-presentation-banner button:focus {
+    outline: 3px solid @utn_accent_dark;
+    outline-offset: 2px;
+}
+/* High Contrast: black fill, white border, like every other button (the outline rule above is more specific). */
+window.utnShell.utnHighContrast toolbar .utn-sv-quick button:not(:checked):not(:active) {
+    background-image: none;
+    background-color: #000000;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+}
+
+/* Compact windows (under 1080 px): keep the app bar on one line so Present, Appearance and Workspace stay reachable */
+window.utnShell.utnCompact #tbTop1 {
+    padding-left: 4px;
+    padding-right: 4px;
+}
+window.utnShell.utnCompact #tbTop1 button {
+    margin: 0 1px;
+}
+window.utnShell.utnCompact .utn-sv-quick button {
+    padding: 2px 8px;
+}
+window.utnShell.utnCompact .utn-sv-pill {
+    padding: 2px 6px;
+}

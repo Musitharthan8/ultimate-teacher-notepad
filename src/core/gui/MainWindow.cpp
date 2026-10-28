@@ -1032,6 +1032,12 @@ void MainWindow::updatePresentationBanner() {
         gtk_label_set_text(GTK_LABEL(presentationBannerLabel),
                            spotlight ? _("Spotlight is ON: the page is darkened") :
                                        _("Curtain is ON: the page is covered"));
+        // Sit just below the app bar, never over it: the banner must not hide Freeze, Blank or Present
+        gint bannerX = 0;
+        gint bannerY = 0;
+        if (gtk_widget_translate_coordinates(get("mainContainerBox"), get("mainOverlay"), 0, 0, &bannerX, &bannerY)) {
+            gtk_widget_set_margin_top(presentationBanner, std::max(12, bannerY + 8));
+        }
         gtk_widget_show(presentationBanner);
     } else {
         gtk_widget_hide(presentationBanner);
@@ -1056,6 +1062,24 @@ void setRailLabelsVisible(GtkWidget* widget, bool visible) {
         GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
         for (GList* child = children; child; child = child->next) {
             setRailLabelsVisible(GTK_WIDGET(child->data), visible);
+        }
+        g_list_free(children);
+    }
+}
+}  // namespace
+
+namespace {
+/// Hide what is only decoration or has another way in (the title bar already names the app) when the window is compact,
+/// so Freeze, Blank, Present and Appearance keep their room in the app bar
+void setCompactHidden(GtkWidget* widget, bool compact) {
+    if (gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-compact-hidden")) {
+        gtk_widget_set_visible(widget, !compact);
+        return;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            setCompactHidden(GTK_WIDGET(child->data), compact);
         }
         g_list_free(children);
     }
@@ -1088,6 +1112,7 @@ void MainWindow::updateCompactLayout(int width) {
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
             setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));
+            setCompactHidden(GTK_WIDGET(toolbar.get()), this->compactLayout);
         }
     }
 }

@@ -285,6 +285,37 @@ void ToolStudentView::updateState() {
         gtk_button_set_label(GTK_BUTTON(blankToggle), blanked ? _("Show the page again") : _("Blank screen"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankToggle), blanked);
     }
+    if (freezeQuick) {
+        gtk_button_set_label(GTK_BUTTON(freezeQuick), frozen ? _("Resume live") : _("Freeze"));
+        utn::syncToggle(GTK_TOGGLE_BUTTON(freezeQuick), frozen);
+        gtk_widget_set_tooltip_text(freezeQuick,
+                                    !open  ? _("Freeze needs Student View. Open it on the projector first, then students "
+                                               "keep seeing this page while you prepare the next step.") :
+                                    frozen ? _("Students are seeing a frozen page. Choose to show them the page you are "
+                                               "on now.") :
+                                             _("Keep showing students this page while you prepare the next step"));
+        utn::setAccessibleName(freezeQuick, frozen ? _("Resume live view for students") : _("Freeze students' screen"));
+    }
+    if (blankQuick) {
+        gtk_button_set_label(GTK_BUTTON(blankQuick), blanked ? _("Show page") : _("Blank"));
+        utn::syncToggle(GTK_TOGGLE_BUTTON(blankQuick), blanked);
+        gtk_widget_set_tooltip_text(blankQuick, blanked ? _("Students see a blank screen. Choose to show the page again.") :
+                                                          _("Hide the page from students until you turn this off"));
+        utn::setAccessibleName(blankQuick, blanked ? _("Show the page to students again") : _("Blank students' screen"));
+    }
+    if (pill) {
+        // Teacher View and Student View are different screens; say which one the class is looking at
+        const char* meaning =
+                state == State::Off        ? _("Students see nothing yet. Open Student View on the projector to show them "
+                                               "the page without your tools.") :
+                state == State::SameScreen ? _("The projector shows this screen, so students see your tools and private "
+                                               "notes. Open Student View on a second screen to keep them private.") :
+                state == State::Live       ? _("Students see the page only: no tools, private notes or hidden answers.") :
+                state == State::Frozen     ? _("Students see a frozen picture of the page. Your screen can move on.") :
+                                             _("Students see a blank screen.");
+        std::string tip = std::string(meaning) + "\n" + _("Click for Student View controls.");
+        gtk_widget_set_tooltip_text(pill, tip.c_str());
+    }
     if (openButton) {
         gtk_button_set_label(GTK_BUTTON(openButton), open ? _("Show Student View window") : _("Open on the projector"));
     }
@@ -648,6 +679,54 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     return xoj::util::WidgetSPtr(pill, xoj::util::adopt);
 }
 
+auto ToolStudentView::createQuickControls(bool horizontal) -> xoj::util::WidgetSPtr {
+    GtkWidget* box = gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_add_css_class(box, "utn-sv-quick");
+
+    freezeQuick = gtk_toggle_button_new_with_label(_("Freeze"));
+    gtk_widget_add_css_class(freezeQuick, "utn-quick-freeze");
+    gtk_widget_set_focus_on_click(freezeQuick, false);  // keyboard focus stays where the teacher was working
+    g_signal_connect(freezeQuick, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                         if (utn::isSyncing(GTK_WIDGET(button))) {
+                             return;
+                         }
+                         auto* self = static_cast<ToolStudentView*>(data);
+                         if (!self->window) {
+                             // Nothing to freeze yet: say why instead of doing nothing, and leave the button off
+                             if (auto* win = self->control->getWindow()) {
+                                 win->showToast(_("Open Student View on the projector first. Then Freeze keeps its "
+                                                  "screen still while you prepare the next step."));
+                             }
+                             self->updateState();
+                             return;
+                         }
+                         self->setFrozen(gtk_toggle_button_get_active(button));
+                     }),
+                     this);
+    gtk_box_append(GTK_BOX(box), freezeQuick);
+
+    blankQuick = gtk_toggle_button_new_with_label(_("Blank"));
+    gtk_widget_add_css_class(blankQuick, "utn-quick-blank");
+    gtk_widget_set_focus_on_click(blankQuick, false);
+    g_signal_connect(blankQuick, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                         if (!utn::isSyncing(GTK_WIDGET(button))) {
+                             static_cast<ToolStudentView*>(data)->setBlanked(gtk_toggle_button_get_active(button));
+                         }
+                     }),
+                     this);
+    gtk_box_append(GTK_BOX(box), blankQuick);
+
+    g_signal_connect(box, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
+                         auto* self = static_cast<ToolStudentView*>(data);
+                         self->freezeQuick = nullptr;
+                         self->blankQuick = nullptr;
+                     }),
+                     this);
+    gtk_widget_show_all(box);
+    updateState();
+    return xoj::util::WidgetSPtr(box, xoj::util::adopt);
+}
+
 void ToolStudentView::showStudentView() {
     if (window != nullptr) {
         gtk_window_present(GTK_WINDOW(window));
@@ -778,7 +857,9 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
                              static_cast<ToolStudentView*>(data)->setBlanked(false);
                          }),
                          this);
+        gtk_widget_add_css_class(showButton, "utn-blank-show");
         gtk_box_append(GTK_BOX(content), showButton);
+        g_object_set_data(G_OBJECT(teacherCover), "utn-show-button", showButton);
         gtk_container_add(GTK_CONTAINER(teacherCover), content);
         gtk_overlay_add_overlay(GTK_OVERLAY(win->get("mainOverlay")), teacherCover);
         g_signal_connect(teacherCover, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
@@ -790,6 +871,10 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
         gtk_widget_set_visible(teacherCover, show);
         if (show) {
             gtk_widget_show_all(teacherCover);
+            // The cover hides every control that could undo it: put keyboard focus on the way back (Enter or Space)
+            if (auto* showButton = GTK_WIDGET(g_object_get_data(G_OBJECT(teacherCover), "utn-show-button"))) {
+                gtk_widget_grab_focus(showButton);
+            }
         }
     }
 }
@@ -895,3 +980,14 @@ void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
 auto ToolStudentView::getToolDisplayName() const -> std::string { return _("Student View"); }
 
 auto ToolStudentView::getNewToolIcon() const -> GtkWidget* { return gtk_label_new("SV"); }
+
+ToolStudentQuick::ToolStudentQuick(std::string id, ToolStudentView& students):
+        AbstractToolItem(std::move(id), Category::NAVIGATION), students(students) {}
+
+auto ToolStudentQuick::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
+    return students.createQuickControls(horizontal);
+}
+
+auto ToolStudentQuick::getToolDisplayName() const -> std::string { return _("Freeze and Blank"); }
+
+auto ToolStudentQuick::getNewToolIcon() const -> GtkWidget* { return gtk_label_new("FB"); }

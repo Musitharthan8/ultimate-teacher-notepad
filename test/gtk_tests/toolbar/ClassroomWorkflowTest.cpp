@@ -457,6 +457,48 @@ TEST_F(ClassroomWorkflow, teacherRailCaptionsAtFixedLogicalWidths) {
     window->setToolLabelMode(0);
 }
 
+namespace {
+GtkWidget* labelWithText(GtkWidget* widget, const char* text) {
+    if (GTK_IS_LABEL(widget) && g_strcmp0(gtk_label_get_text(GTK_LABEL(widget)), text) == 0) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = labelWithText(GTK_WIDGET(child->data), text);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, compactAppBarKeepsRoomForFreezeBlankAndPresentByHidingTheBrandText) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* appBar = window->get("tbTop1");
+    auto* brand = labelWithText(appBar, "UTN");
+    ASSERT_NE(brand, nullptr);
+    auto* freeze = buttonNamed(appBar, "Freeze");
+    auto* blank = buttonNamed(appBar, "Blank");
+    ASSERT_NE(freeze, nullptr) << "the default Teacher layout carries Freeze";
+    ASSERT_NE(blank, nullptr) << "the default Teacher layout carries Blank";
+
+    window->updateCompactLayout(1280);
+    EXPECT_TRUE(gtk_widget_get_visible(brand));
+    window->updateCompactLayout(1008);
+    EXPECT_FALSE(gtk_widget_get_visible(brand)) << "compact: the title bar already names the app";
+    EXPECT_TRUE(gtk_widget_get_visible(freeze)) << "Freeze is never hidden";
+    EXPECT_TRUE(gtk_widget_get_visible(blank)) << "Blank is never hidden";
+    window->updateCompactLayout(1280);
+    EXPECT_TRUE(gtk_widget_get_visible(brand));
+    window->updateCompactLayout(realWidth);
+}
+
 // The real Workspace menu buttons, which is how a teacher changes the mode
 TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->toolbarSelected("UTN Teacher");
@@ -782,6 +824,140 @@ TEST_F(ClassroomWorkflow, classroomMenuUsesSharedPresentationActions) {
     EXPECT_FALSE(tools->isSpotlightEnabled());
     g_action_group_activate_action(actions, "classroom-exit-overlay", nullptr);
     EXPECT_FALSE(tools->isCurtainEnabled());
+}
+
+TEST_F(ClassroomWorkflow, freezeAndBlankAreOneClickInTheAppBarAndStayInStepWithTheStudentsMenu) {
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    ToolStudentQuick quickTool("STUDENT_QUICK", *students);
+    auto pill = students->createItem(true);
+    auto quick = quickTool.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto menuClick = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+
+    auto* freeze = buttonNamed(quick.get(), "Freeze");
+    auto* blank = buttonNamed(quick.get(), "Blank");
+    ASSERT_NE(freeze, nullptr) << "Freeze must be visible in the app bar, not only inside the Students menu";
+    ASSERT_NE(blank, nullptr) << "Blank must be visible in the app bar, not only inside the Students menu";
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+
+    // Blank works at once, with no projector window: on one display it covers the teacher's canvas
+    gtk_button_clicked(GTK_BUTTON(blank));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(blank)), "Show page") << "the button says how to get back";
+    // The same state is reachable and visible from the menu
+    auto* menuBlank = buttonNamed(menu, "Show the page again");
+    ASSERT_NE(menuBlank, nullptr);
+    gtk_button_clicked(GTK_BUTTON(blank));
+    settle();
+    EXPECT_NE(students->getState(), ToolStudentView::State::Blank);
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(blank)), "Blank");
+
+    // A change made in the menu is mirrored on the bar
+    menuClick("Blank screen");
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+    menuClick("Show the page again");
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+
+    // Freeze needs the Student View window. Without it the click explains instead of silently doing nothing.
+    if (studentWindow()) {  // on extended displays Blank opens the projector window by itself
+        menuClick("Close Student View");
+    }
+    gtk_button_clicked(GTK_BUTTON(freeze));
+    settle();
+    EXPECT_NE(students->getState(), ToolStudentView::State::Frozen);
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(freeze)));
+
+    menuClick("Open on the projector");
+    ASSERT_NE(studentWindow(), nullptr);
+    gtk_button_clicked(GTK_BUTTON(freeze));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(freeze)));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(freeze)), "Resume live");
+    gtk_button_clicked(GTK_BUTTON(freeze));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(freeze)), "Freeze");
+
+    // Both buttons name themselves for screen readers and explain themselves in tooltips
+    for (auto* button: {freeze, blank}) {
+        AtkObject* accessible = gtk_widget_get_accessible(button);
+        ASSERT_NE(accessible, nullptr);
+        EXPECT_NE(atk_object_get_name(accessible), nullptr);
+        EXPECT_NE(gtk_widget_get_tooltip_text(button), nullptr);
+    }
+
+    menuClick("Close Student View");
+    EXPECT_EQ(studentWindow(), nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(freeze) && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(freeze)));
+    gtk_widget_destroy(quick.get());
+    quick.reset();
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, presentMenuShowsWhichOverlayIsOnAndOnlyOffersExitWhenThereIsOne) {
+    ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()));
+    auto item = kit.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+    auto* exit = buttonNamed(menu, "Show the whole page");
+    ASSERT_NE(exit, nullptr) << "the way back must be named by what it does";
+    auto* spotlight = buttonNamed(menu, "Spotlight");
+    auto* curtain = buttonNamed(menu, "Curtain");
+    ASSERT_NE(spotlight, nullptr);
+    ASSERT_NE(curtain, nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(exit)) << "nothing to exit yet";
+    EXPECT_FALSE(gtk_style_context_has_class(gtk_widget_get_style_context(item.get()), "utn-present-active"));
+
+    ToolPresentationKit::runClassroomAction(control.get(), Action::CLASSROOM_SPOTLIGHT);
+    settle();
+    EXPECT_TRUE(gtk_widget_get_sensitive(exit));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(spotlight)), "Spotlight is on: choose to turn off");
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(curtain)), "Curtain");
+    EXPECT_TRUE(gtk_style_context_has_class(gtk_widget_get_style_context(item.get()), "utn-present-active"))
+            << "the app-bar button itself shows that the page is covered";
+
+    ToolPresentationKit::runClassroomAction(control.get(), Action::CLASSROOM_CURTAIN);
+    settle();
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(spotlight)), "Spotlight");
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(curtain)), "Curtain is on: choose to turn off");
+    // Relabelling rebuilds GTK3's label child; entries must stay left-aligned like the rest of the menu
+    for (auto* entry: {spotlight, curtain}) {
+        auto* text = gtk_bin_get_child(GTK_BIN(entry));
+        ASSERT_TRUE(GTK_IS_LABEL(text));
+        EXPECT_FLOAT_EQ(gtk_label_get_xalign(GTK_LABEL(text)), 0.0F) << gtk_button_get_label(GTK_BUTTON(entry));
+    }
+
+    gtk_button_clicked(GTK_BUTTON(exit));
+    settle();
+    EXPECT_FALSE(control->getToolHandler()->isCurtainEnabled());
+    EXPECT_FALSE(gtk_widget_get_sensitive(exit));
+    EXPECT_FALSE(gtk_style_context_has_class(gtk_widget_get_style_context(item.get()), "utn-present-active"));
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(curtain)), "Curtain");
+
+    // A tool switch that removes an overlay must not leave a stale state in a menu that was built earlier
+    ToolPresentationKit::runClassroomAction(control.get(), Action::CLASSROOM_CURTAIN);
+    settle();
+    control->selectTool(TOOL_PEN);
+    settle();
+    EXPECT_FALSE(control->getToolHandler()->isCurtainEnabled());
+    EXPECT_FALSE(gtk_widget_get_sensitive(exit));
+
+    gtk_widget_destroy(item.get());
+    item.reset();
+    // A later tool change must not reach the destroyed menu
+    control->getToolHandler()->fireToolChanged();
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {

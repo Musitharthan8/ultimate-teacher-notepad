@@ -56,6 +56,13 @@ auto appendMenuButton(GtkBox* panel, GtkPopover* popover, const char* label, con
     return button;
 }
 
+void setMenuButtonLabel(GtkWidget* button, const char* label) {
+    gtk_button_set_label(GTK_BUTTON(button), label);
+    if (GtkWidget* text = gtk_bin_get_child(GTK_BIN(button)); GTK_IS_LABEL(text)) {
+        gtk_label_set_xalign(GTK_LABEL(text), 0.0F);
+    }
+}
+
 auto appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* control) -> GtkWidget* {
     GtkWidget* button = appendMenuButton(panel, popover, _("Pin settings panel"),
                                          _("Keep the full tool settings panel open beside the worksheet"));

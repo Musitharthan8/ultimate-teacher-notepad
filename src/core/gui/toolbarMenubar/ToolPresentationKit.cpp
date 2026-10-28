@@ -8,6 +8,7 @@
 
 #include "ToolPresentationKit.h"
 
+#include <memory>
 #include <utility>
 
 #include "control/Control.h"
@@ -71,6 +72,41 @@ void toggleBoolAction(Control* control, Action action) {
     control->getActionDatabase()->fireChangeActionState(action, !enabled);
 }
 
+/// The entries of the Present menu whose wording and availability follow the active overlay
+struct PresentState {
+    GtkWidget* button = nullptr;  ///< the app-bar button
+    GtkWidget* spotlight = nullptr;
+    GtkWidget* curtain = nullptr;
+    GtkWidget* exit = nullptr;
+};
+
+/// Say which overlay is on in words (never colour alone), and offer the way back only while there is one
+void refreshPresentState(const PresentState& ui, Control* control) {
+    auto* tools = control->getToolHandler();
+    const bool spotlight = tools->isSpotlightEnabled();
+    const bool curtain = tools->isCurtainEnabled();
+    if (ui.spotlight) {
+        utn::setMenuButtonLabel(ui.spotlight, spotlight ? _("Spotlight is on: choose to turn off") : _("Spotlight"));
+    }
+    if (ui.curtain) {
+        utn::setMenuButtonLabel(ui.curtain, curtain ? _("Curtain is on: choose to turn off") : _("Curtain"));
+    }
+    if (ui.exit) {
+        gtk_widget_set_sensitive(ui.exit, spotlight || curtain);
+    }
+    if (ui.button) {
+        auto* context = gtk_widget_get_style_context(ui.button);
+        if (spotlight || curtain) {
+            gtk_style_context_add_class(context, "utn-present-active");
+        } else {
+            gtk_style_context_remove_class(context, "utn-present-active");
+        }
+        gtk_widget_set_tooltip_text(ui.button, spotlight ? _("Present: Spotlight is on. The page is darkened.") :
+                                               curtain   ? _("Present: Curtain is on. The page is covered.") :
+                                                           _("Present: Spotlight, Curtain and temporary ink"));
+    }
+}
+
 void clearTemporaryInk(Control* control) {
     if (auto* window = control->getWindow()) {
         if (auto* xournal = window->getXournal()) {
@@ -130,13 +166,16 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     connect(utn::appendMenuButton(panel, popover, _("Temporary highlight"),
                                   _("Highlight that fades away; it is never saved")),
             [](Control* c) { selectPresentationTool(c, TOOL_LASER_POINTER_HIGHLIGHTER); });
-    connect(utn::appendMenuButton(panel, popover, _("Spotlight (on / off)"), _("Darken the page; choose again to show the page")),
-            [](Control* c) { selectPresentationTool(c, TOOL_HAND, true, false); });
-    connect(utn::appendMenuButton(panel, popover, _("Curtain (on / off)"), _("Cover the page; choose again to show the page")),
-            [](Control* c) { selectPresentationTool(c, TOOL_HAND, false, true); });
-    connect(utn::appendMenuButton(panel, popover, _("EXIT Spotlight / Curtain"),
-                                  _("Restore the full page without deleting any saved work")),
-            [](Control* c) { exitPresentationOverlay(c); });
+    auto ui = std::make_shared<PresentState>();
+    ui->spotlight = utn::appendMenuButton(panel, popover, _("Spotlight"),
+                                          _("Darken the page around the pointer. Choose again to show the whole page."));
+    connect(ui->spotlight, [](Control* c) { selectPresentationTool(c, TOOL_HAND, true, false); });
+    ui->curtain = utn::appendMenuButton(panel, popover, _("Curtain"),
+                                        _("Cover the page. Choose again to show the whole page."));
+    connect(ui->curtain, [](Control* c) { selectPresentationTool(c, TOOL_HAND, false, true); });
+    ui->exit = utn::appendMenuButton(panel, popover, _("Show the whole page"),
+                                     _("Turn off Spotlight or Curtain. Escape does the same. Saved work is not changed."));
+    connect(ui->exit, [](Control* c) { exitPresentationOverlay(c); });
 
     utn::appendPopoverHeading(panel, _("Tidy up"));
     connect(utn::appendMenuButton(panel, popover, _("Clear temporary ink"),
@@ -159,8 +198,27 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_button_set_child(GTK_BUTTON(menuButton), GTK_WIDGET(heading));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+    gtk_widget_add_css_class(GTK_WIDGET(menuButton), "utn-present-btn");
 
     gtk_widget_show_all(GTK_WIDGET(panel));
+
+    // Keep the menu and the button in step with Spotlight and Curtain, however they were changed (menu, banner,
+    // Escape, tool switch). The listener holds only a weak reference: ToolHandler cannot remove it, and a rebuilt
+    // toolbar destroys this widget.
+    ui->button = GTK_WIDGET(menuButton);
+    g_object_set_data_full(G_OBJECT(menuButton), "utn-present-state", new std::shared_ptr<PresentState>(ui),
+                           +[](gpointer data) { delete static_cast<std::shared_ptr<PresentState>*>(data); });
+    g_signal_connect(menuButton, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
+                         *static_cast<PresentState*>(data) = PresentState{};
+                     }),
+                     ui.get());
+    refreshPresentState(*ui, control);
+    control->getToolHandler()->addToolChangedListener(
+            [weak = std::weak_ptr<PresentState>(ui), control = this->control](ToolType) {
+                if (auto state = weak.lock(); state && state->button) {
+                    refreshPresentState(*state, control);
+                }
+            });
     return xoj::util::WidgetSPtr(GTK_WIDGET(menuButton), xoj::util::adopt);
 }
 

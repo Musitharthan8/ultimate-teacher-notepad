@@ -237,6 +237,7 @@ public:
     xoj::util::WidgetSPtr createItem(bool) override {
         auto* label = gtk_label_new("UTN");
         gtk_widget_add_css_class(label, "utn-brand");
+        gtk_widget_add_css_class(label, "utn-compact-hidden");
         gtk_widget_set_tooltip_text(label, _("Ultimate Teacher Notepad. Your classroom workspace."));
         return xoj::util::WidgetSPtr(label, xoj::util::adopt);
     }
@@ -347,8 +348,8 @@ bool appendTeacherCaption(GtkWidget* widget, const char* text) {
         if (content) {
             auto* label = gtk_label_new(text);
             gtk_widget_set_name(label, "utnRailLabel");
-            gtk_label_set_width_chars(GTK_LABEL(label), 10);
-            gtk_label_set_max_width_chars(GTK_LABEL(label), 10);
+            gtk_label_set_width_chars(GTK_LABEL(label), 11);
+            gtk_label_set_max_width_chars(GTK_LABEL(label), 12);
             gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
             gtk_box_append(content, label);
             gtk_widget_show_all(GTK_WIDGET(content));
@@ -793,7 +794,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);
 
     // UTN clean student-facing preview
-    emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
+    auto& studentView = emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
+    emplaceItem<ToolStudentQuick>("STUDENT_QUICK", studentView);
 
     // UTN consolidated shapes, STEM and classroom utilities
     emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);
