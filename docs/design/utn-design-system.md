@@ -54,3 +54,13 @@ These tokens extend the existing `ui/xournalpp.css` palette. Teal remains the in
 ## Icon rules
 
 Use the existing theme-aware GTK icon names and project-owned UTN glyphs. Keep toolbar glyphs visually centered and similarly sized. Preserve the current icon theme setting and accessible names; do not add unlicensed external art.
+
+## Classroom state controls (added for the 31 October build)
+
+- A mode that hides or alters what the class sees (Freeze, Blank, Spotlight, Curtain) is one click from the app bar and says its state in words: `Freeze` / `Resume live`, `Blank` / `Show page`, `Spotlight is on: choose to turn off`. Colour (amber Frozen, red Blank, teal overlay) is a second cue, never the only one.
+- Anything that covers the app bar must leave a readable, keyboard-focused way back. Transient banners sit below the app bar, never over classroom controls.
+- Compact windows (under 1080 px) drop decoration (brand text) before classroom controls. Mark such widgets with the `utn-compact-hidden` style class.
+- Relabelling a menu entry with `gtk_button_set_label` centres it in GTK3; use `utn::setMenuButtonLabel` to keep entries left-aligned.
+- The current-page frame uses the accent teal by default. Red is reserved for destructive or blocked states.
+
+Evidence for these decisions is in `docs/qa/utn-modern-ui-handoff.md`.
