@@ -1476,6 +1476,76 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAreNamedOnScreenAndEveryExitWorks) 
     }
 }
 
+// Choosing the active Spotlight/Curtain entry in the Present menu must do what its label promises: turn it off.
+TEST_F(ClassroomWorkflow, choosingTheActivePresentEntryAgainTurnsItOffAndEveryIndicatorFollows) {
+    window->show(nullptr);
+    ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()));
+    auto item = kit.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+    auto* spotlight = buttonNamed(menu, "Spotlight");
+    auto* curtain = buttonNamed(menu, "Curtain");
+    auto* exit = buttonNamed(menu, "Show the whole page");
+    ASSERT_TRUE(spotlight && curtain && exit);
+    auto* tools = control->getToolHandler();
+    auto hasActiveClass = [&] {
+        return gtk_style_context_has_class(gtk_widget_get_style_context(item.get()), "utn-present-active");
+    };
+    auto expectOff = [&](const char* when) {
+        SCOPED_TRACE(when);
+        EXPECT_FALSE(tools->isSpotlightEnabled());
+        EXPECT_FALSE(tools->isCurtainEnabled());
+        EXPECT_FALSE(window->isPresentationBannerVisible());
+        EXPECT_FALSE(hasActiveClass());
+        EXPECT_FALSE(gtk_widget_get_sensitive(exit));
+        EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(spotlight)), "Spotlight");
+        EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(curtain)), "Curtain");
+    };
+    auto click = [&](GtkWidget* w) {
+        gtk_button_clicked(GTK_BUTTON(w));
+        settle();
+    };
+
+    expectOff("initially");
+    for (bool isSpotlight: {true, false}) {
+        auto* self = isSpotlight ? spotlight : curtain;
+        auto* other = isSpotlight ? curtain : spotlight;
+        const std::string name = isSpotlight ? "Spotlight" : "Curtain";
+
+        click(self);
+        EXPECT_EQ(tools->isSpotlightEnabled(), isSpotlight);
+        EXPECT_EQ(tools->isCurtainEnabled(), !isSpotlight);
+        EXPECT_TRUE(window->isPresentationBannerVisible());
+        EXPECT_NE(window->getPresentationBannerText().find(name), std::string::npos);
+        EXPECT_TRUE(hasActiveClass());
+        EXPECT_TRUE(gtk_widget_get_sensitive(exit));
+        EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(self)), (name + " is on: choose to turn off").c_str());
+
+        click(self);
+        expectOff("same entry chosen again");
+
+        // Switching straight from the other overlay leaves only the newly chosen one on
+        click(other);
+        click(self);
+        EXPECT_EQ(tools->isSpotlightEnabled(), isSpotlight);
+        EXPECT_EQ(tools->isCurtainEnabled(), !isSpotlight);
+        EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(other)), isSpotlight ? "Curtain" : "Spotlight");
+        EXPECT_TRUE(window->isPresentationBannerVisible());
+
+        // Explicit exit and Escape still work from here
+        click(exit);
+        expectOff("explicit exit");
+        click(self);
+        EXPECT_TRUE(pressEscape(window.get()));
+        settle();
+        expectOff("Escape");
+    }
+
+    gtk_widget_destroy(item.get());
+    item.reset();
+    tools->fireToolChanged();
+    settle();
+}
+
 namespace {
 bool answersShowing(Control* control) {
     auto page = control->getCurrentPage();
