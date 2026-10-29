@@ -57,6 +57,10 @@ bool isSyncing(GtkWidget* widget);
 /// An active tool opens its existing options on primary press or Enter/Space, without reactivating its action.
 void bindActiveToolOptions(GtkToggleButton* tool, GtkMenuButton* options);
 
+/// The small options marker of a rail tile sits in the tile's lower-right corner, where no tool glyph is drawn, so it
+/// never covers or clips the icon. Every split tool places it through here.
+void placeOptionsCorner(GtkWidget* options);
+
 /// Small line drawings for the properties panel. They use the button's own text colour, so they follow the light,
 /// dark and High Contrast themes and a selected button's colour.
 enum class Glyph { Freehand, Rectangle, Ellipse, Line, Arrow, SmartShape, Weight };

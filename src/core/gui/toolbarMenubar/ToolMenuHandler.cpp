@@ -212,7 +212,7 @@ public:
                          }), control);
 
         GtkMenuButton* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
-        gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(teacherCurrentColour(control), 22, false));
+        gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(teacherCurrentColour(control), 22, true));
         gtk_widget_set_tooltip_text(GTK_WIDGET(menu), _("Quick colours and custom colour picker"));
         utn::setAccessibleName(GTK_WIDGET(menu), _("Colours"));
         gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
@@ -223,7 +223,7 @@ public:
 
     std::string getToolDisplayName() const override { return _("Colours"); }
     GtkWidget* getNewToolIcon() const override {
-        return ColorIcon::newGtkImage(teacherCurrentColour(control), 22, false);
+        return ColorIcon::newGtkImage(teacherCurrentColour(control), 22, true);
     }
 
 private:

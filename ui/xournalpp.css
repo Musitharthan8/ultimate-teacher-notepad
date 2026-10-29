@@ -1409,3 +1409,37 @@ window.utnShell.utnCompact #tbLeft1 button.utn-tool-arrow {
     min-height: 28px;
     padding: 0;
 }
+
+/* Design pass 2026-10-30. The options marker of a split rail tile is a quiet corner glyph, not a second button laid
+   over the tool icon: it sits in the tile's lower-right corner (see utn::placeOptionsCorner), has no fill until it is
+   hovered, and keeps a 16 px target so it never clips the icon it belongs to. */
+window.utnShell #tbLeft1 button.utn-tool-options-corner {
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 4px;
+    background-image: none;
+    background-color: transparent;
+    box-shadow: none;
+}
+window.utnShell #tbLeft1 button.utn-tool-options-corner:hover,
+window.utnShell #tbLeft1 button.utn-tool-options-corner:checked {
+    background-color: @utn_paper_accent_soft;
+}
+window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner {
+    background-color: transparent;
+}
+window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner:hover,
+window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner:checked {
+    background-color: @utn_paper_dark_accent_soft;
+}
+window.utnShell #tbLeft1 button:checked button.utn-tool-options-corner arrow,
+window.utnShell #tbLeft1 button.utn-tool-options-corner:hover arrow {
+    background-color: @utn_paper_accent;
+}
+window.utnShell.darkMode #tbLeft1 button:checked button.utn-tool-options-corner arrow,
+window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner:hover arrow {
+    background-color: @utn_paper_dark_accent;
+}

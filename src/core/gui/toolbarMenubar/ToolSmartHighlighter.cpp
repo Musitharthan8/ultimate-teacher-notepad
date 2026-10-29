@@ -112,10 +112,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
     gtk_container_add(GTK_CONTAINER(overlay), toggle);
     gtk_overlay_add_overlay(overlay, GTK_WIDGET(menuButton));
-    gtk_widget_set_halign(GTK_WIDGET(menuButton), GTK_ALIGN_END);
-    gtk_widget_set_valign(GTK_WIDGET(menuButton), GTK_ALIGN_START);
-    gtk_widget_set_margin_top(GTK_WIDGET(menuButton), 2);
-    gtk_widget_set_margin_end(GTK_WIDGET(menuButton), 2);
+    utn::placeOptionsCorner(GTK_WIDGET(menuButton));
 
     gtk_widget_show_all(GTK_WIDGET(panel));
     return xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);

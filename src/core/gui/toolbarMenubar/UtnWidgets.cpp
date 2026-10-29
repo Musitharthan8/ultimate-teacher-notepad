@@ -170,6 +170,13 @@ void bindActiveToolOptions(GtkToggleButton* tool, GtkMenuButton* options) {
             }), options, GConnectFlags(0));
 }
 
+void placeOptionsCorner(GtkWidget* options) {
+    gtk_widget_set_halign(options, GTK_ALIGN_END);
+    gtk_widget_set_valign(options, GTK_ALIGN_END);
+    gtk_widget_set_margin_end(options, 3);
+    gtk_widget_set_margin_bottom(options, 3);
+}
+
 auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
     GtkWidget* button = gtk_button_new();
     gtk_widget_add_css_class(button, "utn-swatch");

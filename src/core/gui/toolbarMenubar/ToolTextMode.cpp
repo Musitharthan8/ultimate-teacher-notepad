@@ -103,10 +103,7 @@ auto ToolTextMode::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
     gtk_container_add(GTK_CONTAINER(overlay), toggle);
     gtk_overlay_add_overlay(overlay, options);
-    gtk_widget_set_halign(options, GTK_ALIGN_END);
-    gtk_widget_set_valign(options, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(options, 2);
-    gtk_widget_set_margin_end(options, 2);
+    utn::placeOptionsCorner(GTK_WIDGET(options));
     return xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);
 }
 

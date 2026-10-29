@@ -63,10 +63,7 @@ auto ToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
         gtk_container_add(GTK_CONTAINER(overlay), btn);
         gtk_overlay_add_overlay(overlay, GTK_WIDGET(menubutton));
-        gtk_widget_set_halign(GTK_WIDGET(menubutton), GTK_ALIGN_END);
-        gtk_widget_set_valign(GTK_WIDGET(menubutton), GTK_ALIGN_START);
-        gtk_widget_set_margin_top(GTK_WIDGET(menubutton), 2);
-        gtk_widget_set_margin_end(GTK_WIDGET(menubutton), 2);
+        utn::placeOptionsCorner(GTK_WIDGET(menubutton));
         gtk_container_add(GTK_CONTAINER(it), GTK_WIDGET(overlay));
         g_signal_connect_object(it, "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* item, gpointer button) {
                                     const bool horizontal =
