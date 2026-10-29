@@ -67,6 +67,29 @@ using std::string;
 
 static void themeCallback(GObject*, GParamSpec*, gpointer data) { static_cast<MainWindow*>(data)->updateColorscheme(); }
 
+namespace {
+/// A toolbar inside a GtkScrolledWindow does not scroll to the control that takes keyboard focus (GtkToolbar is not
+/// scrollable, so the viewport has no focus adjustments). Without this, Tab walks into tools that are off screen.
+void scrollFocusedToolIntoView(GtkContainer* toolbar, GtkWidget* focused, gpointer data) {
+    if (!focused) {
+        return;
+    }
+    auto* scroller = GTK_SCROLLED_WINDOW(data);
+    const bool vertical = gtk_orientable_get_orientation(GTK_ORIENTABLE(toolbar)) == GTK_ORIENTATION_VERTICAL;
+    GtkAdjustment* adjustment = vertical ? gtk_scrolled_window_get_vadjustment(scroller) :
+                                           gtk_scrolled_window_get_hadjustment(scroller);
+    int x = 0;
+    int y = 0;
+    if (!adjustment || !gtk_widget_translate_coordinates(focused, GTK_WIDGET(toolbar), 0, 0, &x, &y)) {
+        return;
+    }
+    const int start = vertical ? y : x;
+    const int size = vertical ? gtk_widget_get_allocated_height(focused) : gtk_widget_get_allocated_width(focused);
+    constexpr int MARGIN = 6;  // keep the focus ring and a little context in view
+    gtk_adjustment_clamp_page(adjustment, start - MARGIN, start + size + MARGIN);
+}
+}  // namespace
+
 MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkApplication* parent):
         GladeGui(gladeSearchPath, "main.glade", "mainWindow"),
         control(control),
@@ -181,6 +204,10 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     for (size_t i = 0; i < TOOLBAR_DEFINITIONS_LEN; i++) {
         this->toolbarWidgets[i].reset(get(TOOLBAR_DEFINITIONS[i].guiName), xoj::util::ref);
     }
+    // The rail and the app bar scroll when the window is small; keyboard focus must never land off screen
+    g_signal_connect_after(get("tbLeft1"), "set-focus-child", G_CALLBACK(scrollFocusedToolIntoView), railScroller);
+    g_signal_connect_after(get("tbTop1"), "set-focus-child", G_CALLBACK(scrollFocusedToolIntoView),
+                           get("tbTop1Scroller"));
 
     initXournalWidget();
 

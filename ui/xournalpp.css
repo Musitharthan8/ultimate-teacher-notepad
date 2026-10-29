@@ -1453,3 +1453,30 @@ window.utnShell #tbLeft1 button:focus {
 window.utnShell #tbLeft1 button.utn-tool-options-corner:focus {
     outline-offset: -1px;
 }
+
+/* Design pass 2026-10-30 (responsive): below the width the app bar needs, it scrolls instead of silently dropping
+   Appearance and Pen settings. The scrollbar stays visible (a scrolled bar must look scrollable) but thin. */
+window.utnShell #tbTop1Scroller {
+    background-color: @utn_surface;
+}
+window.utnShell #tbTop1Scroller scrollbar.horizontal {
+    min-height: 8px;
+    background-color: @utn_surface;
+}
+window.utnShell #tbTop1Scroller scrollbar.horizontal slider {
+    min-height: 6px;
+    border-radius: 3px;
+    background-color: alpha(@utn_accent, 0.55);
+}
+window.utnShell.darkMode #tbTop1Scroller,
+window.utnShell.darkMode #tbTop1Scroller scrollbar.horizontal {
+    background-color: @utn_surface_dark;
+}
+window.utnShell.utnHighContrast #tbTop1Scroller,
+window.utnShell.utnHighContrast #tbTop1Scroller scrollbar.horizontal {
+    background-color: #000000;
+}
+window.utnShell.utnHighContrast #tbTop1Scroller scrollbar.horizontal slider {
+    background-color: #ffffff;
+    border: 1px solid #ffffff;
+}
