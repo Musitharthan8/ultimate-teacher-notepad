@@ -1443,3 +1443,12 @@ window.utnShell.darkMode #tbLeft1 button:checked button.utn-tool-options-corner 
 window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner:hover arrow {
     background-color: @utn_paper_dark_accent;
 }
+
+/* Keyboard focus on the rail is drawn inside each tile (the rail clips outside outlines) and the corner marker keeps a
+   tight ring so it does not spill over the icon. */
+window.utnShell #tbLeft1 button:focus {
+    outline-offset: -3px;
+}
+window.utnShell #tbLeft1 button.utn-tool-options-corner:focus {
+    outline-offset: -1px;
+}

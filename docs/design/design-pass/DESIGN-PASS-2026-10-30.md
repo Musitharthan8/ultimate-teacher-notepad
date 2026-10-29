@@ -22,12 +22,22 @@ Captured from the installed UCRT64 build at 900, 1024 and 1280 px (`before/`):
 
 No annotation, classroom or Student View logic changed.
 
+## Keyboard focus (added)
+
+Rail tiles draw their keyboard focus ring inside the tile (`outline-offset: -3px`) and the corner marker keeps a tight ring, because the rail clips outside outlines. Seen in the running app: after 18 Tab presses the Select tile shows a full 2 px teal ring (`after/` captures were not kept; the check is described here only).
+
 ## Verification
 
-See the report in the commit message and `after/`. Not verified: dark theme capture (the forced-dark profile did not apply), keyboard traversal, DPI scaling, stylus input, 1280 touch mode.
+- Real-app captures (installed UCRT64 build, isolated profiles): `before/` 900 and 1024; `after/` light 900, 1024, 1280, 800x600 and dark 1280, 900. The dark captures come from a `themeVariant=forceDark` profile and show the dark chrome with the markers visible.
+- GTK integration suite 85/85 and unit suite 425/425 (soak and stress excluded).
+- Not verified: ring on the corner marker, DPI scaling, stylus and touch, and the Pen popover and Spotlight/Curtain overlays in the running app.
+
+## Responsive finding (not fixed)
+
+At 800x600 the header drops its right-hand controls (appearance toggle, two-pane view, pen) with no visible overflow cue, and the rail shows only about seven tools. Whether the menu bar still reaches those actions was not checked; either way a teacher cannot see that anything is hidden.
 
 ## Next priorities
 
-1. The rail scrolls: at 900x700 the Present/Reveal tools are below the fold. Group tools with separators and consider a pinned classroom group.
+1. Header overflow at narrow widths needs a visible "more" affordance. The rail scrolls: at 900x700 the Present/Reveal tools are below the fold. Group tools with separators and consider a pinned classroom group.
 2. Show short tool names beside or under icons for first-time teachers (the Automatic/Show/Hide label setting exists; default is Hide).
-3. A visible keyboard-focus ring on rail tiles and the options marker in all three themes.
+3. Check the options marker focus ring and High Contrast focus on the rail.
