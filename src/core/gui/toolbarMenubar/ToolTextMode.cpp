@@ -98,11 +98,16 @@ auto ToolTextMode::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     // Same chevron direction as every other rail item that opens options
     gtk_menu_button_set_direction(GTK_MENU_BUTTON(options), horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
     utn::bindActiveToolOptions(button, GTK_MENU_BUTTON(options));
-    GtkWidget* group = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(group, "utn-tool-with-options");
-    gtk_box_append(GTK_BOX(group), toggle);
-    gtk_box_append(GTK_BOX(group), options);
-    return xoj::util::WidgetSPtr(group, xoj::util::adopt);
+    // Keep the active text tool at the full rail width; its settings remain a
+    // separate, keyboard-operable target without adding another rail column.
+    GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
+    gtk_container_add(GTK_CONTAINER(overlay), toggle);
+    gtk_overlay_add_overlay(overlay, options);
+    gtk_widget_set_halign(options, GTK_ALIGN_END);
+    gtk_widget_set_valign(options, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(options, 2);
+    gtk_widget_set_margin_end(options, 2);
+    return xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);
 }
 
 auto ToolTextMode::getToolDisplayName() const -> std::string {

@@ -7,6 +7,7 @@
 
 #include "control/actions/ActionDatabase.h"
 #include "gui/IconNameHelper.h"
+#include "gui/toolbarMenubar/UtnWidgets.h"
 #include "util/glib_casts.h"
 #include "util/gtk4_helper.h"  // for gtk_popover_new
 #include "util/i18n.h"
@@ -110,20 +111,32 @@ auto DrawingTypeComboToolButton::createItem(bool horizontal) -> xoj::util::Widge
         gtk_actionable_set_action_name(GTK_ACTIONABLE(btn), e.fullActionName.data());
         gtk_button_set_icon_name(GTK_BUTTON(btn), e.icon.c_str());
         gtk_widget_set_tooltip_text(btn, e.name.c_str());
+        utn::setAccessibleName(btn, this->description.c_str());
     }
 
     // Create item
     GtkMenuButton* menubutton = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-arrow");
+    gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-options-corner");
     gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
+    const std::string optionsTooltip = this->description + " options";
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menubutton), optionsTooltip.c_str());
+    utn::setAccessibleName(GTK_WIDGET(menubutton), optionsTooltip.c_str());
     gtk_menu_button_set_popover(menubutton, GTK_WIDGET(data->popover));
     gtk_menu_button_set_direction(menubutton,
                                   horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);  // TODO: fix directions
 
-    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
-    gtk_box_append(box, GTK_WIDGET(data->button));
-    gtk_box_append(box, GTK_WIDGET(menubutton));
+    // The selected shape remains the primary full-size action; the secondary
+    // type menu sits in a corner instead of taking another rail column.
+    GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
+    gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(data->button));
+    gtk_overlay_add_overlay(overlay, GTK_WIDGET(menubutton));
+    gtk_widget_set_halign(GTK_WIDGET(menubutton), GTK_ALIGN_END);
+    gtk_widget_set_valign(GTK_WIDGET(menubutton), GTK_ALIGN_START);
+    gtk_widget_set_margin_top(GTK_WIDGET(menubutton), 2);
+    gtk_widget_set_margin_end(GTK_WIDGET(menubutton), 2);
 
-    auto item = xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+    auto item = xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);
 
     /// change the prominent icon when selecting an entry (by any means)
     g_signal_connect((*entries)[Type::RECTANGLE].gAction.get(), "notify::state",
