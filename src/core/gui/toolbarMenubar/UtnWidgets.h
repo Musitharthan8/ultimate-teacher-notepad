@@ -45,6 +45,9 @@ void showAcceleratorInTooltip(GtkWidget* button);
 void syncToggle(GtkToggleButton* toggle, bool active);
 bool isSyncing(GtkWidget* widget);
 
+/// An active tool opens its existing options on primary press or Enter/Space, without reactivating its action.
+void bindActiveToolOptions(GtkToggleButton* tool, GtkMenuButton* options);
+
 /// Small line drawings for the properties panel. They use the button's own text colour, so they follow the light,
 /// dark and High Contrast themes and a selected button's colour.
 enum class Glyph { Freehand, Rectangle, Ellipse, Line, Arrow, SmartShape, Weight };

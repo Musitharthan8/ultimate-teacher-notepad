@@ -14,6 +14,7 @@
 #include "UtnWidgets.h"      // for syncToggle
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/settings/Settings.h"
 #include "control/actions/ActionDatabase.h"
 #include "util/GVariantTemplate.h"
 #include "util/raii/GVariantSPtr.h"
@@ -50,9 +51,9 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
                 }
                 auto* ctrl = static_cast<Control*>(data);
                 auto* tools = ctrl->getToolHandler();
-                // Re-selecting Highlight keeps the chosen Freehand/Smart mode; switching to it keeps it as well.
-                ctrl->selectHighlighter(tools->isSmartHighlighterEnabled() ||
-                                        tools->getToolType() != TOOL_HIGHLIGHTER);
+                bool smart = true;
+                ctrl->getSettings()->getCustomElement("utn").getBool("smartHighlighterPreferred", smart);
+                ctrl->selectHighlighter(smart);
                 // A GtkToggleButton flips itself on every click; the selected state follows the active tool only.
                 utn::syncToggle(GTK_TOGGLE_BUTTON(button), tools->getToolType() == TOOL_HIGHLIGHTER);
             }),
@@ -105,6 +106,7 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Highlight mode"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
+    utn::bindActiveToolOptions(GTK_TOGGLE_BUTTON(toggle), menuButton);
 
     GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
     gtk_box_append(box, toggle);

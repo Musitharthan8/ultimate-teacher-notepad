@@ -404,6 +404,9 @@ auto ToolHandler::isSmartHighlighterEnabled() const -> bool {
 
 void ToolHandler::setSmartHighlighterEnabled(bool enabled) {
     this->smartHighlighterEnabled = enabled;
+    if (settings) {
+        settings->getCustomElement("utn").setBool("smartHighlighterPreferred", enabled);
+    }
 }
 
 auto ToolHandler::getSmartHighlighterSnapMode() const -> SmartHighlighterSnapMode {

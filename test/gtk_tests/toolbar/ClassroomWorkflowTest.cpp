@@ -288,6 +288,78 @@ TEST_F(ClassroomWorkflow, repeatedAnswersActivationCreatesDistinctPrivateLayers)
     EXPECT_EQ(control->setAnswersRevealed(false, false), 10);
 }
 
+TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEraserMode) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    auto* tools = control->getToolHandler();
+    auto button = [&](const char* caption) {
+        auto* label = railLabel(rail, caption);
+        return label ? gtk_widget_get_parent(gtk_widget_get_parent(label)) : nullptr;
+    };
+    auto menuFor = [](GtkWidget* primary) -> GtkMenuButton* {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(gtk_widget_get_parent(primary)));
+        GtkMenuButton* menu = nullptr;
+        for (GList* child = children; child && !menu; child = child->next) {
+            if (GTK_IS_MENU_BUTTON(child->data)) menu = GTK_MENU_BUTTON(child->data);
+        }
+        g_list_free(children);
+        return menu;
+    };
+    control->selectTool(TOOL_TEXT);
+    for (const auto& [caption, tool]: {std::pair{"Area", TOOL_SELECT_RECT}, {"Pen", TOOL_PEN}, {"Eraser", TOOL_ERASER},
+                                     {"Highlight", TOOL_HIGHLIGHTER}}) {
+        auto* primary = button(caption);
+        ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(primary)) << caption;
+        auto* menu = menuFor(primary);
+        ASSERT_NE(menu, nullptr) << caption;
+        auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(menu));
+        gtk_button_clicked(GTK_BUTTON(primary));
+        settle();
+        EXPECT_EQ(tools->getToolType(), tool);
+        EXPECT_FALSE(gtk_widget_get_visible(popover));
+        GdkEvent* press = gdk_event_new(GDK_BUTTON_PRESS);
+        press->button.window = GDK_WINDOW(g_object_ref(gtk_widget_get_window(primary)));
+        gdk_event_set_device(press, gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default())));
+        press->button.button = 1;
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(primary, "button-press-event", press, &handled);
+        gdk_event_free(press);
+        settle();
+        EXPECT_TRUE(handled) << caption;
+        EXPECT_TRUE(gtk_widget_get_visible(popover)) << caption;
+        EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(primary)));
+        EXPECT_EQ(tools->getToolType(), tool);
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        settle();
+        GdkEvent* key = gdk_event_new(GDK_KEY_PRESS);
+        key->key.window = GDK_WINDOW(g_object_ref(gtk_widget_get_window(primary)));
+        gdk_event_set_device(key, gdk_seat_get_keyboard(gdk_display_get_default_seat(gdk_display_get_default())));
+        key->key.keyval = GDK_KEY_Return;
+        handled = FALSE;
+        g_signal_emit_by_name(primary, "key-press-event", key, &handled);
+        gdk_event_free(key);
+        settle();
+        EXPECT_TRUE(handled) << caption;
+        EXPECT_TRUE(gtk_widget_get_visible(popover)) << caption;
+        control->selectTool(TOOL_TEXT);
+        settle();
+        EXPECT_FALSE(gtk_widget_get_visible(popover)) << caption;
+    }
+    auto* eraser = button("Eraser");
+    auto* options = GTK_WIDGET(gtk_menu_button_get_popover(menuFor(eraser)));
+    auto* wholeStroke = buttonNamed(options, "delete stroke");
+    ASSERT_NE(wholeStroke, nullptr);
+    gtk_button_clicked(GTK_BUTTON(eraser));
+    gtk_button_clicked(GTK_BUTTON(wholeStroke));
+    EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
+    EXPECT_FALSE(gtk_widget_get_visible(options));
+    gtk_button_clicked(GTK_BUTTON(button("Pen")));
+    gtk_button_clicked(GTK_BUTTON(eraser));
+    EXPECT_EQ(tools->getEraserType(), ERASER_TYPE_DELETE_STROKE);
+}
+
 TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
     const char* requested = g_getenv("UTN_STRESS_STROKES");
     const auto parsed = requested ? g_ascii_strtoll(requested, nullptr, 10) : 32;
@@ -349,6 +421,24 @@ TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips
     auto restored = LoadHandler{}.loadDocument(file);
     ASSERT_NE(restored, nullptr);
     EXPECT_EQ(restored->getPage(0)->getSelectedLayer()->getElements().size(), count);
+}
+
+TEST_F(ClassroomWorkflow, highlighterRestoresFreehandAndSemanticModeAfterSwitchingTools) {
+    window->toolbarSelected("UTN Teacher");
+    auto* caption = railLabel(window->get("tbLeft1"), "Highlight");
+    ASSERT_NE(caption, nullptr);
+    auto* highlight = GTK_BUTTON(gtk_widget_get_parent(gtk_widget_get_parent(caption)));
+    auto* tools = control->getToolHandler();
+    control->selectHighlighter(false);
+    control->selectTool(TOOL_PEN);
+    gtk_button_clicked(highlight);
+    EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER);
+    EXPECT_FALSE(tools->isSmartHighlighterEnabled());
+    control->selectHighlighter(true, SmartHighlighterSnapMode::Underline);
+    control->selectTool(TOOL_ERASER);
+    gtk_button_clicked(highlight);
+    EXPECT_TRUE(tools->isSmartHighlighterEnabled());
+    EXPECT_EQ(tools->getSmartHighlighterSnapMode(), SmartHighlighterSnapMode::Underline);
 }
 
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
