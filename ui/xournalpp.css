@@ -1187,6 +1187,7 @@ window.utnShell.utnCompact #tbTop1 {
 }
 window.utnShell.utnCompact #tbTop1 button {
     margin: 0 1px;
+    padding: 0 4px;  /* wins over the Paper & Ink 0 6px below: at 800 px the right-hand menus must not be pushed out */
 }
 window.utnShell.utnCompact .utn-sv-quick button {
     padding: 2px 8px;

@@ -143,6 +143,7 @@ private:
     // App-bar pill and its menu entries (the latest toolbar instance)
     GtkWidget* pill = nullptr;
     GtkWidget* pillLabel = nullptr;
+    GtkWidget* pillPrefix = nullptr;
     GtkWidget* freezeToggle = nullptr;
     GtkWidget* blankToggle = nullptr;
     // The same two actions as app-bar buttons (the latest toolbar instance)

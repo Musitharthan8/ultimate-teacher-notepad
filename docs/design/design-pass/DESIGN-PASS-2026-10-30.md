@@ -32,12 +32,25 @@ Rail tiles draw their keyboard focus ring inside the tile (`outline-offset: -3px
 - GTK integration suite 85/85 and unit suite 425/425 (soak and stress excluded).
 - Not verified: ring on the corner marker, DPI scaling, stylus and touch, and the Pen popover and Spotlight/Curtain overlays in the running app.
 
-## Responsive finding (not fixed)
+## Responsive fix: app bar at 800 px (2026-10-30, later)
 
-At 800x600 the header drops its right-hand controls (appearance toggle, two-pane view, pen) with no visible overflow cue, and the rail shows only about seven tools. Whether the menu bar still reaches those actions was not checked; either way a teacher cannot see that anything is hidden.
+Cause: at 800x600 the app bar needed about 880 px. GtkToolbar builds an overflow menu only for items with a proxy menu item. The wrapped widgets (Appearance, Workspace, Spotlight, Pen settings, the Students pill) have none, so GTK dropped them silently, with no arrow. Appearance and Pen settings are reachable nowhere else.
+
+Change, all in the compact layout (under 1080 px), none at desktop width:
+
+- The "Students:" prefix of the Student View pill is dropped; the state word ("Same screen", "Live", "Frozen", "Blank") stays, and the accessible name keeps the whole phrase (`ToolStudentView`, `utn-narrow-hidden`).
+- Separators between app-bar groups are hidden (`setNarrowHidden`, `MainWindow.cpp`).
+- The emptied brand `GtkToolItem` is hidden with its label, so it no longer reserves a slot.
+- App-bar button padding is 4 px instead of 6 px (`ui/xournalpp.css`).
+
+Result: the bar measures 728 px at 800 (was 881). Real app, window shrunk live from 1280x800 to 800x600: Present, Appearance, two-pane view and Pen settings are all visible (`after/after-light-800x600-fixed.png`, `after/after-light-1280-before-shrink.png`).
+
+Test: `appBarFitsAtTheSmallestSupportedWindowSoNoMenuIsPushedOut` measures the bar rather than reading allocations, because the GTK test harness has no frame clock and keeps stale allocations after a synthetic resize. A queued reflow (item and bar `queue_resize`, `check_resize`) was tried and was not needed in the real app.
+
+Still open: below about 700 px the bar will overflow again, and the rail still shows only about seven tools at 800x600. A proxy menu item for the wrapped widgets would make overflow reachable at any width.
 
 ## Next priorities
 
-1. Header overflow at narrow widths needs a visible "more" affordance. The rail scrolls: at 900x700 the Present/Reveal tools are below the fold. Group tools with separators and consider a pinned classroom group.
+1. Header overflow below 800 px needs a visible "more" affordance (proxy menu items). The rail scrolls: at 900x700 the Present/Reveal tools are below the fold. Group tools with separators and consider a pinned classroom group.
 2. Show short tool names beside or under icons for first-time teachers (the Automatic/Show/Hide label setting exists; default is Hide).
 3. Check the options marker focus ring and High Contrast focus on the rail.

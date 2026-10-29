@@ -1560,7 +1560,13 @@ namespace {
 void setCompactHidden(GtkWidget* widget, bool compact, bool preserveBrand) {
     if (gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-compact-hidden")) {
         const bool isBrand = g_strcmp0(gtk_widget_get_name(widget), "utnBrand") == 0;
-        gtk_widget_set_visible(widget, !compact || (isBrand && preserveBrand));
+        const bool show = !compact || (isBrand && preserveBrand);
+        gtk_widget_set_visible(widget, show);
+        // An emptied GtkToolItem still reserves a slot in the toolbar; hide it too so the room goes to real controls
+        GtkWidget* wrapper = gtk_widget_get_parent(widget);
+        if (wrapper && GTK_IS_TOOL_ITEM(wrapper)) {
+            gtk_widget_set_visible(wrapper, show);
+        }
         return;
     }
     if (GTK_IS_CONTAINER(widget)) {
@@ -1574,6 +1580,24 @@ void setCompactHidden(GtkWidget* widget, bool compact, bool preserveBrand) {
 }  // namespace
 
 namespace {
+/// Below the compact breakpoint the app bar must still fit its right-hand menus (Appearance, Pen settings): GtkToolbar
+/// gives those wrapped widgets no overflow menu, so anything that does not fit is simply unreachable.
+/// Hides every widget marked `utn-narrow-hidden`, and the separators between app-bar groups.
+void setNarrowHidden(GtkWidget* widget, bool narrow) {
+    if (gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-narrow-hidden") ||
+        GTK_IS_SEPARATOR_TOOL_ITEM(widget)) {
+        gtk_widget_set_visible(widget, !narrow);
+        return;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            setNarrowHidden(GTK_WIDGET(child->data), narrow);
+        }
+        g_list_free(children);
+    }
+}
+
 /// Hides the text of a button that also shows an icon. The label property, tooltip and accessible name are unchanged.
 void hideButtonCaption(GtkWidget* widget, bool hide) {
     if (GTK_IS_LABEL(widget)) {
@@ -1651,6 +1675,9 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     }
     // Hide the long app-bar captions before they squeeze the document title; at <1080 the entire
     // chrome also switches to the compact size. Names remain in tooltips and accessible names.
+    if (!this->toolbarWidgets.empty() && this->toolbarWidgets[0]) {
+        setNarrowHidden(GTK_WIDGET(this->toolbarWidgets[0].get()), this->compactLayout);
+    }
     for (const auto& toolbar: this->toolbarWidgets) {
         if (toolbar) {
             setRailLabelsVisible(toolbar.get(), utn::layout::railLabelsVisible(toolLabels, this->compactLayout));

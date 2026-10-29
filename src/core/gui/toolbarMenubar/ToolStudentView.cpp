@@ -267,8 +267,13 @@ void ToolStudentView::updateState() {
             gtk_widget_remove_css_class(pill, cls);
         }
         gtk_widget_add_css_class(pill, STATE_CLASSES[static_cast<int>(state)]);
-        gtk_label_set_text(GTK_LABEL(pillLabel), stateLabel(state));
-        utn::setAccessibleName(pill, stateLabel(state));
+        // "Students: Live" is shown as a prefix plus the state, so a narrow window can drop only the prefix.
+        // The accessible name and tooltip keep the whole phrase.
+        const std::string full = stateLabel(state);
+        const size_t split = full.find(": ");
+        gtk_label_set_text(GTK_LABEL(pillPrefix), split == std::string::npos ? "" : full.substr(0, split + 1).c_str());
+        gtk_label_set_text(GTK_LABEL(pillLabel), split == std::string::npos ? full.c_str() : full.c_str() + split + 2);
+        utn::setAccessibleName(pill, full.c_str());
     }
     const bool open = window != nullptr;
     if (freezeToggle) {
@@ -652,6 +657,9 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkWidget* dot = gtk_label_new("●");
     gtk_widget_add_css_class(dot, "utn-sv-dot");
     gtk_box_append(GTK_BOX(content), dot);
+    pillPrefix = gtk_label_new(nullptr);
+    gtk_widget_add_css_class(pillPrefix, "utn-narrow-hidden");  // dropped in compact windows; the state word stays
+    gtk_box_append(GTK_BOX(content), pillPrefix);
     pillLabel = gtk_label_new(nullptr);
     gtk_box_append(GTK_BOX(content), pillLabel);
     gtk_widget_show_all(content);
@@ -665,6 +673,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                          if (self->pill == widget) {
                              self->pill = nullptr;
                              self->pillLabel = nullptr;
+                             self->pillPrefix = nullptr;
                              self->freezeToggle = nullptr;
                              self->blankToggle = nullptr;
                              self->ghostToggle = nullptr;

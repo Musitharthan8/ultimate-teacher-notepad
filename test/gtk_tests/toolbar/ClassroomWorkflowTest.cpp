@@ -541,6 +541,35 @@ TEST_F(ClassroomWorkflow, appBarReducesSecondaryCaptionsBeforeItsCompactBreakpoi
     EXPECT_FALSE(gtk_style_context_has_class(gtk_widget_get_style_context(window->getWindow()), "utnPresent"));
 }
 
+TEST_F(ClassroomWorkflow, appBarFitsAtTheSmallestSupportedWindowSoNoMenuIsPushedOut) {
+    // GtkToolbar builds no overflow menu for wrapped widgets such as Appearance and Pen settings, so one that does
+    // not fit is silently unreachable. Measure rather than read allocations: this harness has no frame clock, so a
+    // reflow after the compact layout applies only shows up in the real app (checked there at 1280 -> 800).
+    window->toolbarSelected("UTN Present");
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    const int actual = allocatedWidthAfterResize(window->getWindow(), 800);
+    ASSERT_LT(actual, utn::layout::COMPACT_ENTER_BELOW) << "the window must really be narrow for this check";
+    EXPECT_TRUE(window->isCompactLayout());
+    auto* appBar = window->get("tbTop1");
+    ASSERT_TRUE(GTK_IS_TOOLBAR(appBar));
+    int minWidth = 0;
+    int natWidth = 0;
+    gtk_widget_get_preferred_width(appBar, &minWidth, &natWidth);
+    EXPECT_LE(natWidth, actual) << "the app bar needs " << natWidth << " px but the window is " << actual << " px";
+    // The brand and the "Students:" prefix are what the compact bar gives up; the state word stays visible
+    auto* brand = labelWithText(appBar, "UTN");
+    ASSERT_NE(brand, nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(brand));
+    auto* prefix = labelWithText(appBar, "Students:");
+    ASSERT_NE(prefix, nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(prefix));
+    auto* pill = gtk_widget_get_ancestor(prefix, GTK_TYPE_MENU_BUTTON);
+    ASSERT_NE(pill, nullptr);
+    EXPECT_EQ(std::string(atk_object_get_name(gtk_widget_get_accessible(pill))).rfind("Students: ", 0), 0u)
+            << "the accessible name keeps the whole phrase";
+}
+
 // The real Workspace menu buttons, which is how a teacher changes the mode
 TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->toolbarSelected("UTN Teacher");
