@@ -54,24 +54,25 @@ auto ToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             utn::bindActiveToolOptions(GTK_TOGGLE_BUTTON(btn), menubutton);
         }
 
-        GtkBox* box = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
-        gtk_box_append(box, btn);
-        gtk_box_append(box, GTK_WIDGET(menubutton));
-
-        gtk_container_add(GTK_CONTAINER(it), GTK_WIDGET(box));
-
-        g_signal_connect_object(it, "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* it, gpointer box) {
-                                    gtk_orientable_set_orientation(GTK_ORIENTABLE(box),
-                                                                   gtk_tool_item_get_orientation(it));
-                                }),
-                                box, GConnectFlags(0));
-        g_signal_connect_object(it, "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* it, gpointer btn) {
-                                    const bool h = gtk_tool_item_get_orientation(it) == GTK_ORIENTATION_HORIZONTAL;
-                                    gtk_menu_button_set_direction(GTK_MENU_BUTTON(btn),
-                                                                  h ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
-                                    if (!gtk_menu_button_get_popover(GTK_MENU_BUTTON(btn))) {
-                                        printf("no popover in callback\n");
-                                    }
+        // Keep the tool action as the full-size hit target and put its options
+        // affordance in the corner. A side-by-side split button doubled the
+        // rail's width and made every tool look like a legacy toolbar control.
+        gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-options-corner");
+        const std::string optionsTooltip = getToolDisplayName() + " options";
+        gtk_widget_set_tooltip_text(GTK_WIDGET(menubutton), optionsTooltip.c_str());
+        GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
+        gtk_container_add(GTK_CONTAINER(overlay), btn);
+        gtk_overlay_add_overlay(overlay, GTK_WIDGET(menubutton));
+        gtk_widget_set_halign(GTK_WIDGET(menubutton), GTK_ALIGN_END);
+        gtk_widget_set_valign(GTK_WIDGET(menubutton), GTK_ALIGN_START);
+        gtk_widget_set_margin_top(GTK_WIDGET(menubutton), 2);
+        gtk_widget_set_margin_end(GTK_WIDGET(menubutton), 2);
+        gtk_container_add(GTK_CONTAINER(it), GTK_WIDGET(overlay));
+        g_signal_connect_object(it, "toolbar-reconfigured", G_CALLBACK(+[](GtkToolItem* item, gpointer button) {
+                                    const bool horizontal =
+                                            gtk_tool_item_get_orientation(item) == GTK_ORIENTATION_HORIZONTAL;
+                                    gtk_menu_button_set_direction(GTK_MENU_BUTTON(button),
+                                                                  horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
                                 }),
                                 menubutton, GConnectFlags(0));
 

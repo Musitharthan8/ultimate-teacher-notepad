@@ -1272,11 +1272,31 @@ window.utnShell #tbLeft1 button:checked {
 }
 /* The options remain a separate, keyboard-operable hit target; reduce only its arrow glyph to a quiet marker. */
 window.utnShell #tbLeft1 .utn-tool-arrow arrow {
-    min-width: 4px;
-    min-height: 4px;
+    min-width: 6px;
+    min-height: 6px;
     border-radius: 999px;
     background-color: @utn_paper_muted;
     color: transparent;
+}
+/* Options are a separate, accessible target over the action tile; the main
+   tool remains a full-size click target and the rail no longer pays a second
+   column for every popover-capable tool. */
+window.utnShell #tbLeft1 button.utn-tool-options-corner {
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    margin: 0;
+    border-radius: 6px;
+    background-color: @utn_paper_surface;
+    box-shadow: 0 1px 2px alpha(black, 0.16);
+}
+window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner {
+    background-color: @utn_paper_dark_surface;
+}
+window.utnShell.utnHighContrast #tbLeft1 button.utn-tool-options-corner {
+    min-width: 18px;
+    min-height: 18px;
+    border: 2px solid #ffffff;
 }
 window.utnShell.darkMode #tbTop1 { border-bottom-color: @utn_paper_dark_hairline; }
 window.utnShell.darkMode .utnWorkspaceSwitch { background-color: @utn_paper_dark_desk; }

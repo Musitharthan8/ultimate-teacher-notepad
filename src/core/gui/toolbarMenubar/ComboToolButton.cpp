@@ -108,19 +108,28 @@ auto ComboToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     // Create item
     GtkMenuButton* menubutton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-arrow");
+    gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-options-corner");
     gtk_widget_set_focus_on_click(GTK_WIDGET(menubutton), false);  // keyboard users can still Tab to it
+    const std::string optionsTooltip = this->description + " options";
+    gtk_widget_set_tooltip_text(GTK_WIDGET(menubutton), optionsTooltip.c_str());
     gtk_menu_button_set_popover(menubutton, GTK_WIDGET(data->popover));
-    gtk_menu_button_set_direction(menubutton,
-                                  horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);  // TODO: fix directions
+    gtk_menu_button_set_direction(menubutton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
     if (g_strcmp0(g_action_get_name(G_ACTION(gAction.get())), Action_toString(Action::SELECT_TOOL)) == 0) {
         utn::bindActiveToolOptions(GTK_TOGGLE_BUTTON(data->btn), menubutton);
     }
 
-    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
-    gtk_box_append(box, GTK_WIDGET(data->btn));
-    gtk_box_append(box, GTK_WIDGET(menubutton));
+    // The active tool owns the whole rail tile; the smaller independent
+    // corner target opens the alternate-tool menu without consuming another
+    // column in the rail.
+    GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
+    gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(data->btn));
+    gtk_overlay_add_overlay(overlay, GTK_WIDGET(menubutton));
+    gtk_widget_set_halign(GTK_WIDGET(menubutton), GTK_ALIGN_END);
+    gtk_widget_set_valign(GTK_WIDGET(menubutton), GTK_ALIGN_START);
+    gtk_widget_set_margin_top(GTK_WIDGET(menubutton), 2);
+    gtk_widget_set_margin_end(GTK_WIDGET(menubutton), 2);
 
-    auto item = xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+    auto item = xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);
 
     // Set up the prominent button according to the action state
     setProminentIconCallback(G_OBJECT(gAction.get()), nullptr, data.get());

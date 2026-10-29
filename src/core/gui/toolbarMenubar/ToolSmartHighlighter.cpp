@@ -103,17 +103,22 @@ auto ToolSmartHighlighter::createItem(bool horizontal) -> xoj::util::WidgetSPtr 
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_add_css_class(GTK_WIDGET(menuButton), "utn-tool-arrow");  // same size and place as the other split tools
+    gtk_widget_add_css_class(GTK_WIDGET(menuButton), "utn-tool-options-corner");
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("Highlight mode"));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
     utn::bindActiveToolOptions(GTK_TOGGLE_BUTTON(toggle), menuButton);
 
-    GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0));
-    gtk_box_append(box, toggle);
-    gtk_box_append(box, GTK_WIDGET(menuButton));
+    GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
+    gtk_container_add(GTK_CONTAINER(overlay), toggle);
+    gtk_overlay_add_overlay(overlay, GTK_WIDGET(menuButton));
+    gtk_widget_set_halign(GTK_WIDGET(menuButton), GTK_ALIGN_END);
+    gtk_widget_set_valign(GTK_WIDGET(menuButton), GTK_ALIGN_START);
+    gtk_widget_set_margin_top(GTK_WIDGET(menuButton), 2);
+    gtk_widget_set_margin_end(GTK_WIDGET(menuButton), 2);
 
     gtk_widget_show_all(GTK_WIDGET(panel));
-    return xoj::util::WidgetSPtr(GTK_WIDGET(box), xoj::util::adopt);
+    return xoj::util::WidgetSPtr(GTK_WIDGET(overlay), xoj::util::adopt);
 }
 
 auto ToolSmartHighlighter::getToolDisplayName() const -> std::string {
