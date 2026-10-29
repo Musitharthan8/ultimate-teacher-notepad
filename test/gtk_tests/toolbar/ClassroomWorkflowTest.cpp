@@ -993,18 +993,25 @@ TEST_F(ClassroomWorkflow, documentHeaderShowsTheCurrentNameAndDirtyStateAndHides
     EXPECT_NE(gtk_button_get_image(GTK_BUTTON(expandSettings)), nullptr);
     EXPECT_STREQ(gtk_widget_get_tooltip_text(expandSettings), "Show tool settings");
     gtk_widget_get_size_request(railScroller, &railWidth, nullptr);
-    EXPECT_EQ(railWidth, 72);
-    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)), 72);
+    EXPECT_EQ(railWidth, utn::layout::TEACHER_RAIL_WIDTH);
+    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)),
+              utn::layout::TEACHER_RAIL_WIDTH);
     EXPECT_FALSE(gtk_scrolled_window_get_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller)));
     EXPECT_LE(gtk_widget_get_allocated_width(railHost), 100);
     window->updateCompactLayout(1450);
     EXPECT_TRUE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(title))));
-    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "Show settings");
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "");
+    EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(expandSettings)), "Show tool settings");
     gtk_widget_get_size_request(widgetNamed(window->getWindow(), "tbLeft1Scroller"), &railWidth, nullptr);
-    EXPECT_EQ(railWidth, -1);
-    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)), -1);
+    EXPECT_EQ(railWidth, utn::layout::TEACHER_RAIL_WIDTH);
+    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)),
+              utn::layout::TEACHER_RAIL_WIDTH);
+    const int previousLabelMode = window->getToolLabelMode();
+    window->setToolLabelMode(2);
     gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 800);
     settle();
+    EXPECT_LE(gtk_widget_get_allocated_width(railHost), utn::layout::TEACHER_RAIL_WIDTH + 4);
+    window->setToolLabelMode(previousLabelMode);
 }
 
 TEST_F(ClassroomWorkflow, paperInkControlsStayHiddenInClassicLayouts) {

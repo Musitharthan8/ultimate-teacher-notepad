@@ -11,6 +11,10 @@
 
 namespace utn::layout {
 
+// The Paper & Ink teacher rail is a fixed-width icon card. Keep this in sync with
+// MainWindow's GtkScrolledWindow sizing and the corresponding GTK layout test.
+inline constexpr int TEACHER_RAIL_WIDTH = 60;
+
 /// Enter the compact (icon-only rail) layout below this width
 constexpr int COMPACT_ENTER_BELOW = 1080;
 /// Leave the compact layout only above this width. The gap avoids flicker while the window edge is dragged.

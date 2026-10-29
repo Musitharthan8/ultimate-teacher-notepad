@@ -1605,6 +1605,7 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     this->layoutWidth = width;
     this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
     this->compactHeader = wasCompactHeader ? width <= 1400 : width < 1320;
+    const bool paperInkRail = this->selectedToolbar && utn::isTeacherLayout(this->selectedToolbar->getId());
     if (documentHeader) {
         gtk_widget_set_visible(documentHeader, !this->compactLayout);
     }
@@ -1624,20 +1625,24 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     if (expandInspectorButton) {
         // Changing the label property (rather than only hiding its GtkLabel) updates the button's
         // natural requisition too; GTK otherwise keeps the old caption width in the rail host.
-        gtk_button_set_label(GTK_BUTTON(expandInspectorButton), this->compactHeader ? "" : _("Show settings"));
+        // In the Paper & Ink shell, keep the settings affordance icon-only at every width so translations cannot
+        // widen the rail. Its accessible name and tooltip retain discoverability.
+        gtk_button_set_label(GTK_BUTTON(expandInspectorButton), paperInkRail ? "" :
+                                                                           (this->compactHeader ? "" : _("Show settings")));
     }
     if (railScroller) {
-        // GtkScrolledWindow's natural-width propagation otherwise preserves the old 150 px rail even
-        // after captions are hidden. Keep the compact rail narrow so the worksheet gets that space.
-        gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller), !this->compactLayout);
-        gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(railScroller), this->compactLayout ? 58 : -1);
-        gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(railScroller), this->compactLayout ? 72 : -1);
-        gtk_widget_set_size_request(railScroller, this->compactLayout ? 72 : -1, -1);
+        // The native toolbar's natural width is driven by its largest child (often a tool label or popover target).
+        // The Paper & Ink scroller stays at the concept width; classic toolbars retain the existing compact policy.
+        const int railWidth = paperInkRail ? utn::layout::TEACHER_RAIL_WIDTH : (this->compactLayout ? 72 : -1);
+        gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller),
+                                                       !paperInkRail && !this->compactLayout);
+        gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(railScroller), railWidth);
+        gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(railScroller), railWidth);
+        gtk_widget_set_size_request(railScroller, railWidth, -1);
     }
     if (railHost) {
-        // The Show settings caption used to set the rail host's natural width above the scroller cap.
-        // With the caption hidden its symbolic button and rail fit the compact card.
-        gtk_widget_set_size_request(railHost, this->compactLayout ? 72 : -1, -1);
+        const int railWidth = paperInkRail ? utn::layout::TEACHER_RAIL_WIDTH : (this->compactLayout ? 72 : -1);
+        gtk_widget_set_size_request(railHost, railWidth, -1);
         if (this->compactLayout) {
             gtk_style_context_add_class(gtk_widget_get_style_context(railHost), "utnCompactRail");
         } else {

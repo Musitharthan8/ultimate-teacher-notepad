@@ -1253,7 +1253,11 @@ window.utnShell .utn-sv-quick button {
 /* Slim rail card */
 window.utnShell #tbLeft1 {
     margin: 8px 0 8px 8px;
-    padding: 6px 4px;
+    padding: 6px 0;
+}
+window.utnShell #tbLeft1 toolitem {
+    margin: 0;
+    padding: 0;
 }
 window.utnShell #tbLeft1 button {
     border-radius: 11px;
@@ -1262,6 +1266,8 @@ window.utnShell #tbLeft1 button {
     border: 1px solid transparent;
     box-shadow: none;
     color: @utn_paper_muted;
+    padding: 4px;
+    margin: 0;
 }
 window.utnShell #tbLeft1 button:hover {
     background-color: shade(@utn_paper_desk, 1.04);
@@ -1384,16 +1390,14 @@ window.utnShell.utnHighContrast.utnPresent #tbLeft1 {
     border: 2px solid #ffff00;
 }
 
-/* GTK measures the toolbar's natural width before applying the scroller's content cap.
-   Constrain its host as well so the retained Show settings affordance cannot widen the rail. */
-window.utnShell.utnCompact #utnRailHost,
-window.utnShell #utnRailHost.utnCompactRail {
-    min-width: 72px;
+/* Keep the fixed-width Paper & Ink rail from inheriting its toolbar's natural width. */
+window.utnShell #utnRailHost {
+    min-width: 60px;
 }
-window.utnShell.utnCompact #utnExpandInspector {
-    min-width: 48px;
-    padding-left: 4px;
-    padding-right: 4px;
+window.utnShell #utnExpandInspector {
+    min-width: 0;
+    padding: 4px;
+    margin: 2px;
 }
 window.utnShell.utnCompact #tbLeft1 button {
     min-width: 0;
