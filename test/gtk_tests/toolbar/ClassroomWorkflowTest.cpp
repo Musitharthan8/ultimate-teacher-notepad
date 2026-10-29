@@ -570,6 +570,46 @@ TEST_F(ClassroomWorkflow, appBarFitsAtTheSmallestSupportedWindowSoNoMenuIsPushed
             << "the accessible name keeps the whole phrase";
 }
 
+namespace {
+/// Collects every button in `widget` that a screen reader or a hover could not name
+void collectUnnamedButtons(GtkWidget* widget, std::vector<std::string>& offenders) {
+    if (GTK_IS_BUTTON(widget) && gtk_widget_get_visible(widget)) {
+        const char* label = gtk_button_get_label(GTK_BUTTON(widget));
+        const char* accessible = atk_object_get_name(gtk_widget_get_accessible(widget));
+        const char* tooltip = gtk_widget_get_tooltip_text(widget);
+        const bool named = (accessible && *accessible) || (label && *label);
+        const bool hinted = (tooltip && *tooltip) || (label && *label);
+        if (!named || !hinted) {
+            offenders.push_back(std::string(G_OBJECT_TYPE_NAME(widget)) + " name=" + gtk_widget_get_name(widget) +
+                                (named ? "" : " [no accessible name]") + (hinted ? "" : " [no tooltip]") + " tip='" +
+                                (tooltip ? tooltip : "") + "' in " + G_OBJECT_TYPE_NAME(gtk_widget_get_parent(widget)));
+        }
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            collectUnnamedButtons(GTK_WIDGET(child->data), offenders);
+        }
+        g_list_free(children);
+    }
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, everyRailAndAppBarButtonHasAnAccessibleNameAndATooltip) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    std::vector<std::string> offenders;
+    for (const char* bar: {"tbLeft1", "tbTop1"}) {
+        collectUnnamedButtons(window->get(bar), offenders);
+    }
+    std::string list;
+    for (const auto& offender: offenders) {
+        list += "\n  " + offender;
+    }
+    EXPECT_TRUE(offenders.empty()) << offenders.size() << " unnamed or unexplained buttons:" << list;
+}
+
 // The real Workspace menu buttons, which is how a teacher changes the mode
 TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->toolbarSelected("UTN Teacher");

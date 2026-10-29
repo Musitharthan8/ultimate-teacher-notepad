@@ -35,6 +35,7 @@ auto ToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_focus_on_click(btn, false);  // keyboard users can still Tab to it
     gtk_button_set_child(GTK_BUTTON(btn), getNewToolIcon());
     gtk_widget_set_tooltip_text(btn, getToolDisplayName().c_str());
+    utn::setAccessibleName(btn, getToolDisplayName().c_str());  // an icon-only button has no other name
     gtk_actionable_set_action_name(GTK_ACTIONABLE(btn), (std::string("win.") + Action_toString(action)).c_str());
     if (target) {
         gtk_actionable_set_action_target_value(GTK_ACTIONABLE(btn), target.get());
@@ -60,6 +61,7 @@ auto ToolButton::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         gtk_widget_add_css_class(GTK_WIDGET(menubutton), "utn-tool-options-corner");
         const std::string optionsTooltip = getToolDisplayName() + " options";
         gtk_widget_set_tooltip_text(GTK_WIDGET(menubutton), optionsTooltip.c_str());
+        utn::setAccessibleName(GTK_WIDGET(menubutton), optionsTooltip.c_str());
         GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
         gtk_container_add(GTK_CONTAINER(overlay), btn);
         gtk_overlay_add_overlay(overlay, GTK_WIDGET(menubutton));
