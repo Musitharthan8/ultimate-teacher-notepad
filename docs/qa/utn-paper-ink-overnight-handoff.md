@@ -63,3 +63,10 @@ Codex made one small follow-up: the compact-caption traversal now preserves the 
 - The broader 83-test GTK and 426-case unit results above apply to `206d1459`, before this small follow-up; only the focused GTK test is rerun at `f8b353ed`.
 
 The implementation and review commits remain local. Source worktree cleanliness is separate from generated screenshot artifacts; this directory still contains the test-overwritten and exploratory captures listed by `git status`.
+
+## Checkpoint cd0454e19 (rail tiles)
+- Source: full-size tool tiles with a corner options target (ToolButton, ComboToolButton, ToolSmartHighlighter, xournalpp.css). Line-ending normalised to LF to match HEAD.
+- Compiler: the earlier ninja/UCRT64 blocker did not reproduce. Each changed file compiles cleanly with the ninja command and direct invocation; `xournalpp` and `test-gtk-integration` link with exit 0.
+- Tests: GTK integration 84/84, excluding heavy/endurance cases. Unit suite not rerun for this checkpoint.
+- Standalone captures (real app, isolated profile): `actual-build/ACTUAL-GTK-BUILD-cd0454e19-rail-1280.png`, `...-rail-900.png`.
+- Remaining gaps: rail is about 110 px at 1280 (target 52–60 px) and the native menu row remains; Students is still a separate pill; Present treatment and Pen card in the standalone app were not recaptured for this checkpoint.
