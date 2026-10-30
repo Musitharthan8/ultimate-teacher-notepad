@@ -44,6 +44,20 @@
 @define-color utn_paper_dark_accent #4fd1c0;
 @define-color utn_paper_dark_accent_soft #17403b;
 @define-color utn_paper_dark_ring #9cf0e4;
+/* Document status. Each state is a word and a shape as well as a colour, so colour is never the only signal. The light
+   values keep 4.5:1 on the paper surface, the dark values on the dark surface. */
+@define-color utn_status_ok #166534;
+@define-color utn_status_info #0f5f8a;
+@define-color utn_status_warning #8a5a00;
+@define-color utn_status_error #b3261e;
+@define-color utn_status_ok_dark #7ee0a0;
+@define-color utn_status_info_dark #7cc4f0;
+@define-color utn_status_warning_dark #f0c060;
+@define-color utn_status_error_dark #ff8080;
+/* High Contrast: one palette, named once. Every window.utnHighContrast rule uses these instead of literals. */
+@define-color utn_hc_fg #ffffff;
+@define-color utn_hc_bg #000000;
+@define-color utn_hc_focus #ffff00;
 #pdfFloatingToolGrid {
     padding: 7px;
 }
@@ -354,14 +368,14 @@ window.utnShell.utnHighContrast #tbTop2,
 window.utnShell.utnHighContrast #tbLeft1,
 window.utnShell.utnHighContrast #tbBottom1,
 window.utnShell.utnHighContrast #sidebar {
-    background-color: #000000;
-    color: #ffffff;
-    border-color: #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border-color: @utn_hc_fg;
 }
 
 window.utnShell.utnHighContrast toolbar button {
-    color: #ffffff;
-    border: 1px solid #ffffff;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
     box-shadow: none;
 }
 
@@ -369,15 +383,15 @@ window.utnShell.utnHighContrast toolbar button {
    nearly vanished). The selected tool keeps a black fill and gets a thick yellow frame; hover is dark grey. */
 window.utnShell.utnHighContrast toolbar button:hover {
     background-color: #333333;
-    color: #ffffff;
-    border-color: #ffffff;
+    color: @utn_hc_fg;
+    border-color: @utn_hc_fg;
 }
 window.utnShell.utnHighContrast toolbar button:checked,
 window.utnShell.utnHighContrast toolbar button:active,
 window.utnShell.utnHighContrast toolbar button:checked:hover {
-    background-color: #000000;
-    color: #ffff00;
-    border: 3px solid #ffff00;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_focus;
+    border: 3px solid @utn_hc_focus;
 }
 
 
@@ -408,9 +422,9 @@ window.utnShell.darkMode .utn-context-badge {
 }
 
 window.utnShell.utnHighContrast .utn-context-badge {
-    background-color: #ffffff;
-    color: #000000;
-    border-color: #ffffff;
+    background-color: @utn_hc_fg;
+    color: @utn_hc_bg;
+    border-color: @utn_hc_fg;
 }
 
 
@@ -526,22 +540,22 @@ window.utnShell.darkMode #tbBottom1 button:hover {
 window.utnShell.utnHighContrast button:focus,
 window.utnShell.utnHighContrast combobox:focus,
 window.utnShell.utnHighContrast spinbutton:focus {
-    outline-color: #ffffff;
+    outline-color: @utn_hc_fg;
 }
 
 /* High Contrast states for every button, including those in popovers (Present, Appearance, Classroom) and the
    properties panel, which the toolbar rules above do not reach. Each state sets its own text colour, so a selected
    control can never show a dark label on a dark grey background. Checked is yellow, so it differs from hover. */
 window.utnShell.utnHighContrast popover {
-    background-color: #000000;
-    color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
 }
 window.utnShell.utnHighContrast button {
     background-image: none;
-    background-color: #000000;
-    color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
     box-shadow: none;
     text-shadow: none;
     -gtk-icon-shadow: none;
@@ -551,19 +565,19 @@ window.utnShell.utnHighContrast button image {
     color: inherit;
 }
 window.utnShell.utnHighContrast button:hover {
-    background-color: #ffffff;
-    color: #000000;
+    background-color: @utn_hc_fg;
+    color: @utn_hc_bg;
 }
 window.utnShell.utnHighContrast button:checked,
 window.utnShell.utnHighContrast button:active,
 window.utnShell.utnHighContrast button:checked:hover {
-    background-color: #ffff00;
-    color: #000000;
-    border-color: #ffff00;
+    background-color: @utn_hc_focus;
+    color: @utn_hc_bg;
+    border-color: @utn_hc_focus;
 }
 window.utnShell.utnHighContrast button:disabled,
 window.utnShell.utnHighContrast button:disabled:checked {
-    background-color: #000000;
+    background-color: @utn_hc_bg;
     color: #a0a0a0;
     border-style: dashed;
     border-color: #a0a0a0;
@@ -575,17 +589,17 @@ window.utnShell.utnHighContrast button:focus {
 window.utnShell.utnHighContrast checkbutton check,
 window.utnShell.utnHighContrast radiobutton radio {
     background-image: none;
-    background-color: #000000;
-    color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
 }
 window.utnShell.utnHighContrast checkbutton check:checked,
 window.utnShell.utnHighContrast radiobutton radio:checked {
-    background-color: #ffff00;
-    color: #000000;
+    background-color: @utn_hc_focus;
+    color: @utn_hc_bg;
 }
 window.utnShell.utnHighContrast notebook tab:checked label {
-    color: #ffff00;
+    color: @utn_hc_focus;
 }
 
 /* Keep classroom tool names readable beside their icons. */
@@ -607,7 +621,7 @@ window.utnShell .utn-brand {
     padding: 4px 10px;
 }
 window.utnShell.darkMode .utn-brand { color: @utn_accent_dark; }
-window.utnShell.utnHighContrast .utn-brand { color: #ffffff; }
+window.utnShell.utnHighContrast .utn-brand { color: @utn_hc_fg; }
 /* Kami-inspired compact icon rail: short, consistent hit targets with accessible hover help.
    Keep touch controls larger without permanent text labels consuming the worksheet width. */
 window.utnShell #tbLeft1 button {
@@ -747,20 +761,20 @@ window.utnShell.utnHighContrast #tbLeft1,
 window.utnShell.utnHighContrast popover.utn-paper-popover,
 window.utnShell.utnHighContrast .utn-paper-card,
 window.utnShell.utnHighContrast .utn-paper-dock {
-    background-color: #000000;
-    color: #ffffff;
-    border: 2px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 2px solid @utn_hc_fg;
     box-shadow: none;
 }
 window.utnShell.utnHighContrast #tbLeft1 button:checked {
-    background-color: #000000;
-    color: #ffff00;
-    border: 3px solid #ffff00;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_focus;
+    border: 3px solid @utn_hc_focus;
     box-shadow: none;
 }
 window.utnShell.utnHighContrast .utn-paper-heading,
 window.utnShell.utnHighContrast .utn-paper-dock-title {
-    color: #ffffff;
+    color: @utn_hc_fg;
 }
 window.utnShell.utnTouch .utn-paper-dock button {
     min-width: 44px;
@@ -797,22 +811,22 @@ window.utnShell.utnHighContrast #utnContextSide .utn-eraser-modes button:checked
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch),
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) {
     background-image: none;
-    background-color: #000000;
-    color: #ffffff;
-    border-color: #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border-color: @utn_hc_fg;
 }
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):hover,
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):hover {
-    background-color: #ffffff;
-    color: #000000;
+    background-color: @utn_hc_fg;
+    color: @utn_hc_bg;
 }
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):checked,
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch):active,
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):checked,
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch):active {
-    background-color: #ffff00;
-    color: #000000;
-    border-color: #ffff00;
+    background-color: @utn_hc_focus;
+    color: @utn_hc_bg;
+    border-color: @utn_hc_focus;
 }
 window.utnShell.utnHighContrast #utnContextSide button:not(.utn-swatch) label,
 window.utnShell.utnHighContrast #utnContextBar button:not(.utn-swatch) label {
@@ -830,9 +844,9 @@ window.utnShell.darkMode #utnInspectorHost {
     border-color: @utn_border_dark;
 }
 window.utnShell.utnHighContrast #utnInspectorHost {
-    background-color: #000000;
-    color: #ffffff;
-    border-color: #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border-color: @utn_hc_fg;
 }
 window.utnShell #utnInspectorPaned separator {
     min-width: 12px;
@@ -851,7 +865,7 @@ window.utnShell.darkMode #utnInspectorPaned separator:focus {
     background-color: @utn_accent_dark;
 }
 window.utnShell.utnHighContrast #utnInspectorPaned separator {
-    background-color: #ffffff;
+    background-color: @utn_hc_fg;
     min-width: 12px;
 }
 window.utnShell #utnCollapseInspector,
@@ -921,14 +935,14 @@ window.utnShell.utnTouch #utnContextSide .utn-sizes button {
 }
 window.utnShell.utnHighContrast #utnInspectorHost,
 window.utnShell.utnHighContrast #utnContextSide {
-    background-color: #000000;
-    color: #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
 }
 window.utnShell.utnHighContrast #utnCollapseInspector,
 window.utnShell.utnHighContrast #utnExpandInspector {
-    background-color: #000000;
-    color: #ffffff;
-    border: 2px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 2px solid @utn_hc_fg;
 }
 
 /* A mode arrow belongs beside its tool, rather than consuming a second rail row. */
@@ -965,10 +979,10 @@ window.utnShell.darkMode .utn-swatch.utn-swatch-selected {
     border-color: @utn_accent_dark;
 }
 window.utnShell.utnHighContrast .utn-swatch {
-    border-color: #ffffff;  /* black ink swatch must stay visible on the black High Contrast background */
+    border-color: @utn_hc_fg;  /* black ink swatch must stay visible on the black High Contrast background */
 }
 window.utnShell.utnHighContrast .utn-swatch.utn-swatch-selected {
-    border-color: #ffffff;
+    border-color: @utn_hc_fg;
     border-width: 3px;
 }
 window.utnShell.utnTouch .utn-swatch {
@@ -1017,7 +1031,7 @@ window.utnShell .utn-sv-blank { background-color: alpha(@utn_danger, 0.16); }
 window.utnShell.darkMode .utn-sv-live .utn-sv-dot { color: @utn_accent_dark; }
 window.utnShell.darkMode .utn-sv-frozen .utn-sv-dot { color: #ffc94a; }
 window.utnShell.darkMode .utn-sv-blank .utn-sv-dot { color: @utn_danger_soft; }
-window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: #ffff00; }
+window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: @utn_hc_focus; }
 
 /* Toasts sit above the lesson bar and use the chrome colours. */
 .utn-toast {
@@ -1029,9 +1043,9 @@ window.utnShell.utnHighContrast .utn-sv-pill .utn-sv-dot { color: #ffff00; }
 }
 .utn-toast button { color: @utn_accent_dark; }
 window.utnShell.utnHighContrast .utn-toast {
-    background-color: #000000;
-    color: #ffffff;
-    border: 2px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 2px solid @utn_hc_fg;
 }
 
 /* Blank screen on a single display: the teacher's canvas is covered too, because students see it. */
@@ -1063,14 +1077,14 @@ window.utnShell.darkMode button.destructive-action:hover {
 }
 window.utnShell.utnHighContrast #utnContextSide button.destructive-action,
 window.utnShell.utnHighContrast #utnContextBar button.destructive-action {
-    background-color: #000000;
+    background-color: @utn_hc_bg;
     color: @utn_danger_dark;
     border: 2px solid @utn_danger_dark;
 }
 window.utnShell.utnHighContrast #utnContextSide button.destructive-action:hover,
 window.utnShell.utnHighContrast #utnContextBar button.destructive-action:hover {
     background-color: @utn_danger_dark;
-    color: #000000;
+    color: @utn_hc_bg;
 }
 /* A Delete that really is unavailable must still look it */
 window.utnShell button.destructive-action:disabled,
@@ -1175,9 +1189,9 @@ window.utnShell.darkMode toolbar .utn-sv-quick button:not(:checked):not(:active)
 /* High Contrast: black fill, white border, like every other button (the outline rule above is more specific). */
 window.utnShell.utnHighContrast toolbar .utn-sv-quick button:not(:checked):not(:active) {
     background-image: none;
-    background-color: #000000;
-    color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
 }
 
 /* Compact windows (under 1080 px): keep the app bar on one line so Present, Appearance and Workspace stay reachable */
@@ -1218,6 +1232,10 @@ window.utnShell #tbTop1 button:hover {
 window.utnShell .utn-document-header { padding: 0 12px; }
 window.utnShell .utn-document-title { font-weight: 600; color: @utn_paper_text; }
 window.utnShell .utn-document-status { font-size: 0.85em; color: @utn_paper_muted; }
+window.utnShell .utn-document-status.utn-status-ok { color: @utn_status_ok; }
+window.utnShell .utn-document-status.utn-status-info { color: @utn_status_info; font-weight: 600; }
+window.utnShell .utn-document-status.utn-status-warning { color: @utn_status_warning; font-weight: 600; }
+window.utnShell .utn-document-status.utn-status-error { color: @utn_status_error; font-weight: 700; }
 /* Teach / Mark / Present as one segmented control */
 window.utnShell .utnWorkspaceSwitch {
     background-color: @utn_paper_desk;
@@ -1303,7 +1321,7 @@ window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner {
 window.utnShell.utnHighContrast #tbLeft1 button.utn-tool-options-corner {
     min-width: 18px;
     min-height: 18px;
-    border: 2px solid #ffffff;
+    border: 2px solid @utn_hc_fg;
 }
 window.utnShell.darkMode #tbTop1 { border-bottom-color: @utn_paper_dark_hairline; }
 window.utnShell.darkMode .utnWorkspaceSwitch { background-color: @utn_paper_dark_desk; }
@@ -1318,23 +1336,27 @@ window.utnShell.darkMode .utn-sv-quick {
 }
 window.utnShell.darkMode .utn-document-title { color: @utn_paper_dark_text; }
 window.utnShell.darkMode .utn-document-status { color: @utn_paper_dark_muted; }
+window.utnShell.darkMode .utn-document-status.utn-status-ok { color: @utn_status_ok_dark; }
+window.utnShell.darkMode .utn-document-status.utn-status-info { color: @utn_status_info_dark; }
+window.utnShell.darkMode .utn-document-status.utn-status-warning { color: @utn_status_warning_dark; }
+window.utnShell.darkMode .utn-document-status.utn-status-error { color: @utn_status_error_dark; }
 window.utnShell.darkMode #tbTop1 .utn-sv-pill { border-color: @utn_paper_dark_hairline; }
 window.utnShell.darkMode #tbLeft1 button { color: @utn_paper_dark_muted; }
 window.utnShell.darkMode #tbLeft1 button:hover { color: @utn_paper_dark_text; }
 window.utnShell.darkMode #tbLeft1 .utn-tool-arrow arrow { background-color: @utn_paper_dark_muted; }
 window.utnShell.utnHighContrast #tbTop1 button,
 window.utnShell.utnHighContrast #tbLeft1 button {
-    border: 1px solid #ffffff;
-    background-color: #000000;
-    color: #ffffff;
+    border: 1px solid @utn_hc_fg;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
 }
 window.utnShell.utnHighContrast .utn-document-title,
-window.utnShell.utnHighContrast .utn-document-status { color: #ffffff; }
-window.utnShell.utnHighContrast #tbTop1 .utn-sv-pill { border: 2px solid #ffffff; }
+window.utnShell.utnHighContrast .utn-document-status { color: @utn_hc_fg; }
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-pill { border: 2px solid @utn_hc_fg; }
 window.utnShell.utnHighContrast #tbLeft1 .utn-tool-arrow arrow {
     min-width: 6px;
     min-height: 6px;
-    background-color: #ffffff;
+    background-color: @utn_hc_fg;
 }
 
 /* Pen properties: compact paper card with a real palette, width control and live mark preview. */
@@ -1363,10 +1385,10 @@ window.utnShell.darkMode .utn-paper-hint { color: @utn_paper_dark_muted; }
 window.utnShell.darkMode .utn-paper-width-label { color: @utn_paper_dark_accent; }
 window.utnShell.darkMode .utn-paper-stroke-preview { background-color: @utn_paper_dark_desk; }
 window.utnShell.utnHighContrast .utn-paper-hint,
-window.utnShell.utnHighContrast .utn-paper-width-label { color: #ffffff; }
+window.utnShell.utnHighContrast .utn-paper-width-label { color: @utn_hc_fg; }
 window.utnShell.utnHighContrast .utn-paper-stroke-preview {
-    background-color: #000000;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_bg;
+    border: 1px solid @utn_hc_fg;
 }
 
 /* Present is a workspace, not a privacy state: tint the app chrome while leaving the selected label explicit. */
@@ -1388,7 +1410,7 @@ window.utnShell.darkMode.utnPresent .utnWorkspaceSwitch .utnWorkspaceButton:chec
 }
 window.utnShell.utnHighContrast.utnPresent #tbTop1,
 window.utnShell.utnHighContrast.utnPresent #tbLeft1 {
-    border: 2px solid #ffff00;
+    border: 2px solid @utn_hc_focus;
 }
 
 /* Keep the fixed-width Paper & Ink rail from inheriting its toolbar's natural width. */
@@ -1474,9 +1496,9 @@ window.utnShell.darkMode #tbTop1Scroller scrollbar.horizontal {
 }
 window.utnShell.utnHighContrast #tbTop1Scroller,
 window.utnShell.utnHighContrast #tbTop1Scroller scrollbar.horizontal {
-    background-color: #000000;
+    background-color: @utn_hc_bg;
 }
 window.utnShell.utnHighContrast #tbTop1Scroller scrollbar.horizontal slider {
-    background-color: #ffffff;
-    border: 1px solid #ffffff;
+    background-color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
 }
