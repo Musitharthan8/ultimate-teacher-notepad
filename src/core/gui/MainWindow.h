@@ -109,6 +109,18 @@ public:
      * @return true if it did something, so the key press is consumed
      */
     bool escapeClassroom();
+
+    /// UTN: leave Present for the workspace the teacher came from (Teach when there was none)
+    void leavePresent();
+    /// UTN: Present hides the tool dock to give the page the room; this brings it back until Present is left
+    bool isPresentToolsRevealed() const { return presentToolsRevealed; }
+    void setPresentToolsRevealed(bool revealed);
+    /**
+     * UTN: Ctrl+Shift+1, 2, 3 choose Teach, Mark, Present; Ctrl+Shift+P enters or leaves Present; Ctrl+Shift+T shows or
+     * hides the tools in Present. Anything else, plain keys included, is left to the application.
+     * @return true if the key press was a workspace shortcut
+     */
+    bool workspaceShortcut(const GdkEventKey* event);
     /// UTN: banner naming the active Spotlight/Curtain with an Exit button; hidden otherwise
     void updatePresentationBanner();
     bool isPresentationBannerVisible() const;
@@ -256,6 +268,9 @@ private:
     bool inkDockEnabled = false;
     bool syncingInkDock = false;
     bool panelPolicyPending = false;
+    /// The workspace Present was entered from, so leaving it goes back there. Empty when there was none.
+    std::string workspaceBeforePresent;
+    bool presentToolsRevealed = false;
     void updatePanelPolicy(int width, bool fromAllocation);
     void applyPanelPolicy();
 

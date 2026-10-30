@@ -13,6 +13,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "control/settings/Settings.h"
 #include "control/actions/ActionDatabase.h"
 #include "enums/Action.enum.h"
 #include "gui/MainWindow.h"
@@ -138,6 +139,10 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
         } else {
             gtk_style_context_remove_class(context, "utn-present-active");
         }
+        // A screen reader gets what is on from the button itself, not only from a tooltip it may never be shown
+        if (AtkObject* accessible = gtk_widget_get_accessible(ui.button)) {
+            atk_object_set_description(accessible, summary.label.c_str());
+        }
         // The tooltip says what is on in words, so the app-bar button never relies on its colour alone
         gtk_widget_set_tooltip_text(ui.button, summary.anyActive() ?
                                                        (summary.label + _(". Open to turn it off.")).c_str() :
@@ -261,6 +266,37 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                              }
                          }),
                          students);
+    }
+
+    // Present hides the tool dock, so the way to bring it back and the way out are named here, where the teacher is
+    // already looking for classroom controls. Outside Present there is nothing to reveal or leave.
+    if (control->getSettings()->getSelectedToolbar() == "UTN Present") {
+        utn::appendPopoverHeading(panel, _("Presenting"));
+        const bool revealedNow = control->getWindow() && control->getWindow()->isPresentToolsRevealed();
+        auto* toolsButton = utn::appendMenuButton(panel, popover, revealedNow ? _("Hide tools") : _("Show tools"),
+                                                  _("Bring the tool dock back until you leave Present. Ctrl+Shift+T does the same."));
+        g_signal_connect(toolsButton, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer data) {
+                             if (auto* window = static_cast<Control*>(data)->getWindow()) {
+                                 window->setPresentToolsRevealed(!window->isPresentToolsRevealed());
+                             }
+                             (void)b;
+                         }),
+                         control);
+        auto* leaveButton = utn::appendMenuButton(panel, popover, _("Leave Present"),
+                                                  _("Go back to the workspace you came from. Ctrl+Shift+P does the same."));
+        g_signal_connect(leaveButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                             if (auto* window = static_cast<Control*>(data)->getWindow()) {
+                                 window->leavePresent();
+                             }
+                         }),
+                         control);
+        // The popover is rebuilt on a workspace switch, so only the reveal label needs to follow its own clicks
+        g_signal_connect_after(toolsButton, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer data) {
+                                   auto* window = static_cast<Control*>(data)->getWindow();
+                                   utn::setMenuButtonLabel(GTK_WIDGET(b), window && window->isPresentToolsRevealed() ?
+                                                                              _("Hide tools") : _("Show tools"));
+                               }),
+                               control);
     }
 
     utn::appendPopoverHeading(panel, _("Tidy up"));

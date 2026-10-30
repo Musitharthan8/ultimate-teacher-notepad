@@ -28,6 +28,7 @@
 #include "control/tools/TextEditor.h"
 #include "control/tools/EditSelection.h"
 #include "control/xojfile/LoadHandler.h"
+#include "control/zoom/ZoomControl.h"
 #include "control/xojfile/SaveHandler.h"
 #include "gui/GladeSearchpath.h"
 #include "gui/MainWindow.h"
@@ -2301,6 +2302,182 @@ TEST_F(ClassroomWorkflow, presentMenuShowsWhichOverlayIsOnAndOnlyOffersExitWhenT
     // A later tool change must not reach the destroyed menu
     control->getToolHandler()->fireToolChanged();
     settle();
+}
+
+namespace {
+/// A key press as the window's key handler receives it. The widget owner keeps the event and frees it.
+struct FakeKey {
+    explicit FakeKey(GtkWidget* widget, guint keyval, guint state) {
+        event = gdk_event_new(GDK_KEY_PRESS);
+        event->key.window = gtk_widget_get_window(widget);
+        if (event->key.window) {
+            g_object_ref(event->key.window);
+        }
+        event->key.keyval = keyval;
+        event->key.state = static_cast<GdkModifierType>(state);
+    }
+    ~FakeKey() { gdk_event_free(event); }
+    GdkEvent* event;
+};
+}  // namespace
+
+TEST_F(ClassroomWorkflow, workspacesKeepTheToolTheDockTheModeAndThePageAndPresentLeavesBackWhereTheTeacherWas) {
+    using utn::layout::InterfaceMode;
+    auto* tools = control->getToolHandler();
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    control->updateDockLayout([](utn::DockLayout& layout) {
+        layout.reset();
+        layout.pin("HAND");
+    });
+    window->setInterfaceMode(InterfaceMode::Expert);
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    settle();
+    const auto dockBefore = railToolNames(window.get());
+    const auto colour = toolRgb(control.get());
+    const size_t pages = control->getDocument()->getPageCount();
+    const double zoom = control->getZoomControl()->getZoom();
+
+    auto expectUnchanged = [&](const char* where) {
+        EXPECT_EQ(tools->getToolType(), TOOL_PEN) << where << ": the active tool is the teacher's choice";
+        EXPECT_EQ(toolRgb(control.get()), colour) << where;
+        EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::RED_MARKING_ID) << where;
+        EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Expert) << where << ": Beginner/Expert is its own setting";
+        EXPECT_EQ(control->getDocument()->getPageCount(), pages) << where << ": switching changes no document";
+        EXPECT_DOUBLE_EQ(control->getZoomControl()->getZoom(), zoom) << where;
+    };
+
+    window->toolbarSelected("UTN Marking");
+    settle();
+    expectUnchanged("Mark");
+    window->toolbarSelected("UTN Present");
+    settle();
+    expectUnchanged("Present");
+
+    // Leaving Present returns to the workspace the teacher came from, not to a fixed one
+    window->leavePresent();
+    settle();
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking");
+    window->toolbarSelected("UTN Teacher");
+    window->toolbarSelected("UTN Present");
+    window->leavePresent();
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Teacher");
+    settle();
+    expectUnchanged("Teach again");
+    EXPECT_EQ(railToolNames(window.get()), dockBefore) << "the customised dock comes back exactly";
+
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.reset(); });
+    window->setInterfaceMode(InterfaceMode::Custom);
+    window->setToolLabelMode(2);
+    control->selectTool(TOOL_PEN);
+}
+
+TEST_F(ClassroomWorkflow, presentHidesTheToolDockUntilRevealedAndLeavingPresentBringsTheDockBack) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    auto* dock = window->get("tbLeft1Scroller");
+    ASSERT_NE(dock, nullptr);
+    EXPECT_TRUE(gtk_widget_get_visible(dock)) << "Teach shows the dock";
+
+    window->toolbarSelected("UTN Present");
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(dock)) << "Present gives the page the room";
+    EXPECT_FALSE(window->isPresentToolsRevealed());
+
+    window->setPresentToolsRevealed(true);  // the teacher asks for the tools back, for now
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(dock));
+    window->setPresentToolsRevealed(false);
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+
+    window->setPresentToolsRevealed(true);
+    window->toolbarSelected("UTN Teacher");
+    settle();
+    EXPECT_TRUE(gtk_widget_get_visible(dock)) << "outside Present the dock is always there";
+    EXPECT_FALSE(window->isPresentToolsRevealed()) << "a later Present starts quiet again";
+    window->toolbarSelected("UTN Present");
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+    window->toolbarSelected("UTN Teacher");
+}
+
+TEST_F(ClassroomWorkflow, presentOffersAVisibleWayToRevealTheToolsAndToLeaveAndOnlyInPresent) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    {
+        ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()));
+        auto item = kit.createItem(true);
+        auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+        EXPECT_EQ(buttonNamed(menu, "Leave Present"), nullptr) << "outside Present there is nothing to leave";
+        EXPECT_EQ(buttonNamed(menu, "Show tools"), nullptr);
+        gtk_widget_destroy(item.get());
+    }
+
+    window->toolbarSelected("UTN Marking");
+    window->toolbarSelected("UTN Present");
+    settle();
+    ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()));
+    auto item = kit.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+    auto* show = buttonNamed(menu, "Show tools");
+    auto* leave = buttonNamed(menu, "Leave Present");
+    ASSERT_NE(show, nullptr) << "the dock is hidden in Present, so the way to bring it back must be on screen";
+    ASSERT_NE(leave, nullptr) << "and so must the way out";
+
+    gtk_button_clicked(GTK_BUTTON(show));
+    settle();
+    EXPECT_TRUE(window->isPresentToolsRevealed());
+    EXPECT_NE(buttonNamed(menu, "Hide tools"), nullptr) << "the button says what it will do next";
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Hide tools")));
+    settle();
+    EXPECT_FALSE(window->isPresentToolsRevealed());
+
+    gtk_button_clicked(GTK_BUTTON(leave));
+    settle();
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking") << "back to where the teacher came from";
+    gtk_widget_destroy(item.get());
+    item.reset();
+    window->toolbarSelected("UTN Teacher");
+}
+
+TEST_F(ClassroomWorkflow, workspaceShortcutsSwitchAndToggleWithoutHijackingOrdinaryKeys) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    const guint ctrlShift = GDK_CONTROL_MASK | GDK_SHIFT_MASK;
+    auto press = [&](guint key, guint state) {
+        FakeKey fake(top, key, state);
+        return window->workspaceShortcut(&fake.event->key);
+    };
+
+    EXPECT_TRUE(press(GDK_KEY_exclam, ctrlShift));  // Ctrl+Shift+1
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Teacher");
+    EXPECT_TRUE(press(GDK_KEY_at, ctrlShift));  // Ctrl+Shift+2
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking");
+    EXPECT_TRUE(press(GDK_KEY_numbersign, ctrlShift));  // Ctrl+Shift+3
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    EXPECT_TRUE(press(GDK_KEY_T, ctrlShift)) << "Ctrl+Shift+T reveals the tools in Present";
+    EXPECT_TRUE(window->isPresentToolsRevealed());
+    EXPECT_TRUE(press(GDK_KEY_T, ctrlShift));
+    EXPECT_FALSE(window->isPresentToolsRevealed());
+    EXPECT_TRUE(press(GDK_KEY_P, ctrlShift)) << "Ctrl+Shift+P leaves Present";
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking") << "back to where the teacher came from";
+    EXPECT_TRUE(press(GDK_KEY_P, ctrlShift)) << "and enters it again";
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+
+    // Ordinary typing is left alone
+    EXPECT_FALSE(press(GDK_KEY_1, 0));
+    EXPECT_FALSE(press(GDK_KEY_p, GDK_CONTROL_MASK));
+    EXPECT_FALSE(press(GDK_KEY_T, GDK_SHIFT_MASK));
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    window->toolbarSelected("UTN Teacher");
 }
 
 TEST_F(ClassroomWorkflow, classroomControlsGatherEveryEffectSayWhichIsOnAndBackToNormalClearsThemAll) {

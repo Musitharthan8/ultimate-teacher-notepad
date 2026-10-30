@@ -255,6 +255,10 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
     // Keep native GTK handling whenever no classroom overlay is active.
     auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) -> gboolean {
+        if (e->type == GDK_KEY_PRESS &&
+            static_cast<MainWindow*>(data)->workspaceShortcut(reinterpret_cast<GdkEventKey*>(e))) {
+            return TRUE;
+        }
         if (e->type == GDK_KEY_PRESS && reinterpret_cast<GdkEventKey*>(e)->keyval == GDK_KEY_Escape) {
             auto* self = static_cast<MainWindow*>(data);
             if (self->escapeClassroom()) {
@@ -816,6 +820,16 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     }
 
     Settings* settings = control->getSettings();
+    // Present remembers where it was entered from and starts with its tools out of the way. A reload of the same layout
+    // (the toolbars are rebuilt when the dock changes) arrives with no selected toolbar and keeps both.
+    const std::string previous = this->selectedToolbar ? this->selectedToolbar->getId() : std::string();
+    if (d->getId() != "UTN Present") {
+        presentToolsRevealed = false;
+    } else if (!previous.empty() && previous != "UTN Present") {
+        presentToolsRevealed = false;
+        // A layout that is not a teacher workspace is no place to return to
+        workspaceBeforePresent = utn::isTeacherLayout(previous) ? previous : std::string();
+    }
     settings->setSelectedToolbar(d->getId());
 
     destroyPenSettingsMenu();
@@ -1537,7 +1551,9 @@ void MainWindow::updateTeacherWorkspace() {
         gtk_widget_set_no_show_all(penSettingsButton, !teacher);
         gtk_widget_set_visible(penSettingsButton, teacher);
     }
-    gtk_widget_set_visible(railScroller, mode != 2 && control->getSettings()->isToolbarVisible());
+    // Present gives the page the room: its tool dock waits until the teacher asks for it
+    const bool presentQuiet = teacher && selectedToolbar->getId() == "UTN Present" && !presentToolsRevealed;
+    gtk_widget_set_visible(railScroller, mode != 2 && !presentQuiet && control->getSettings()->isToolbarVisible());
 
     const bool shouldAttach = mode == 0;
     GtkWidget* mainBox = get("mainContainerBox");
@@ -1650,14 +1666,93 @@ void MainWindow::exitPresentationOverlay() {
     }
 }
 
+void MainWindow::leavePresent() {
+    auto exists = [&](const std::string& id) {
+        const auto& toolbars = toolbar->getModel()->getToolbars();
+        return std::any_of(toolbars.begin(), toolbars.end(), [&](const auto& d) { return d->getId() == id; });
+    };
+    // The layout Present was entered from may have been deleted or renamed since; never leave the teacher stuck
+    if (workspaceBeforePresent.empty() || !exists(workspaceBeforePresent)) {
+        workspaceBeforePresent = "UTN Teacher";
+    }
+    toolbarSelected(workspaceBeforePresent);
+}
+
+void MainWindow::setPresentToolsRevealed(bool revealed) {
+    if (presentToolsRevealed == revealed) {
+        return;
+    }
+    presentToolsRevealed = revealed;
+    updateTeacherWorkspace();
+}
+
+bool MainWindow::workspaceShortcut(const GdkEventKey* event) {
+    if (event->type != GDK_KEY_PRESS ||
+        (event->state & gtk_accelerator_get_default_mod_mask()) != (GDK_CONTROL_MASK | GDK_SHIFT_MASK)) {
+        return false;
+    }
+    // Typing in an entry or text view keeps its keys
+    GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(this->window));
+    if (focus && (GTK_IS_EDITABLE(focus) || GTK_IS_TEXT_VIEW(focus))) {
+        return false;
+    }
+    const bool inPresent = selectedToolbar && selectedToolbar->getId() == "UTN Present";
+    // Shift changes what a digit key reports, and the symbol depends on the keyboard layout: read the key as if Shift
+    // were up, and also accept the US-layout symbols
+    guint base = event->keyval;
+    if (event->hardware_keycode != 0) {
+        guint unshifted = 0;
+        if (gdk_keymap_translate_keyboard_state(gdk_keymap_get_for_display(gdk_display_get_default()),
+                                                event->hardware_keycode, static_cast<GdkModifierType>(0), event->group,
+                                                &unshifted, nullptr, nullptr, nullptr)) {
+            base = unshifted;
+        }
+    }
+    switch (base) {
+        case GDK_KEY_1:
+        case GDK_KEY_exclam:
+            toolbarSelected("UTN Teacher");
+            return true;
+        case GDK_KEY_2:
+        case GDK_KEY_at:
+            toolbarSelected("UTN Marking");
+            return true;
+        case GDK_KEY_3:
+        case GDK_KEY_numbersign:
+            toolbarSelected("UTN Present");
+            return true;
+        case GDK_KEY_p:
+        case GDK_KEY_P:
+            if (inPresent) {
+                leavePresent();
+            } else {
+                toolbarSelected("UTN Present");
+            }
+            return true;
+        case GDK_KEY_t:
+        case GDK_KEY_T:
+            if (!inPresent) {
+                return false;  // Teach and Mark always show their tools
+            }
+            setPresentToolsRevealed(!presentToolsRevealed);
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool MainWindow::escapeClassroom() {
+    // An open popover or menu takes Escape to close itself first
+    if (gtk_grab_get_current() != nullptr) {
+        return false;
+    }
     auto* tools = control->getToolHandler();
     bool handled = false;
     if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
         exitPresentationOverlay();
         handled = true;
     }
-    if (auto* students = toolbar->getStudentView(); students && students->isTeacherCoverShown()) {
+    if (auto* students = toolbar ? toolbar->getStudentView() : nullptr; students && students->isTeacherCoverShown()) {
         students->setBlanked(false);
         handled = true;
     }
