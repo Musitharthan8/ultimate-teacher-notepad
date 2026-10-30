@@ -1373,6 +1373,35 @@ TEST_F(ClassroomWorkflow, theDocumentStatusIsAButtonWhoseDetailsAndSaveActionAre
     resetDocumentStatus(control.get());
 }
 
+// A popover whose content is built but never shown opens as an empty bubble: the widgets exist, so tests that only look
+// them up pass, while the teacher sees nothing. Check that what a teacher would click is actually visible.
+TEST_F(ClassroomWorkflow, theWorkspaceMenuOpensWithItsEntriesVisibleNotAsAnEmptyBubble) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Workspace layout");
+    ASSERT_NE(menu, nullptr);
+    auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
+    ASSERT_NE(popover, nullptr);
+    GtkWidget* panel = gtk_bin_get_child(GTK_BIN(popover));
+    ASSERT_NE(panel, nullptr);
+    EXPECT_TRUE(gtk_widget_get_visible(panel)) << "the panel itself must be shown, or the popover is blank";
+    const auto buttons = buttonsIn(panel);
+    ASSERT_GE(buttons.size(), 8u) << "workspace modes, tool labels, Beginner, Expert and Customise tool dock";
+    for (GtkWidget* button: buttons) {
+        const char* name = atk_object_get_name(gtk_widget_get_accessible(button));
+        EXPECT_TRUE(gtk_widget_get_visible(button)) << (name ? name : "unnamed button") << " would be invisible";
+    }
+    EXPECT_NE(buttonNamedIn(panel, "Customise tool dock"), nullptr);
+    bool beginner = false;
+    for (GtkWidget* button: buttons) {
+        const char* name = atk_object_get_name(gtk_widget_get_accessible(button));
+        beginner = beginner || (name && std::string(name).find("Beginner") != std::string::npos);
+    }
+    EXPECT_TRUE(beginner);
+}
+
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as
 // in the app: a width the window cannot reach is clamped, and the assertion reads what was really given.
 TEST_F(ClassroomWorkflow, appBarFitsOrOffersMoreAtEveryRealWindowWidth) {

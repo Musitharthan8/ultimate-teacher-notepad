@@ -809,9 +809,11 @@ void ToolUtnContextBar::appendShapePicker(DrawingType current) {
 }
 
 void ToolUtnContextBar::appendPenControls() {
+    // First, not last: applying a preset rebuilds this panel and scrolls it back to the top, so a menu at the bottom
+    // would be lost the moment it is used
+    gtk_box_append(box, utn::createPresetsMenuButton(control));
     appendColourControls(Palette::Ink);
     appendSizeControls(TOOL_PEN);
-    gtk_box_append(box, utn::createPresetsMenuButton(control));
     appendSeparator();
 
     // A teacher's deliberate stroke pattern overrides the solid default for freehand pen.
@@ -887,9 +889,9 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
 }
 
 void ToolUtnContextBar::appendHighlightControls() {
+    gtk_box_append(box, utn::createPresetsMenuButton(control));  // first, for the same reason as the pen's
     appendColourControls(Palette::Highlight);
     appendSizeControls(TOOL_HIGHLIGHTER);
-    gtk_box_append(box, utn::createPresetsMenuButton(control));
     appendSeparator();
 
     Color colour = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();

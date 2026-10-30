@@ -1106,6 +1106,9 @@ void MainWindow::appendWorkspaceMenu() {
                          utn::showDockCustomizeDialog(static_cast<MainWindow*>(data)->getControl());
                      }), this);
     gtk_box_append(GTK_BOX(panel), customiseDock);
+    // A popover's content is not shown by showing the toolbar item that owns it: without this the menu opens as an empty
+    // bubble
+    gtk_widget_show_all(panel);
     gtk_container_add(GTK_CONTAINER(popover), panel);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), popover);
     gtk_container_add(GTK_CONTAINER(item), menu);
