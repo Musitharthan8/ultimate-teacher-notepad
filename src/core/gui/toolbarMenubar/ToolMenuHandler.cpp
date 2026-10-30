@@ -309,6 +309,36 @@ const char* teacherChromeIcon(const std::string& item) {
     return nullptr;
 }
 
+/// The rail's items as the teacher arranged them (see model/DockLayout.h). With nothing customised they are returned as
+/// they are.
+ToolbarItemVector arrangeTeacherRail(const ToolbarItemVector& items, const utn::DockLayout& layout) {
+    if (layout.isDefault()) {
+        return items;
+    }
+    std::vector<std::string> names;
+    for (const ToolbarItem& item: items) {
+        names.push_back(item.getName());
+    }
+    ToolbarItemVector arranged;
+    std::vector<bool> used(items.size(), false);
+    for (const std::string& name: layout.arrange(names)) {
+        std::size_t found = items.size();
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (!used[i] && items[i].getName() == name) {
+                found = i;
+                break;
+            }
+        }
+        if (found < items.size()) {
+            used[found] = true;
+            arranged.push_back(items[found]);
+        } else if (name == "SEPARATOR") {
+            arranged.emplace_back(ToolbarItem("SEPARATOR"));  // the favourites group has a separator of its own
+        }
+    }
+    return arranged;
+}
+
 /// Which app-bar buttons may move into the "More" menu, and in what order. Everything here also has a menu-bar entry and
 /// a shortcut; Undo and Redo go last because they are used mid-lesson.
 int appBarOverflowRank(const std::string& item) {
@@ -431,6 +461,31 @@ const TeacherToolText* teacherToolText(const std::string& id) {
 }
 }  // namespace
 
+std::vector<std::string> ToolMenuHandler::railItemIds(const ToolbarData* d) const {
+    std::vector<std::string> ids;
+    if (!d) {
+        return ids;
+    }
+    for (const ToolbarEntry& e: d->contents) {
+        if (e.getName() == "toolbarLeft1") {
+            for (const ToolbarItem& item: e.getItems()) {
+                ids.push_back(item.getName());
+            }
+        }
+    }
+    return ids;
+}
+
+std::string ToolMenuHandler::toolDisplayName(const std::string& id) const {
+    for (const auto& item: this->toolItems) {
+        if (item->getId() == id) {
+            const TeacherToolText* text = teacherToolText(id);
+            return text && text->label ? _(text->label) : item->getToolDisplayName();
+        }
+    }
+    return id;
+}
+
 void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char* toolbarName, bool horizontal) {
     int count = 0;
     const auto palette = this->control->getPalette();
@@ -445,7 +500,12 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
 
     for (const ToolbarEntry& e: d->contents) {
         if (e.getName() == toolbarName) {
-            for (const ToolbarItem& dataItem: e.getItems()) {
+            // The teacher's pinned, hidden and reordered tools. The toolbar data itself is never rewritten.
+            ToolbarItemVector railItems = e.getItems();
+            if (teacherLayout && !horizontal && g_strcmp0(toolbarName, "toolbarLeft1") == 0) {
+                railItems = arrangeTeacherRail(railItems, control->getDockLayout());
+            }
+            for (const ToolbarItem& dataItem: railItems) {
                 std::string name = dataItem.getName();
 
                 if (!this->control->getAudioController() &&

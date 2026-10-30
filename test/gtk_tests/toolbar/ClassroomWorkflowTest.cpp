@@ -41,6 +41,8 @@
 #include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
+#include "gui/toolbarMenubar/DockCustomizeDialog.h"
+#include "gui/toolbarMenubar/ToolMenuHandler.h"
 #include "gui/toolbarMenubar/PenPresetsMenu.h"
 #include "gui/toolbarMenubar/RevealActions.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
@@ -1096,6 +1098,151 @@ TEST_F(ClassroomWorkflow, interfaceModesChangeOnlyTheGuidanceAndNeverTheToolsOrT
     window->setInterfaceMode(InterfaceMode::Custom);
     window->setToolLabelMode(2);  // the shipped default, for the tests after this one
     control->selectTool(TOOL_PEN);
+}
+
+namespace {
+/// The rail as the teacher sees it, top to bottom: each tool's name from its tooltip, and "|" for a separator
+std::vector<std::string> railToolNames(MainWindow* window) {
+    std::vector<std::string> names;
+    auto* rail = GTK_TOOLBAR(window->get("tbLeft1"));
+    for (int i = 0; i < gtk_toolbar_get_n_items(rail); ++i) {
+        GtkWidget* item = GTK_WIDGET(gtk_toolbar_get_nth_item(rail, i));
+        if (GTK_IS_SEPARATOR_TOOL_ITEM(item)) {
+            names.emplace_back("|");
+            continue;
+        }
+        const char* markup = gtk_widget_get_tooltip_markup(item);
+        std::string text = markup ? markup : (gtk_widget_get_tooltip_text(item) ? gtk_widget_get_tooltip_text(item) : "");
+        const size_t open = text.find("<b>");
+        const size_t close = text.find("</b>");
+        names.push_back(open != std::string::npos && close != std::string::npos ? text.substr(open + 3, close - open - 3) :
+                                                                                  text.substr(0, text.find('\n')));
+    }
+    return names;
+}
+
+bool hasName(const std::vector<std::string>& names, const std::string& name) {
+    return std::find(names.begin(), names.end(), name) != names.end();
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, theDockArrangementIsAppliedToTheRealRailAndResetBringsTheShippedRailBack) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.reset(); });
+    settle();
+    const auto shipped = railToolNames(window.get());
+    ASSERT_GT(shipped.size(), 8u);
+
+    const auto defaults = window->getToolMenuHandler()->railItemIds(window->getSelectedToolbar());
+    const std::string move = window->getToolMenuHandler()->toolDisplayName("HAND");
+    const std::string text = window->getToolMenuHandler()->toolDisplayName("UTN_TEXT");
+    ASSERT_TRUE(hasName(shipped, move)) << move;
+    ASSERT_TRUE(hasName(shipped, text)) << text;
+
+    // Pin: the tool moves to a favourites group of its own at the top, and is not also left in its old place
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.pin("HAND"); });
+    settle();
+    auto names = railToolNames(window.get());
+    EXPECT_EQ(names.front(), move);
+    EXPECT_EQ(names[1], "|");
+    EXPECT_EQ(std::count(names.begin(), names.end(), move), 1);
+    EXPECT_EQ(names.size(), shipped.size() + 1) << "one more separator, no tool lost";
+
+    // Hide: the tool leaves the rail; an essential tool cannot
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.hide("UTN_TEXT"); });
+    settle();
+    names = railToolNames(window.get());
+    EXPECT_FALSE(hasName(names, text)) << "hidden from the dock";
+    const std::string pen = window->getToolMenuHandler()->toolDisplayName("PEN");
+    control->updateDockLayout([](utn::DockLayout& layout) { EXPECT_FALSE(layout.hide("PEN")); });
+    settle();
+    EXPECT_TRUE(hasName(railToolNames(window.get()), pen)) << "the pen is always on the dock";
+
+    // Reorder inside the group
+    const size_t penBefore = static_cast<size_t>(std::find(names.begin(), names.end(), pen) - names.begin());
+    control->updateDockLayout([&](utn::DockLayout& layout) { EXPECT_TRUE(layout.moveDown("PEN", defaults)); });
+    settle();
+    names = railToolNames(window.get());
+    EXPECT_GT(static_cast<size_t>(std::find(names.begin(), names.end(), pen) - names.begin()), penBefore);
+
+    // What a restart reads back gives the very same rail
+    std::string saved;
+    ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getString("dockLayout", saved));
+    EXPECT_EQ(utn::DockLayout::parse(saved).arrange(defaults), control->getDockLayout().arrange(defaults));
+
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.reset(); });
+    settle();
+    EXPECT_EQ(railToolNames(window.get()), shipped) << "reset gives the shipped rail back, separator and all";
+}
+
+TEST_F(ClassroomWorkflow, theCustomiseDockDialogWorksByActivatingNamedButtonsNotOnlyByDragging) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->updateDockLayout([](utn::DockLayout& layout) { layout.reset(); });
+    settle();
+    const auto shipped = railToolNames(window.get());
+    const std::string move = window->getToolMenuHandler()->toolDisplayName("HAND");
+
+    const auto rows = utn::dockRows(control.get());
+    ASSERT_FALSE(rows.empty());
+    EXPECT_FALSE(rows.front().canMoveUp) << "the first tool of a group cannot go further up";
+    for (const auto& row: rows) {
+        EXPECT_EQ(row.essential, utn::DockLayout::isEssential(row.id));
+        EXPECT_FALSE(row.name.empty());
+    }
+
+    utn::showDockCustomizeDialog(control.get());
+    settle();
+    GtkWidget* dialog = nullptr;
+    GList* windows = gtk_window_list_toplevels();
+    for (GList* w = windows; w; w = w->next) {
+        if (GTK_IS_DIALOG(w->data) && gtk_widget_get_visible(GTK_WIDGET(w->data)) &&
+            std::string(gtk_window_get_title(GTK_WINDOW(w->data))) == "Customise tool dock") {
+            dialog = GTK_WIDGET(w->data);
+        }
+    }
+    g_list_free(windows);
+    ASSERT_NE(dialog, nullptr);
+
+    const auto namedButton = [&](const std::string& name) -> GtkWidget* {
+        for (GtkWidget* button: buttonsIn(dialog)) {
+            const char* accessible = atk_object_get_name(gtk_widget_get_accessible(button));
+            if (accessible && name == accessible) {
+                return button;
+            }
+        }
+        return nullptr;
+    };
+    for (GtkWidget* button: buttonsIn(dialog)) {
+        EXPECT_TRUE(gtk_widget_get_can_focus(button)) << "a keyboard reaches every button";
+        EXPECT_NE(std::string(atk_object_get_name(gtk_widget_get_accessible(button))), "") << "and every button has a name";
+    }
+
+    // Activating "Pin to the top" for a tool does what dragging would, and the rail follows
+    GtkWidget* pin = namedButton("Pin to the top: " + move);
+    ASSERT_NE(pin, nullptr);
+    gtk_button_clicked(GTK_BUTTON(pin));
+    settle();
+    EXPECT_EQ(railToolNames(window.get()).front(), move);
+    EXPECT_TRUE(control->getDockLayout().isPinned("HAND"));
+    EXPECT_NE(namedButton("Unpin: " + move), nullptr) << "the row now offers the way back";
+
+    // An essential tool's Hide button is off, and says why
+    const std::string pen = window->getToolMenuHandler()->toolDisplayName("PEN");
+    GtkWidget* hidePen = namedButton("Always on the dock: " + pen);
+    ASSERT_NE(hidePen, nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(hidePen));
+
+    // Reset restores the shipped rail
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_REJECT);
+    settle();
+    EXPECT_EQ(railToolNames(window.get()), shipped);
+    EXPECT_TRUE(control->getDockLayout().isDefault());
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+    settle();
 }
 
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as

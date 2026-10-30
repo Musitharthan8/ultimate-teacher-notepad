@@ -72,6 +72,11 @@ public:
      */
     void load(const ToolbarData* d, GtkWidget* toolbar, const char* toolbarName, bool horizontal);
 
+    /// The teacher rail's tool ids as the toolbar data lists them (separators included), before any arrangement
+    std::vector<std::string> railItemIds(const ToolbarData* d) const;
+    /// The readable name of a tool, or its id when it is not known
+    std::string toolDisplayName(const std::string& id) const;
+
     /**
      * @brief Update all ColorToolItems based on palette
      *

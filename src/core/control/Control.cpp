@@ -141,6 +141,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
     this->settings->load();
     this->loadPaletteFromSettings();
     this->loadPenPresets();
+    this->loadDockLayout();
 
     this->pageTypes = new PageTypeHandler(gladeSearchPath);
 
@@ -2354,6 +2355,21 @@ void Control::loadPenPresets() {
     std::string saved;
     settings->getCustomElement("utn").getString(PEN_PRESETS_SETTING, saved);  // stays empty when never saved
     this->penPresets = utn::PenPresetStore::parse(saved);
+}
+
+void Control::loadDockLayout() {
+    std::string saved;
+    settings->getCustomElement("utn").getString("dockLayout", saved);  // stays empty when never customised
+    this->dockLayout = utn::DockLayout::parse(saved);
+}
+
+void Control::updateDockLayout(const std::function<void(utn::DockLayout&)>& change) {
+    change(this->dockLayout);
+    settings->getCustomElement("utn").setString("dockLayout", this->dockLayout.serialise());
+    settings->customSettingsChanged();
+    if (this->win) {
+        this->win->reloadToolbars();  // the rail is built from the layout
+    }
 }
 
 void Control::updatePenPresets(const std::function<void(utn::PenPresetStore&)>& change) {

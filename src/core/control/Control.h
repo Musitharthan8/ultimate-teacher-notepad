@@ -33,6 +33,7 @@
 #include "gui/toolbarMenubar/model/ColorPalette.h"  // for ColorPalette
 #include "model/DocumentHandler.h"                  // for DocumentHandler
 #include "model/DocumentListener.h"                 // for DocumentListener
+#include "model/DockLayout.h"                       // for DockLayout
 #include "model/DocumentStatus.h"                   // for DocumentStatusModel
 #include "model/PenPresets.h"                       // for PenPresetStore
 #include "model/GeometryTool.h"                     // for GeometryTool
@@ -165,6 +166,13 @@ public:
     std::string activePenPresetId() const;
     /// The preset's settings taken from the active pen or highlighter, or nothing when another tool is active
     std::optional<utn::PenPreset> currentPenPresetValues() const;
+
+    /**
+     * How the teacher arranged the tool rail (see model/DockLayout.h). Kept in the settings; every change goes through
+     * updateDockLayout(), which saves it and rebuilds the rail.
+     */
+    const utn::DockLayout& getDockLayout() const { return dockLayout; }
+    void updateDockLayout(const std::function<void(utn::DockLayout&)>& change);
 
     /**
      * Close the current document, prompting to save unsaved changes.
@@ -577,6 +585,8 @@ private:
     utn::DocumentStatusModel documentStatus;
     utn::PenPresetStore penPresets;
     void loadPenPresets();
+    utn::DockLayout dockLayout;
+    void loadDockLayout();
     std::unique_ptr<Palette> palette;
     MainWindow* win = nullptr;
 

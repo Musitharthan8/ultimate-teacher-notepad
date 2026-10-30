@@ -31,6 +31,7 @@
 #include "gui/menus/menubar/ToolbarSelectionSubmenu.h"  // for ToolbarSelectionSubmenu
 #include "gui/scroll/ScrollHandling.h"                  // for ScrollHandling
 #include "gui/sidebar/Sidebar.h"                        // for Sidebar
+#include "gui/toolbarMenubar/DockCustomizeDialog.h"     // for showDockCustomizeDialog
 #include "gui/toolbarMenubar/ToolMenuHandler.h"         // for ToolMenuHandler
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "gui/toolbarMenubar/UtnWidgets.h"              // for createColourSwatch, setAccessibleName, setSwatchSelected
@@ -1039,6 +1040,17 @@ void MainWindow::appendWorkspaceMenu() {
         gtk_box_append(GTK_BOX(panel), button);
     }
     updateInterfaceModeButtons();
+    gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* customiseDock = gtk_button_new_with_label(_("Customise tool dock…"));
+    gtk_widget_set_tooltip_text(customiseDock, _("Pin, hide and reorder the tools on the left"));
+    utn::setAccessibleName(customiseDock, _("Customise tool dock"));
+    g_signal_connect(customiseDock, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                         if (GtkWidget* open = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER)) {
+                             gtk_popover_popdown(GTK_POPOVER(open));
+                         }
+                         utn::showDockCustomizeDialog(static_cast<MainWindow*>(data)->getControl());
+                     }), this);
+    gtk_box_append(GTK_BOX(panel), customiseDock);
     gtk_container_add(GTK_CONTAINER(popover), panel);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), popover);
     gtk_container_add(GTK_CONTAINER(item), menu);
