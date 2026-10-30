@@ -1229,11 +1229,15 @@ TEST_F(ClassroomWorkflow, theCustomiseDockDialogWorksByActivatingNamedButtonsNot
     EXPECT_EQ(railToolNames(window.get()).front(), move);
     EXPECT_TRUE(control->getDockLayout().isPinned("HAND"));
     EXPECT_NE(namedButton("Unpin: " + move), nullptr) << "the row now offers the way back";
+    // The list is rebuilt after every change, and the keyboard focus stays on this tool's row, not on the dialog
+    GtkWidget* focused = gtk_window_get_focus(GTK_WINDOW(dialog));
+    ASSERT_NE(focused, nullptr) << "focus was lost when the list was rebuilt";
+    EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(focused)), ("Unpin: " + move).c_str());
 
     // An essential tool's Hide button is off, and says why
     const std::string pen = window->getToolMenuHandler()->toolDisplayName("PEN");
-    GtkWidget* hidePen = namedButton("Always on the dock: " + pen);
-    ASSERT_NE(hidePen, nullptr);
+    GtkWidget* hidePen = namedButton("Hide: " + pen + ", not available, always on the dock");
+    ASSERT_NE(hidePen, nullptr) << "the name starts with the visible word Hide and says why it is off";
     EXPECT_FALSE(gtk_widget_get_sensitive(hidePen));
 
     // Reset restores the shipped rail
@@ -1243,6 +1247,130 @@ TEST_F(ClassroomWorkflow, theCustomiseDockDialogWorksByActivatingNamedButtonsNot
     EXPECT_TRUE(control->getDockLayout().isDefault());
     gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
     settle();
+}
+
+namespace {
+GtkWidget* visibleDialogTitled(const char* title) {
+    GtkWidget* found = nullptr;
+    GList* windows = gtk_window_list_toplevels();
+    for (GList* w = windows; w; w = w->next) {
+        if (GTK_IS_DIALOG(w->data) && gtk_widget_get_visible(GTK_WIDGET(w->data)) &&
+            std::string(gtk_window_get_title(GTK_WINDOW(w->data))) == title) {
+            found = GTK_WIDGET(w->data);
+        }
+    }
+    g_list_free(windows);
+    return found;
+}
+
+GtkWidget* buttonNamedIn(GtkWidget* root, const std::string& name) {
+    for (GtkWidget* button: buttonsIn(root)) {
+        const char* accessible = atk_object_get_name(gtk_widget_get_accessible(button));
+        if (accessible && name == accessible) {
+            return button;
+        }
+    }
+    return nullptr;
+}
+
+GtkWidget* entryNamedIn(GtkWidget* widget, const std::string& name) {
+    if (GTK_IS_ENTRY(widget)) {
+        const char* accessible = atk_object_get_name(gtk_widget_get_accessible(widget));
+        if (accessible && name == accessible) {
+            return widget;
+        }
+    }
+    GtkWidget* found = nullptr;
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child && !found; child = child->next) {
+            found = entryNamedIn(GTK_WIDGET(child->data), name);
+        }
+        g_list_free(children);
+    }
+    return found;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, managingPresetsRenamesWhenTheFieldIsLeftAndDeleteKeepsTheKeyboardWhereItWas) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    control->selectTool(TOOL_PEN);
+    settle();
+    auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Presets");
+    ASSERT_NE(menu, nullptr);
+    GtkWidget* manage = buttonNamedIn(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))), "Manage presets…");
+    ASSERT_NE(manage, nullptr);
+    gtk_button_clicked(GTK_BUTTON(manage));
+    settle();
+    GtkWidget* dialog = visibleDialogTitled("Manage presets");
+    ASSERT_NE(dialog, nullptr);
+
+    // Each rename field has its own name, so a screen reader can tell them apart
+    GtkWidget* red = entryNamedIn(dialog, "Rename preset: Red marking pen");
+    GtkWidget* blue = entryNamedIn(dialog, "Rename preset: Blue explanation pen");
+    ASSERT_NE(red, nullptr);
+    ASSERT_NE(blue, nullptr);
+
+    // Typing a name and leaving the field keeps it, without needing Enter
+    gtk_entry_set_text(GTK_ENTRY(red), "Red marker");
+    GdkEvent* leave = gdk_event_new(GDK_FOCUS_CHANGE);
+    leave->focus_change.in = FALSE;
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(red, "focus-out-event", leave, &handled);
+    gdk_event_free(leave);
+    ASSERT_NE(control->getPenPresets().find(utn::PenPresetStore::RED_MARKING_ID), nullptr);
+    EXPECT_EQ(control->getPenPresets().find(utn::PenPresetStore::RED_MARKING_ID)->name, "Red marker");
+    EXPECT_NE(entryNamedIn(dialog, "Rename preset: Red marker"), nullptr) << "and its accessible name follows";
+
+    // Delete: the row goes, the dialog stays, and the keyboard lands on a Delete button, not nowhere
+    const size_t before = control->getPenPresets().all().size();
+    GtkWidget* remove = buttonNamedIn(dialog, "Delete preset: Blue explanation pen");
+    ASSERT_NE(remove, nullptr);
+    gtk_button_clicked(GTK_BUTTON(remove));
+    settle();
+    EXPECT_EQ(control->getPenPresets().all().size(), before - 1);
+    GtkWidget* focused = gtk_window_get_focus(GTK_WINDOW(dialog));
+    ASSERT_NE(focused, nullptr) << "focus was lost when the list was rebuilt";
+    EXPECT_EQ(std::string(atk_object_get_name(gtk_widget_get_accessible(focused))).rfind("Delete preset: ", 0), 0u);
+
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_REJECT);  // restore the defaults, for the tests after this one
+    settle();
+    EXPECT_NE(control->getPenPresets().find(utn::PenPresetStore::BLUE_EXPLANATION_ID), nullptr);
+    EXPECT_EQ(control->getPenPresets().find(utn::PenPresetStore::RED_MARKING_ID)->name, "Red marking pen");
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, theDocumentStatusIsAButtonWhoseDetailsAndSaveActionAreNotTooltipOnly) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    resetDocumentStatus(control.get(), true);
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.saveFailed("disk full"); });
+    settle();
+
+    auto* chip = menuButtonAccessibleNamed(window->getWindow(), "Document status: saving failed, your changes are not saved");
+    ASSERT_NE(chip, nullptr) << "the status is something a keyboard can reach and a screen reader can name";
+    EXPECT_TRUE(gtk_widget_get_can_focus(chip));
+    auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(chip));
+    ASSERT_NE(popover, nullptr);
+    gtk_widget_show(GTK_WIDGET(popover));  // builds the details when it opens
+    settle();
+    std::string shown;
+    for (const auto& word: shownWords(GTK_WIDGET(popover))) {
+        shown += word + "\n";
+    }
+    EXPECT_NE(shown.find("disk full"), std::string::npos) << "the reason is in the popover, not only in a tooltip";
+    GtkWidget* save = buttonNamedIn(GTK_WIDGET(popover), "Save now");
+    ASSERT_NE(save, nullptr) << "and so is the way forward";
+    EXPECT_STREQ(gtk_actionable_get_action_name(GTK_ACTIONABLE(save)), "win.save");
+    gtk_widget_hide(GTK_WIDGET(popover));
+    resetDocumentStatus(control.get());
 }
 
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as

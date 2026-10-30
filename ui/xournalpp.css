@@ -1236,6 +1236,14 @@ window.utnShell .utn-document-status.utn-status-ok { color: @utn_status_ok; }
 window.utnShell .utn-document-status.utn-status-info { color: @utn_status_info; font-weight: 600; }
 window.utnShell .utn-document-status.utn-status-warning { color: @utn_status_warning; font-weight: 600; }
 window.utnShell .utn-document-status.utn-status-error { color: @utn_status_error; font-weight: 700; }
+/* The status is a button so a keyboard reaches it; it should not look like one until it has focus or is pointed at */
+window.utnShell .utn-status-button { padding: 0 4px; min-width: 0; min-height: 0; border: none; background: none; box-shadow: none; }
+/* Dialogs are their own windows, so they do not match window.utnShell. An opaque dark ring with a light halo reads on
+   both light and dark surfaces, where a translucent accent ring may not reach 3:1. */
+.utn-dialog button:focus,
+.utn-dialog entry:focus { outline: none; box-shadow: 0 0 0 2px @utn_paper_ring, 0 0 0 4px @utn_paper_surface; }
+/* Small glyph buttons still need a target a finger or a shaky hand can hit */
+.utn-dock-button { min-width: 28px; min-height: 28px; }
 /* Teach / Mark / Present as one segmented control */
 window.utnShell .utnWorkspaceSwitch {
     background-color: @utn_paper_desk;

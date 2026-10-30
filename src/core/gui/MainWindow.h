@@ -286,6 +286,7 @@ private:
     GtkWidget* documentHeader = nullptr;
     GtkWidget* documentHeaderTitle = nullptr;
     GtkWidget* documentHeaderStatus = nullptr;
+    GtkWidget* documentHeaderStatusButton = nullptr;  ///< what a keyboard reaches; opens the status details
     std::string documentHeaderSignature;  ///< what the header shows now, so an unchanged header costs no GTK work
     GtkWidget* penSettingsButton = nullptr;
     GtkWidget* penSettingsPopover = nullptr;

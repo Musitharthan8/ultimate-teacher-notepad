@@ -20,12 +20,56 @@ namespace utn {
 namespace {
 enum class DockAction { MoveUp, MoveDown, Pin, Unpin, Hide, Show };
 
+/// Rebuilds the list. Given a tool and the action just used on it, focus goes to that tool's button for the same action,
+/// or its counterpart when that one is now off (a tool at the top cannot move up), so a keyboard user keeps their place.
+using Rebuild = std::function<void(const std::string&, int)>;
+
 struct DockButtonData {
     Control* control;
     std::string id;
     DockAction action;
-    std::function<void()>* rebuild;
+    Rebuild* rebuild;
 };
+
+DockAction counterpartOf(DockAction action) {
+    switch (action) {
+        case DockAction::MoveUp: return DockAction::MoveDown;
+        case DockAction::MoveDown: return DockAction::MoveUp;
+        case DockAction::Pin: return DockAction::Unpin;
+        case DockAction::Unpin: return DockAction::Pin;
+        case DockAction::Hide: return DockAction::Show;
+        case DockAction::Show: return DockAction::Hide;
+    }
+    return action;
+}
+
+/// Puts the keyboard focus back on the row of `id` after a rebuild
+void restoreFocus(GtkWidget* list, const std::string& id, DockAction action) {
+    GtkWidget* sameAction = nullptr;
+    GtkWidget* counterpart = nullptr;
+    GtkWidget* anyEnabled = nullptr;
+    GList* rows = gtk_container_get_children(GTK_CONTAINER(list));
+    for (GList* r = rows; r; r = r->next) {
+        GList* parts = gtk_container_get_children(GTK_CONTAINER(r->data));
+        for (GList* p = parts; p; p = p->next) {
+            const auto* data = static_cast<DockButtonData*>(g_object_get_data(G_OBJECT(p->data), "utn-dock-action"));
+            if (!data || data->id != id || !gtk_widget_get_sensitive(GTK_WIDGET(p->data))) {
+                continue;
+            }
+            anyEnabled = anyEnabled ? anyEnabled : GTK_WIDGET(p->data);
+            if (data->action == action) {
+                sameAction = GTK_WIDGET(p->data);
+            } else if (data->action == counterpartOf(action)) {
+                counterpart = GTK_WIDGET(p->data);
+            }
+        }
+        g_list_free(parts);
+    }
+    g_list_free(rows);
+    if (GtkWidget* target = sameAction ? sameAction : counterpart ? counterpart : anyEnabled) {
+        gtk_widget_grab_focus(target);
+    }
+}
 
 std::vector<std::string> defaultRail(Control* control) {
     MainWindow* window = control->getWindow();
@@ -50,9 +94,10 @@ void perform(const DockButtonData& data) {
 }
 
 GtkWidget* actionButton(Control* control, const DockRow& row, DockAction action, const char* label, const std::string& name,
-                        bool enabled, std::function<void()>* rebuild) {
+                        bool enabled, Rebuild* rebuild) {
     GtkWidget* button = gtk_button_new_with_label(label);
     gtk_widget_set_focus_on_click(button, false);
+    gtk_style_context_add_class(gtk_widget_get_style_context(button), "utn-dock-button");
     utn::setAccessibleName(button, name.c_str());
     gtk_widget_set_tooltip_text(button, name.c_str());
     gtk_widget_set_sensitive(button, enabled);
@@ -63,7 +108,7 @@ GtkWidget* actionButton(Control* control, const DockRow& row, DockAction action,
                          // Copied first: the rebuild below destroys this very button
                          const DockButtonData data = *static_cast<DockButtonData*>(g_object_get_data(G_OBJECT(b), "utn-dock-action"));
                          perform(data);
-                         (*data.rebuild)();
+                         (*data.rebuild)(data.id, static_cast<int>(data.action));
                      }),
                      nullptr);
     return button;
@@ -129,8 +174,8 @@ void showDockCustomizeDialog(Control* control) {
     gtk_box_pack_start(GTK_BOX(content), intro, false, false, 0);
     gtk_box_pack_start(GTK_BOX(content), scroller, true, true, 0);
 
-    auto* rebuild = new std::function<void()>();
-    *rebuild = [control, list, rebuild]() {
+    auto* rebuild = new Rebuild();
+    *rebuild = [control, list, rebuild](const std::string& focusId, int focusAction) {
         gtk_container_foreach(GTK_CONTAINER(list), +[](GtkWidget* child, gpointer) { gtk_widget_destroy(child); }, nullptr);
         for (const DockRow& row: dockRows(control)) {
             GtkWidget* line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
@@ -140,6 +185,9 @@ void showDockCustomizeDialog(Control* control) {
             }
             if (row.hidden) {
                 text += std::string("  (") + _("hidden") + ")";
+            }
+            if (row.essential) {
+                text += std::string("  (") + _("always shown") + ")";  // the reason Hide is off, where a keyboard user reads it
             }
             GtkWidget* name = gtk_label_new(text.c_str());
             gtk_widget_set_halign(name, GTK_ALIGN_START);
@@ -162,7 +210,8 @@ void showDockCustomizeDialog(Control* control) {
                                    false, false, 0);
                 gtk_box_pack_start(GTK_BOX(line),
                                    actionButton(control, row, DockAction::Hide, _("Hide"),
-                                                row.essential ? std::string(_("Always on the dock")) + ": " + row.name :
+                                                row.essential ? std::string(_("Hide")) + ": " + row.name + ", " +
+                                                                        _("not available, always on the dock") :
                                                                 std::string(_("Hide")) + ": " + row.name,
                                                 !row.essential, rebuild),
                                    false, false, 0);
@@ -175,17 +224,20 @@ void showDockCustomizeDialog(Control* control) {
             gtk_box_pack_start(GTK_BOX(list), line, false, false, 0);
         }
         gtk_widget_show_all(list);
+        if (!focusId.empty()) {
+            restoreFocus(list, focusId, static_cast<DockAction>(focusAction));
+        }
     };
-    (*rebuild)();
+    (*rebuild)(std::string(), 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(dialog), "utn-dialog");
 
-    g_object_set_data_full(G_OBJECT(dialog), "utn-rebuild", rebuild,
-                           +[](gpointer p) { delete static_cast<std::function<void()>*>(p); });
+    g_object_set_data_full(G_OBJECT(dialog), "utn-rebuild", rebuild, +[](gpointer p) { delete static_cast<Rebuild*>(p); });
     g_object_set_data(G_OBJECT(dialog), "utn-control", control);
     g_signal_connect(dialog, "response", G_CALLBACK(+[](GtkDialog* dlg, gint response, gpointer) {
                          auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(dlg), "utn-control"));
                          if (response == GTK_RESPONSE_REJECT) {
                              ctrl->updateDockLayout([](DockLayout& layout) { layout.reset(); });
-                             (*static_cast<std::function<void()>*>(g_object_get_data(G_OBJECT(dlg), "utn-rebuild")))();
+                             (*static_cast<Rebuild*>(g_object_get_data(G_OBJECT(dlg), "utn-rebuild")))(std::string(), 0);
                              return;  // stay open: the list now shows the shipped rail
                          }
                          gtk_widget_destroy(GTK_WIDGET(dlg));

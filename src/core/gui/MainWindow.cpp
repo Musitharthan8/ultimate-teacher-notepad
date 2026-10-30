@@ -896,7 +896,48 @@ void MainWindow::appendDocumentHeader() {
         gtk_widget_set_name(status, "utnDocumentSaveStatus");
         gtk_widget_add_css_class(status, "utn-document-status");
         gtk_box_append(GTK_BOX(content), title);
-        gtk_box_append(GTK_BOX(content), status);
+        // The status is a button, so a keyboard reaches it and its details are not tooltip-only
+        GtkWidget* statusButton = gtk_menu_button_new();
+        gtk_button_set_relief(GTK_BUTTON(statusButton), GTK_RELIEF_NONE);
+        gtk_widget_set_focus_on_click(statusButton, false);
+        gtk_widget_add_css_class(statusButton, "utn-status-button");
+        gtk_container_add(GTK_CONTAINER(statusButton), status);
+        GtkWidget* statusPopover = gtk_popover_new(nullptr);
+        g_signal_connect(statusPopover, "show", G_CALLBACK(+[](GtkWidget* popover, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             if (GtkWidget* old = gtk_bin_get_child(GTK_BIN(popover))) {
+                                 gtk_widget_destroy(old);
+                             }
+                             const utn::StatusSummary summary = utn::summarise(self->control->getDocumentStatus().get());
+                             GtkWidget* panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+                             gtk_widget_set_margin_start(panel, 12);
+                             gtk_widget_set_margin_end(panel, 12);
+                             gtk_widget_set_margin_top(panel, 12);
+                             gtk_widget_set_margin_bottom(panel, 12);
+                             GtkWidget* heading = gtk_label_new(summary.label.c_str());
+                             gtk_widget_set_halign(heading, GTK_ALIGN_START);
+                             gtk_widget_add_css_class(heading, "utn-context-title");
+                             gtk_box_append(GTK_BOX(panel), heading);
+                             for (const std::string& line: summary.details) {
+                                 GtkWidget* detail = gtk_label_new(line.c_str());
+                                 gtk_label_set_line_wrap(GTK_LABEL(detail), true);
+                                 gtk_label_set_max_width_chars(GTK_LABEL(detail), 44);
+                                 gtk_widget_set_halign(detail, GTK_ALIGN_START);
+                                 gtk_box_append(GTK_BOX(panel), detail);
+                             }
+                             if (summary.offersSave) {
+                                 // The way forward, where the problem is told: the same action as the Save button
+                                 GtkWidget* save = gtk_button_new_with_label(_("Save now"));
+                                 gtk_actionable_set_action_name(GTK_ACTIONABLE(save), "win.save");
+                                 utn::setAccessibleName(save, _("Save now"));
+                                 gtk_box_append(GTK_BOX(panel), save);
+                             }
+                             gtk_container_add(GTK_CONTAINER(popover), panel);
+                             gtk_widget_show_all(panel);
+                         }), this);
+        gtk_menu_button_set_popover(GTK_MENU_BUTTON(statusButton), statusPopover);
+        gtk_box_append(GTK_BOX(content), statusButton);
+        documentHeaderStatusButton = statusButton;
         gtk_widget_set_tooltip_text(content, _("Document name and save status"));
         gtk_container_add(GTK_CONTAINER(item), content);
         gtk_tool_item_set_homogeneous(item, false);
@@ -911,6 +952,7 @@ void MainWindow::appendDocumentHeader() {
                                  self->documentHeader = nullptr;
                                  self->documentHeaderTitle = nullptr;
                                  self->documentHeaderStatus = nullptr;
+                                 self->documentHeaderStatusButton = nullptr;
                                  self->documentHeaderSignature.clear();  // a rebuilt header starts from nothing
                              }
                          }), this);
@@ -970,6 +1012,10 @@ void MainWindow::updateDocumentHeader() {
     gtk_label_set_text(GTK_LABEL(documentHeaderStatus), text.c_str());
     gtk_widget_set_tooltip_text(documentHeaderStatus, tooltip.c_str());
     utn::setAccessibleName(documentHeaderStatus, summary.accessibleName.c_str());
+    if (documentHeaderStatusButton) {
+        utn::setAccessibleName(documentHeaderStatusButton, summary.accessibleName.c_str());
+        gtk_widget_set_tooltip_text(documentHeaderStatusButton, tooltip.c_str());
+    }
 }
 
 void MainWindow::appendWorkspaceMenu() {
@@ -1037,6 +1083,15 @@ void MainWindow::appendWorkspaceMenu() {
                                      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-interface-mode"))));
                          }), this);
         (choice == utn::layout::InterfaceMode::Beginner ? beginnerModeButton : expertModeButton) = button;
+        g_signal_connect(button, "destroy", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
+                             auto* self = static_cast<MainWindow*>(data);
+                             if (self->beginnerModeButton == widget) {
+                                 self->beginnerModeButton = nullptr;
+                             }
+                             if (self->expertModeButton == widget) {
+                                 self->expertModeButton = nullptr;
+                             }
+                         }), this);
         gtk_box_append(GTK_BOX(panel), button);
     }
     updateInterfaceModeButtons();
@@ -1794,8 +1849,20 @@ void MainWindow::showMoreMenu(const std::vector<GtkToolItem*>& moved) {
             continue;
         }
         const auto* label = static_cast<const char*>(g_object_get_data(G_OBJECT(item), utn::OVERFLOW_LABEL_KEY));
+        // An entry is never nameless: fall back to what the button itself is called, and skip it if that is nothing
+        std::string text = label ? label : "";
+        if (text.empty()) {
+            if (const char* tip = gtk_widget_get_tooltip_text(source)) {
+                text = tip;
+            } else if (const char* accessible = atk_object_get_name(gtk_widget_get_accessible(source))) {
+                text = accessible;
+            }
+        }
+        if (text.empty()) {
+            continue;
+        }
         // The same action, so the entry is enabled, disabled and activated exactly as the button it stands in for
-        GtkWidget* entry = utn::appendMenuButton(panel, popover, label ? label : "");
+        GtkWidget* entry = utn::appendMenuButton(panel, popover, text.c_str());
         gtk_actionable_set_action_name(GTK_ACTIONABLE(entry), gtk_actionable_get_action_name(GTK_ACTIONABLE(source)));
         if (GVariant* target = gtk_actionable_get_action_target_value(GTK_ACTIONABLE(source))) {
             gtk_actionable_set_action_target_value(GTK_ACTIONABLE(entry), target);
