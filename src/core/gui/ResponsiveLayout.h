@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 #include <vector>
 
 namespace utn::layout {
@@ -43,6 +44,37 @@ constexpr bool nextCompactLayout(bool wasCompact, int width) {
 /// accessible names.
 constexpr bool railLabelsVisible(int toolLabelMode, bool compact) {
     return toolLabelMode == LABELS_SHOW || (toolLabelMode == LABELS_AUTOMATIC && !compact);
+}
+
+/// How much the interface explains itself. Both modes offer exactly the same tools and actions; only the amount of
+/// guidance differs, never what is possible, and never the document, Student View privacy or annotation behaviour.
+/// Custom is whatever the teacher had before choosing a mode, and what any later individual choice leaves behind.
+enum class InterfaceMode { Custom, Beginner, Expert };
+
+/// @return The "Tool labels" value a mode sets, or -1 when it sets nothing (Custom). Beginner names every tool, Expert
+/// shows icons only; the names stay in tooltips and accessible names either way.
+constexpr int toolLabelModeFor(InterfaceMode mode) {
+    return mode == InterfaceMode::Beginner ? LABELS_SHOW : mode == InterfaceMode::Expert ? LABELS_HIDE : -1;
+}
+
+/// @return Whether the short explanations under the tool settings are shown. Expert drops them.
+constexpr bool contextHintsShown(InterfaceMode mode) { return mode != InterfaceMode::Expert; }
+
+/// @return The mode to keep after the teacher picks a "Tool labels" value by hand. A choice that agrees with the mode
+/// keeps it; a different one is the teacher's own arrangement, so the mode becomes Custom instead of being overridden.
+constexpr InterfaceMode modeAfterLabelChoice(InterfaceMode mode, int toolLabelMode) {
+    return toolLabelModeFor(mode) == toolLabelMode ? mode : InterfaceMode::Custom;
+}
+
+/// The saved form. Anything unknown, including nothing saved, is Custom: an existing profile keeps what it had.
+inline InterfaceMode parseInterfaceMode(std::string_view saved) {
+    return saved == "beginner" ? InterfaceMode::Beginner :
+           saved == "expert"   ? InterfaceMode::Expert :
+                                 InterfaceMode::Custom;
+}
+
+constexpr const char* interfaceModeName(InterfaceMode mode) {
+    return mode == InterfaceMode::Beginner ? "beginner" : mode == InterfaceMode::Expert ? "expert" : "custom";
 }
 
 

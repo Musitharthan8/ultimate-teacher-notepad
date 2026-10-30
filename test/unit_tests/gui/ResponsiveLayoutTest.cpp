@@ -186,3 +186,32 @@ TEST(ResponsiveLayout, AppBarMovesTheSamePrefixWhateverTheWidthOfTheItems) {
     const std::vector<int> movable{20, 60, 36};
     EXPECT_EQ(appBarItemsToOverflow(850, 800, movable, 10), 2u);  // 20 + 60 - 10 = 70 >= 50; 20 - 10 = 10 < 50
 }
+
+TEST(ResponsiveLayout, BeginnerNamesEveryToolAndExpertShowsIconsOnly) {
+    EXPECT_EQ(toolLabelModeFor(InterfaceMode::Beginner), LABELS_SHOW);
+    EXPECT_EQ(toolLabelModeFor(InterfaceMode::Expert), LABELS_HIDE);
+    EXPECT_EQ(toolLabelModeFor(InterfaceMode::Custom), -1) << "Custom sets nothing: the teacher's own labels stay";
+    EXPECT_TRUE(contextHintsShown(InterfaceMode::Beginner));
+    EXPECT_TRUE(contextHintsShown(InterfaceMode::Custom)) << "an existing profile keeps its hints";
+    EXPECT_FALSE(contextHintsShown(InterfaceMode::Expert));
+}
+
+TEST(ResponsiveLayout, AChoiceThatAgreesWithTheModeKeepsItAndADifferentOneIsTheTeachersOwn) {
+    EXPECT_EQ(modeAfterLabelChoice(InterfaceMode::Expert, LABELS_HIDE), InterfaceMode::Expert);
+    EXPECT_EQ(modeAfterLabelChoice(InterfaceMode::Beginner, LABELS_SHOW), InterfaceMode::Beginner);
+    EXPECT_EQ(modeAfterLabelChoice(InterfaceMode::Expert, LABELS_SHOW), InterfaceMode::Custom)
+            << "a by-hand choice is never silently overridden by the mode";
+    EXPECT_EQ(modeAfterLabelChoice(InterfaceMode::Beginner, LABELS_AUTOMATIC), InterfaceMode::Custom);
+    for (int labels: {LABELS_AUTOMATIC, LABELS_SHOW, LABELS_HIDE}) {
+        EXPECT_EQ(modeAfterLabelChoice(InterfaceMode::Custom, labels), InterfaceMode::Custom);
+    }
+}
+
+TEST(ResponsiveLayout, TheSavedModeRoundTripsAndAnythingElseIsCustom) {
+    for (InterfaceMode mode: {InterfaceMode::Custom, InterfaceMode::Beginner, InterfaceMode::Expert}) {
+        EXPECT_EQ(parseInterfaceMode(interfaceModeName(mode)), mode);
+    }
+    for (const char* unknown: {"", "Expert", "advanced", "beginner ", "0"}) {
+        EXPECT_EQ(parseInterfaceMode(unknown), InterfaceMode::Custom) << "'" << unknown << "'";
+    }
+}

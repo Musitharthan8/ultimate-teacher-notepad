@@ -1023,6 +1023,81 @@ TEST_F(ClassroomWorkflow, thePresetsMenuIsInThePenAndHighlighterSettingsAndAppli
     EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
 }
 
+namespace {
+bool contextHintShown(GtkWidget* widget) {
+    if (GTK_IS_LABEL(widget) && gtk_widget_get_visible(widget) &&
+        gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-context-hint")) {
+        return true;
+    }
+    bool shown = false;
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child && !shown; child = child->next) {
+            shown = contextHintShown(GTK_WIDGET(child->data));
+        }
+        g_list_free(children);
+    }
+    return shown;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, interfaceModesChangeOnlyTheGuidanceAndNeverTheToolsOrTheTeachersOwnChoices) {
+    using utn::layout::InterfaceMode;
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    control->selectTool(TOOL_HAND);  // a tool whose settings carry an explanation
+    settle();
+
+    window->setInterfaceMode(InterfaceMode::Beginner);
+    settle();
+    EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Beginner);
+    EXPECT_EQ(window->getToolLabelMode(), utn::layout::LABELS_SHOW);
+    expectCaptions(rail, true, "beginner");
+    EXPECT_TRUE(contextHintShown(window->getWindow())) << "Beginner explains the tool";
+    const size_t beginnerTools = buttonsIn(rail).size();
+
+    window->setInterfaceMode(InterfaceMode::Expert);
+    settle();
+    EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Expert);
+    EXPECT_EQ(window->getToolLabelMode(), utn::layout::LABELS_HIDE);
+    expectCaptions(rail, false, "expert");
+    EXPECT_FALSE(contextHintShown(window->getWindow())) << "Expert drops the explanation";
+    EXPECT_EQ(buttonsIn(rail).size(), beginnerTools) << "the same tools are on the rail in both modes";
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HAND) << "choosing a mode never changes the active tool";
+
+    // Teach, Mark and Present never touch the mode or the labels
+    for (int workspace: {1, 2, 0}) {
+        window->setTeacherWorkspace(workspace);
+        settle();
+        EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Expert) << "workspace " << workspace;
+        EXPECT_EQ(window->getToolLabelMode(), utn::layout::LABELS_HIDE) << "workspace " << workspace;
+    }
+
+    // What a restart would read
+    std::string saved;
+    ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getString("interfaceMode", saved));
+    EXPECT_EQ(saved, "expert");
+
+    // A label choice made by hand afterwards is kept; the mode steps aside instead of overriding it
+    window->setToolLabelMode(utn::layout::LABELS_SHOW);
+    EXPECT_EQ(window->getToolLabelMode(), utn::layout::LABELS_SHOW) << "the teacher's choice stands";
+    EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Custom);
+    ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getString("interfaceMode", saved));
+    EXPECT_EQ(saved, "custom");
+
+    // And a choice that agrees with a mode keeps that mode
+    window->setInterfaceMode(InterfaceMode::Expert);
+    window->setToolLabelMode(utn::layout::LABELS_HIDE);
+    EXPECT_EQ(window->getInterfaceMode(), InterfaceMode::Expert);
+
+    window->setInterfaceMode(InterfaceMode::Custom);
+    window->setToolLabelMode(2);  // the shipped default, for the tests after this one
+    control->selectTool(TOOL_PEN);
+}
+
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as
 // in the app: a width the window cannot reach is clamped, and the assertion reads what was really given.
 TEST_F(ClassroomWorkflow, appBarFitsOrOffersMoreAtEveryRealWindowWidth) {

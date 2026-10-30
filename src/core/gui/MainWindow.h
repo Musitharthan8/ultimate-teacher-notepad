@@ -23,6 +23,7 @@
 #include <glib.h>         // for gpointer, gboolean, gint
 #include <gtk/gtk.h>      // for GtkWidget, GtkCheckMenu...
 
+#include "gui/ResponsiveLayout.h"  // for InterfaceMode
 #include "util/Point.h"
 #include "util/raii/GObjectSPtr.h"
 
@@ -134,6 +135,11 @@ public:
     /// UTN: tool captions under the rail icons: 0 = automatic (follows the width), 1 = show, 2 = hide.
     /// Re-applies at the last width given to updateCompactLayout().
     void setToolLabelMode(int mode);
+    /// UTN: how much the interface explains itself (see ResponsiveLayout.h). Beginner shows tool names and hints, Expert
+    /// icons only and no hints; both offer the same tools. Choosing one sets the tool labels once; a later by-hand
+    /// label choice that differs makes the mode Custom rather than being overridden. Workspaces never change it.
+    void setInterfaceMode(utn::layout::InterfaceMode mode);
+    utn::layout::InterfaceMode getInterfaceMode() const { return interfaceMode; }
     int getToolLabelMode() const { return toolLabels; }
 
     /// Teacher workspace: 0 = inspector, 1 = rail only, 2 = canvas only.
@@ -265,6 +271,10 @@ private:
     int inspectorWidth = 250;
     int inspectorAvailableWidth = 0;
     int toolLabels = 2;  ///< automatic, show, hide (paper-and-ink default: icon-only rail; a saved choice still wins)
+    utn::layout::InterfaceMode interfaceMode = utn::layout::InterfaceMode::Custom;
+    GtkWidget* beginnerModeButton = nullptr;  ///< the Workspace menu entries, marked with the current mode
+    GtkWidget* expertModeButton = nullptr;
+    void updateInterfaceModeButtons();
     bool inspectorApplying = false;
     bool inspectorAttached = true;
     GtkWidget* inspectorPaned = nullptr;

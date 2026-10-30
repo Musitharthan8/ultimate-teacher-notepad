@@ -22,6 +22,7 @@
 #include "control/settings/Settings.h"
 #include "control/tools/TextEditor.h"
 #include "gui/MainWindow.h"
+#include "gui/ResponsiveLayout.h"
 #include "gui/XournalView.h"
 #include "model/Font.h"
 #include "model/Text.h"
@@ -579,6 +580,10 @@ void ToolUtnContextBar::appendSeparator() {
 }
 
 void ToolUtnContextBar::appendHint(const char* text) {
+    // Expert mode drops the short explanations; the controls themselves are the same
+    if (const MainWindow* window = control->getWindow(); window && !utn::layout::contextHintsShown(window->getInterfaceMode())) {
+        return;
+    }
     GtkWidget* label = gtk_label_new(text);
     gtk_widget_add_css_class(label, "utn-context-hint");
     gtk_label_set_line_wrap(GTK_LABEL(label), true);

@@ -124,6 +124,9 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     workspace.getInt("inspectorWidth", inspectorWidth);
     workspace.getInt("workspaceTools", teacherWorkspace);
     workspace.getInt("toolLabels", toolLabels);
+    std::string savedInterfaceMode;
+    workspace.getString("interfaceMode", savedInterfaceMode);  // absent in an existing profile: Custom, nothing changes
+    interfaceMode = utn::layout::parseInterfaceMode(savedInterfaceMode);
     workspace.getBool("inkDockEnabled", inkDockEnabled);
     inspectorWidth = std::clamp(inspectorWidth, 150, 420);
     teacherWorkspace = std::clamp(teacherWorkspace, 0, 2);
@@ -844,6 +847,8 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 auto MainWindow::clearToolbar() -> const ToolbarData* {
     // The "More" button is a child of the app bar and goes with it
     this->appBarMore = nullptr;
+    this->beginnerModeButton = nullptr;  // the Workspace menu goes with the toolbar
+    this->expertModeButton = nullptr;
     this->appBarMoved.clear();
     this->appBarTight = false;
     this->appBarOverflowing = false;
@@ -1013,6 +1018,27 @@ void MainWindow::appendWorkspaceMenu() {
         utn::setAccessibleName(button, labelChoices[static_cast<size_t>(mode)]);
         gtk_box_append(GTK_BOX(panel), button);
     }
+    gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* interfaceTitle = gtk_label_new(_("Interface"));
+    gtk_widget_set_halign(interfaceTitle, GTK_ALIGN_START);
+    gtk_widget_add_css_class(interfaceTitle, "utn-context-title");
+    gtk_box_append(GTK_BOX(panel), interfaceTitle);
+    // Same tools and actions in both; only how much the screen explains. A mode sets the tool labels, and a label
+    // choice made by hand afterwards is kept.
+    for (const utn::layout::InterfaceMode choice: {utn::layout::InterfaceMode::Beginner, utn::layout::InterfaceMode::Expert}) {
+        GtkWidget* button = gtk_button_new();
+        gtk_widget_set_tooltip_text(button, choice == utn::layout::InterfaceMode::Beginner ?
+                                                    _("Show tool names and short explanations under the settings") :
+                                                    _("Icons only and no explanations: for teachers who know the tools"));
+        g_object_set_data(G_OBJECT(button), "utn-interface-mode", GINT_TO_POINTER(static_cast<int>(choice)));
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             static_cast<MainWindow*>(data)->setInterfaceMode(static_cast<utn::layout::InterfaceMode>(
+                                     GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-interface-mode"))));
+                         }), this);
+        (choice == utn::layout::InterfaceMode::Beginner ? beginnerModeButton : expertModeButton) = button;
+        gtk_box_append(GTK_BOX(panel), button);
+    }
+    updateInterfaceModeButtons();
     gtk_container_add(GTK_CONTAINER(popover), panel);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu), popover);
     gtk_container_add(GTK_CONTAINER(item), menu);
@@ -1865,9 +1891,42 @@ void MainWindow::refitAppBar() {
 
 void MainWindow::setToolLabelMode(int mode) {
     this->toolLabels = std::clamp(mode, 0, 2);
-    this->control->getSettings()->getCustomElement("utn").setInt("toolLabels", this->toolLabels);
+    auto& workspace = this->control->getSettings()->getCustomElement("utn");
+    workspace.setInt("toolLabels", this->toolLabels);
+    // A choice that disagrees with the mode is the teacher's own arrangement: the mode steps aside, never overrides it
+    const auto kept = utn::layout::modeAfterLabelChoice(this->interfaceMode, this->toolLabels);
+    if (kept != this->interfaceMode) {
+        this->interfaceMode = kept;
+        workspace.setString("interfaceMode", utn::layout::interfaceModeName(kept));
+        updateInterfaceModeButtons();
+    }
     this->compactLayoutDirty = true;
     updateCompactLayout(this->layoutWidth);
+}
+
+void MainWindow::setInterfaceMode(utn::layout::InterfaceMode mode) {
+    this->interfaceMode = mode;
+    this->control->getSettings()->getCustomElement("utn").setString("interfaceMode", utn::layout::interfaceModeName(mode));
+    if (const int labels = utn::layout::toolLabelModeFor(mode); labels >= 0) {
+        setToolLabelMode(labels);  // agrees with the mode, so the mode is kept
+    }
+    updateInterfaceModeButtons();
+    // The settings panel shows or drops its hints with the mode
+    this->control->getToolHandler()->fireToolChanged();
+}
+
+void MainWindow::updateInterfaceModeButtons() {
+    const auto mark = [&](GtkWidget* button, const char* name, utn::layout::InterfaceMode mode) {
+        if (!button) {
+            return;
+        }
+        const bool current = this->interfaceMode == mode;
+        const std::string label = std::string(current ? "\xE2\x97\x8F " : "   ") + name;
+        gtk_button_set_label(GTK_BUTTON(button), label.c_str());
+        utn::setAccessibleName(button, current ? (std::string(name) + ", " + _("selected")).c_str() : name);
+    };
+    mark(beginnerModeButton, _("Beginner: tool names and hints"), utn::layout::InterfaceMode::Beginner);
+    mark(expertModeButton, _("Expert: compact, icons only"), utn::layout::InterfaceMode::Expert);
 }
 
 void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
