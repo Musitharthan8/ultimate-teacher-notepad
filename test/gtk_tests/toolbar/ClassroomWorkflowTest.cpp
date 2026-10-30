@@ -41,6 +41,7 @@
 #include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
+#include "gui/toolbarMenubar/PenPresetsMenu.h"
 #include "gui/toolbarMenubar/RevealActions.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
@@ -869,6 +870,157 @@ TEST_F(ClassroomWorkflow, headerShowsEveryStateAsAShapeAWordAndASeverityClassWit
     EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "⚠ Export failed");
     EXPECT_TRUE(hasClass("utn-status-error"));
     resetDocumentStatus(control.get());
+}
+
+namespace {
+std::vector<GtkWidget*> buttonsIn(GtkWidget* widget) {
+    std::vector<GtkWidget*> buttons;
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* w) {
+        if (GTK_IS_BUTTON(w)) {
+            buttons.push_back(w);
+        }
+        if (GTK_IS_CONTAINER(w)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(w));
+            for (GList* child = children; child; child = child->next) {
+                walk(GTK_WIDGET(child->data));
+            }
+            g_list_free(children);
+        }
+    };
+    walk(widget);
+    return buttons;
+}
+
+uint32_t toolRgb(Control* control) { return static_cast<uint32_t>(control->getToolHandler()->getColor()) & 0xFFFFFFu; }
+}  // namespace
+
+TEST_F(ClassroomWorkflow, applyingAPresetSetsTheRealToolAndOnlyThenIsItSelected) {
+    auto* tools = control->getToolHandler();
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+
+    // A pen in a state that matches no preset
+    control->selectTool(TOOL_PEN);
+    tools->setColor(Color(0xFF123456U), false);
+    tools->setPenSize(TOOL_SIZE_VERY_FINE);
+    EXPECT_EQ(control->activePenPresetId(), "");
+    for (const auto& entry: utn::presetMenuEntries(control.get())) {
+        EXPECT_FALSE(entry.active) << entry.name << " must not look selected before it is applied";
+    }
+
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    EXPECT_EQ(tools->getToolType(), TOOL_PEN);
+    EXPECT_EQ(toolRgb(control.get()), 0xD93025u);
+    EXPECT_EQ(tools->getColor().alpha, 255);
+    EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_MEDIUM);
+    EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::RED_MARKING_ID);
+    for (const auto& entry: utn::presetMenuEntries(control.get())) {
+        EXPECT_EQ(entry.active, entry.id == utn::PenPresetStore::RED_MARKING_ID) << entry.name;
+    }
+
+    // A highlighter preset switches the tool and carries its opacity
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID));
+    EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER);
+    EXPECT_EQ(toolRgb(control.get()), 0xFFE94Au);
+    EXPECT_EQ(tools->getColor().alpha, 128);
+    EXPECT_EQ(tools->getHighlighterSize(), TOOL_SIZE_THICK);
+    EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
+
+    // Changing the tool by hand drops the mark: a preset never stays selected after it stopped being true
+    tools->setHighlighterSize(TOOL_SIZE_FINE);
+    EXPECT_EQ(control->activePenPresetId(), "");
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::BLUE_EXPLANATION_ID));
+    tools->setColor(Color(0xFF00AA00U), false);
+    EXPECT_EQ(control->activePenPresetId(), "") << "another colour";
+
+    EXPECT_FALSE(control->applyPenPreset("no-such-preset")) << "nothing is applied for an unknown preset";
+    control->selectTool(TOOL_ERASER);
+    EXPECT_EQ(control->activePenPresetId(), "") << "no preset is active while another tool is";
+    EXPECT_FALSE(control->currentPenPresetValues().has_value());
+}
+
+TEST_F(ClassroomWorkflow, savingAPresetKeepsTheCurrentToolValuesAndSurvivesInTheSettings) {
+    auto* tools = control->getToolHandler();
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    control->selectTool(TOOL_PEN);
+    tools->setColor(Color(0xFF1B7F5CU), false);
+    tools->setPenSize(TOOL_SIZE_THICK);
+
+    auto values = control->currentPenPresetValues();
+    ASSERT_TRUE(values.has_value());
+    values->name = "Green ticks";
+    std::string id;
+    control->updatePenPresets([&](utn::PenPresetStore& store) { id = store.add(*values); });
+    ASSERT_FALSE(id.empty());
+    EXPECT_EQ(control->activePenPresetId(), id) << "the tool is in exactly the state it was saved from";
+
+    // What a restart would read back is the saved string in the settings
+    std::string saved;
+    ASSERT_TRUE(control->getSettings()->getCustomElement("utn").getString("penPresets", saved));
+    const utn::PenPresetStore reloaded = utn::PenPresetStore::parse(saved);
+    ASSERT_NE(reloaded.find(id), nullptr);
+    EXPECT_EQ(reloaded.find(id)->name, "Green ticks");
+    EXPECT_EQ(reloaded.find(id)->rgb, 0x1B7F5Cu);
+    EXPECT_EQ(reloaded.find(id)->size, static_cast<int>(TOOL_SIZE_THICK));
+    EXPECT_EQ(reloaded.all().size(), control->getPenPresets().all().size());
+
+    // Applying it later brings the same setup back
+    tools->setColor(Color(0xFFFF0000U), false);
+    ASSERT_TRUE(control->applyPenPreset(id));
+    EXPECT_EQ(toolRgb(control.get()), 0x1B7F5Cu);
+    EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_THICK);
+
+    control->updatePenPresets([&](utn::PenPresetStore& store) { store.remove(id); });
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+}
+
+TEST_F(ClassroomWorkflow, thePresetsMenuIsInThePenAndHighlighterSettingsAndAppliesWhenAnEntryIsActivated) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    // The settings panel folds away in a narrow window; this test needs it, so it does not depend on an earlier test
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    ASSERT_GE(gtk_widget_get_allocated_width(window->getWindow()), utn::layout::INSPECTOR_RETURN_ABOVE);
+    settle();
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    control->selectTool(TOOL_PEN);
+    settle();
+
+    for (const ToolType tool: {TOOL_PEN, TOOL_HIGHLIGHTER}) {
+        control->selectTool(tool);
+        settle();
+        auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Presets");
+        ASSERT_NE(menu, nullptr) << "no Presets menu for tool " << tool;
+        EXPECT_TRUE(gtk_widget_get_can_focus(menu)) << "keyboard users reach it with Tab";
+    }
+    control->selectTool(TOOL_ERASER);
+    settle();
+    EXPECT_EQ(menuButtonAccessibleNamed(window->getWindow(), "Presets"), nullptr) << "presets are for pens only";
+
+    control->selectTool(TOOL_PEN);
+    settle();
+    auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Presets");
+    ASSERT_NE(menu, nullptr);
+    auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu));
+    ASSERT_NE(popover, nullptr);
+    // The entries are named buttons a keyboard can reach, one per preset, then save and manage
+    const auto buttons = buttonsIn(GTK_WIDGET(popover));
+    ASSERT_EQ(buttons.size(), control->getPenPresets().all().size() + 2);
+    for (GtkWidget* button: buttons) {
+        EXPECT_TRUE(gtk_widget_get_can_focus(button));
+        EXPECT_NE(std::string(atk_object_get_name(gtk_widget_get_accessible(button))), "");
+    }
+    // Activating the Yellow highlighter entry applies it for real
+    GtkWidget* yellow = nullptr;
+    for (GtkWidget* button: buttons) {
+        const char* name = atk_object_get_name(gtk_widget_get_accessible(button));
+        if (name && std::string(name).find("Yellow highlighter") != std::string::npos) {
+            yellow = button;
+        }
+    }
+    ASSERT_NE(yellow, nullptr);
+    gtk_button_clicked(GTK_BUTTON(yellow));
+    settle();
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HIGHLIGHTER);
+    EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
 }
 
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as

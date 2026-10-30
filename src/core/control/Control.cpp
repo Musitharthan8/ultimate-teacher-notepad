@@ -140,6 +140,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
     this->settings = new Settings(std::move(name));
     this->settings->load();
     this->loadPaletteFromSettings();
+    this->loadPenPresets();
 
     this->pageTypes = new PageTypeHandler(gladeSearchPath);
 
@@ -2343,6 +2344,70 @@ void Control::updateWindowTitle() {
     // The status comes from the facts above, never from the title text
     updateDocumentStatus([&](utn::DocumentStatusModel& status) { status.setDirty(hasEdits, neverSaved); });
     gtk_window_set_title(getGtkWindow(), title.c_str());
+}
+
+namespace {
+constexpr const char* PEN_PRESETS_SETTING = "penPresets";
+}  // namespace
+
+void Control::loadPenPresets() {
+    std::string saved;
+    settings->getCustomElement("utn").getString(PEN_PRESETS_SETTING, saved);  // stays empty when never saved
+    this->penPresets = utn::PenPresetStore::parse(saved);
+}
+
+void Control::updatePenPresets(const std::function<void(utn::PenPresetStore&)>& change) {
+    change(this->penPresets);
+    settings->getCustomElement("utn").setString(PEN_PRESETS_SETTING, this->penPresets.serialise());
+    settings->customSettingsChanged();
+}
+
+bool Control::applyPenPreset(const std::string& id) {
+    const utn::PenPreset* preset = this->penPresets.find(id);
+    if (!preset) {
+        return false;
+    }
+    const bool pen = preset->tool == utn::PresetTool::Pen;
+    const ToolType type = pen ? TOOL_PEN : TOOL_HIGHLIGHTER;
+    selectTool(type);
+    // The whole colour goes in, opacity included. Not as a "user selection": that would recolour whatever is selected.
+    toolHandler->setColor(Color(static_cast<uint8_t>(preset->rgb >> 16U), static_cast<uint8_t>(preset->rgb >> 8U),
+                                static_cast<uint8_t>(preset->rgb), static_cast<uint8_t>(preset->opacity)),
+                          false);
+    const ToolSize size = static_cast<ToolSize>(preset->size);
+    if (pen) {
+        toolHandler->setPenSize(size);
+    } else {
+        toolHandler->setHighlighterSize(size);
+    }
+    return true;
+}
+
+std::optional<utn::PenPreset> Control::currentPenPresetValues() const {
+    const ToolType type = toolHandler->getToolType();
+    if (type != TOOL_PEN && type != TOOL_HIGHLIGHTER) {
+        return std::nullopt;
+    }
+    utn::PenPreset values;
+    values.tool = type == TOOL_PEN ? utn::PresetTool::Pen : utn::PresetTool::Highlighter;
+    const Color colour = toolHandler->getColor();
+    values.rgb = static_cast<uint32_t>(colour) & 0xFFFFFFu;
+    values.opacity = colour.alpha;
+    values.size = static_cast<int>(type == TOOL_PEN ? toolHandler->getPenSize() : toolHandler->getHighlighterSize());
+    return values;
+}
+
+std::string Control::activePenPresetId() const {
+    const auto values = currentPenPresetValues();
+    if (!values) {
+        return {};
+    }
+    for (const utn::PenPreset& preset: this->penPresets.all()) {
+        if (utn::matchesTool(preset, values->tool, values->rgb, values->size, values->opacity)) {
+            return preset.id;
+        }
+    }
+    return {};
 }
 
 void Control::updateDocumentStatus(const std::function<void(utn::DocumentStatusModel&)>& change) {

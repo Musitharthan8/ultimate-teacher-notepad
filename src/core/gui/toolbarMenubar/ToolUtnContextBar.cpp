@@ -38,6 +38,7 @@
 #include "EraserModes.h"     // for ERASER_MODES
 #include "ShapePicker.h"     // for createShapePicker
 #include "util/GVariantTemplate.h"  // for getGVariantValue
+#include "PenPresetsMenu.h"
 #include "RevealActions.h"
 #include "UtnWidgets.h"
 
@@ -805,6 +806,7 @@ void ToolUtnContextBar::appendShapePicker(DrawingType current) {
 void ToolUtnContextBar::appendPenControls() {
     appendColourControls(Palette::Ink);
     appendSizeControls(TOOL_PEN);
+    gtk_box_append(box, utn::createPresetsMenuButton(control));
     appendSeparator();
 
     // A teacher's deliberate stroke pattern overrides the solid default for freehand pen.
@@ -882,6 +884,7 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
 void ToolUtnContextBar::appendHighlightControls() {
     appendColourControls(Palette::Highlight);
     appendSizeControls(TOOL_HIGHLIGHTER);
+    gtk_box_append(box, utn::createPresetsMenuButton(control));
     appendSeparator();
 
     Color colour = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();

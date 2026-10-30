@@ -34,6 +34,7 @@
 #include "model/DocumentHandler.h"                  // for DocumentHandler
 #include "model/DocumentListener.h"                 // for DocumentListener
 #include "model/DocumentStatus.h"                   // for DocumentStatusModel
+#include "model/PenPresets.h"                       // for PenPresetStore
 #include "model/GeometryTool.h"                     // for GeometryTool
 #include "model/PageRef.h"                          // for PageRef
 #include "undo/UndoRedoHandler.h"                   // for UndoRedoHandler (ptr only)
@@ -151,6 +152,19 @@ public:
      */
     const utn::DocumentStatusModel& getDocumentStatus() const { return documentStatus; }
     void updateDocumentStatus(const std::function<void(utn::DocumentStatusModel&)>& change);
+
+    /**
+     * Favourite pen presets (see model/PenPresets.h). They are kept in the settings and survive a restart; every change
+     * goes through updatePenPresets() so it is saved.
+     */
+    const utn::PenPresetStore& getPenPresets() const { return penPresets; }
+    void updatePenPresets(const std::function<void(utn::PenPresetStore&)>& change);
+    /// Selects the preset's tool and sets its colour, size and opacity. False when there is no such preset.
+    bool applyPenPreset(const std::string& id);
+    /// The preset the active tool is in exactly the state of, or empty. Derived from the tool, never remembered.
+    std::string activePenPresetId() const;
+    /// The preset's settings taken from the active pen or highlighter, or nothing when another tool is active
+    std::optional<utn::PenPreset> currentPenPresetValues() const;
 
     /**
      * Close the current document, prompting to save unsaved changes.
@@ -561,6 +575,8 @@ private:
 
     Settings* settings = nullptr;
     utn::DocumentStatusModel documentStatus;
+    utn::PenPresetStore penPresets;
+    void loadPenPresets();
     std::unique_ptr<Palette> palette;
     MainWindow* win = nullptr;
 
