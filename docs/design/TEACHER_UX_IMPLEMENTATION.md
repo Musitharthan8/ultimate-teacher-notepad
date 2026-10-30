@@ -58,7 +58,10 @@ Verified on the final code: build exit 0; units 478 passed; GTK 100/100 at 120 D
 
 ### Known gaps (Phase 2)
 
-- NOT TESTED natively: opening the Presets menu, saving a preset, the manage dialog, the Customise dialog, restart persistence in the real app. Covered by GTK tests (real widgets, real tools, settings string round trip) but not by a real mouse or keyboard run.
+- Fixed during native testing: the Workspace menu panel was never shown (`gtk_widget_show_all` was missing in `MainWindow::appendWorkspaceMenu`), so the Phase 2 entries were unreachable. The Presets button moved to the top of the pen and highlighter settings (applying a preset rebuilds the panel and resets its scroll), and gets a visible edge (`button.utn-presets-button`; GTK 3 puts the class on the button itself, and the toolbar rule that makes idle buttons transparent needs the same `:not()` chain to be outranked).
+- Verified natively with a real mouse (120 DPI only): Workspace menu opens with every entry; Customise tool dock (pin Shapes moves it to the rail top, Reset restores it, essential tools show "(always shown)"); Presets menu opens, "Red marking pen" draws a red stroke, and the menu marks it with a bullet when reopened.
+- NOT TESTED natively: saving a preset, the manage dialog, restart persistence in the real app, dark mode, High Contrast, touch and stylus. Covered by GTK tests (real widgets, real tools, settings string round trip) but not by a real mouse or keyboard run.
+- The colour dot in the tool rail does not change when a preset changes the pen colour (seen in a native capture; cause not investigated); the ink-colour list in the settings panel and the drawn stroke are correct.
 - Persistence is tested as the saved string round trip; loading in `Control`'s constructor is not exercised by a second `Control`.
 - Expert mode does not add shortcut emphasis beyond the existing accelerator tooltips.
 - Dock: only the teacher rail (`toolbarLeft1`) is customisable; the app bar and classic layouts are not. "Compact" dock presentation is covered by the Expert icon-only labels, not a separate setting. Grouping is the shipped groups plus a favourites group; custom groups are not offered.

@@ -1242,6 +1242,24 @@ window.utnShell .utn-status-button { padding: 0 4px; min-width: 0; min-height: 0
    both light and dark surfaces, where a translucent accent ring may not reach 3:1. */
 .utn-dialog button:focus,
 .utn-dialog entry:focus { outline: none; box-shadow: 0 0 0 2px @utn_paper_ring, 0 0 0 4px @utn_paper_surface; }
+/* The Presets menu must read as a button, with a visible edge, beside the other settings buttons */
+window.utnShell button.utn-presets-button,
+window.utnShell button.utn-presets-button:not(:checked):not(:active):not(:hover) {
+    border: 1px solid @utn_paper_muted;
+    border-radius: 8px;
+    padding: 4px 12px;
+    background-image: none;
+    background-color: @utn_paper_surface;
+    color: @utn_paper_text;
+}
+window.utnShell.darkMode button.utn-presets-button,
+window.utnShell.darkMode button.utn-presets-button:not(:checked):not(:active):not(:hover) {
+    border-color: @utn_paper_dark_muted;
+    background-color: @utn_paper_dark_surface;
+    color: @utn_paper_dark_text;
+}
+window.utnShell.utnHighContrast button.utn-presets-button,
+window.utnShell.utnHighContrast button.utn-presets-button:not(:checked):not(:active):not(:hover) { border-color: @utn_hc_fg; background-color: @utn_hc_bg; color: @utn_hc_fg; }
 /* Small glyph buttons still need a target a finger or a shaky hand can hit */
 .utn-dock-button { min-width: 28px; min-height: 28px; }
 /* Teach / Mark / Present as one segmented control */

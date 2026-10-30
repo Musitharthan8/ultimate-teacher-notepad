@@ -262,6 +262,7 @@ GtkWidget* createPresetsMenuButton(Control* control) {
     GtkMenuButton* button = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_button_set_label(GTK_BUTTON(button), _("Presets"));
     gtk_widget_set_focus_on_click(GTK_WIDGET(button), false);  // keyboard users can still Tab to it
+    gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(button)), "utn-presets-button");
     gtk_widget_set_tooltip_text(GTK_WIDGET(button), _("Apply a saved pen or highlighter setup in one click"));
     utn::setAccessibleName(GTK_WIDGET(button), _("Presets"));
     GtkWidget* popover = gtk_popover_new(nullptr);
