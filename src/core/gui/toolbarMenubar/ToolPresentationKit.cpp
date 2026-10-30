@@ -18,10 +18,12 @@
 #include "gui/MainWindow.h"
 #include "gui/PageView.h"
 #include "gui/XournalView.h"
+#include "model/ClassroomMode.h"
 #include "util/gtk4_helper.h"
 #include "util/raii/GVariantSPtr.h"
 #include "util/i18n.h"
 
+#include "ToolStudentView.h"
 #include "UtnWidgets.h"
 
 namespace {
@@ -78,13 +80,48 @@ struct PresentState {
     GtkWidget* spotlight = nullptr;
     GtkWidget* curtain = nullptr;
     GtkWidget* exit = nullptr;
+    GtkWidget* status = nullptr;  ///< says in words what is on
+    GtkWidget* back = nullptr;    ///< "Back to normal": overlays, Freeze and Blank together
+    GtkWidget* freeze = nullptr;
+    GtkWidget* blank = nullptr;
+    GtkWidget* studentWindow = nullptr;
 };
 
+/// Return everything to the ordinary document view. Saved work is never touched.
+void backToNormal(Control* control, ToolStudentView* students) {
+    exitPresentationOverlay(control);
+    if (students) {
+        students->restoreNormal();
+    }
+}
+
 /// Say which overlay is on in words (never colour alone), and offer the way back only while there is one
-void refreshPresentState(const PresentState& ui, Control* control) {
+void refreshPresentState(const PresentState& ui, Control* control, ToolStudentView* students) {
     auto* tools = control->getToolHandler();
     const bool spotlight = tools->isSpotlightEnabled();
     const bool curtain = tools->isCurtainEnabled();
+    const bool frozen = students && students->isFrozen();
+    const bool blanked = students && students->isBlanked();
+    const auto summary = utn::summariseClassroom({spotlight, curtain, frozen, blanked});
+    if (ui.status) {
+        gtk_label_set_text(GTK_LABEL(ui.status), summary.label.c_str());
+    }
+    if (ui.back) {
+        gtk_widget_set_sensitive(ui.back, summary.anyActive());
+    }
+    if (students) {
+        if (ui.freeze) {
+            utn::setMenuButtonLabel(ui.freeze, frozen ? _("Resume live view") : _("Freeze students' screen"));
+            gtk_widget_set_sensitive(ui.freeze, students->isWindowOpen());
+        }
+        if (ui.blank) {
+            utn::setMenuButtonLabel(ui.blank, blanked ? _("Show the page to students again") : _("Blank students' screen"));
+        }
+        if (ui.studentWindow) {
+            utn::setMenuButtonLabel(ui.studentWindow, students->isWindowOpen() ? _("Close Student View") :
+                                                                                   _("Open Student View on the projector"));
+        }
+    }
     if (ui.spotlight) {
         utn::setMenuButtonLabel(ui.spotlight, spotlight ? _("Spotlight is on: choose to turn off") : _("Spotlight"));
     }
@@ -96,14 +133,16 @@ void refreshPresentState(const PresentState& ui, Control* control) {
     }
     if (ui.button) {
         auto* context = gtk_widget_get_style_context(ui.button);
-        if (spotlight || curtain) {
+        if (summary.anyActive()) {
             gtk_style_context_add_class(context, "utn-present-active");
         } else {
             gtk_style_context_remove_class(context, "utn-present-active");
         }
-        gtk_widget_set_tooltip_text(ui.button, spotlight ? _("Spotlight is on. The page is darkened.") :
-                                               curtain   ? _("Curtain is on. The page is covered.") :
-                                                           _("Spotlight & Curtain: darken or cover the page, and write temporary ink"));
+        // The tooltip says what is on in words, so the app-bar button never relies on its colour alone
+        gtk_widget_set_tooltip_text(ui.button, summary.anyActive() ?
+                                                       (summary.label + _(". Open to turn it off.")).c_str() :
+                                                       _("Classroom controls: Spotlight, Curtain, Freeze, Blank and "
+                                                         "Student View, and temporary ink"));
     }
 }
 
@@ -143,9 +182,11 @@ void ToolPresentationKit::runClassroomAction(Control* control, Action action) {
     }
 }
 
-ToolPresentationKit::ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper):
+ToolPresentationKit::ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper,
+                                         ToolStudentView* students):
         AbstractToolItem(std::move(id), Category::MISC),
         control(control),
+        students(students),
         iconName(iconNameHelper.iconName("utn-presentation")) {}
 
 auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
@@ -160,13 +201,29 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
         g_object_set_data(G_OBJECT(button), "utn-run", reinterpret_cast<gpointer>(handler));
     };
 
+    auto ui = std::make_shared<PresentState>();
+    utn::appendPopoverHeading(panel, _("Classroom controls"));
+    ui->status = gtk_label_new("");
+    gtk_widget_set_name(ui->status, "utnClassroomStatus");
+    gtk_widget_set_halign(ui->status, GTK_ALIGN_START);
+    gtk_widget_add_css_class(ui->status, "utn-context-hint");
+    gtk_box_append(panel, ui->status);
+    ui->back = utn::appendMenuButton(panel, popover, _("Back to normal"),
+                                     _("Turn off Spotlight, Curtain, Freeze and Blank. Saved work is not changed."));
+    ToolStudentView* const students = this->students;
+    g_object_set_data(G_OBJECT(ui->back), "utn-students", students);
+    g_signal_connect(ui->back, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer data) {
+                         backToNormal(static_cast<Control*>(data),
+                                      static_cast<ToolStudentView*>(g_object_get_data(G_OBJECT(b), "utn-students")));
+                     }),
+                     control);
+
     utn::appendPopoverHeading(panel, _("During the lesson"));
     connect(utn::appendMenuButton(panel, popover, _("Temporary ink"), _("Ink that fades away; it is never saved")),
             [](Control* c) { selectPresentationTool(c, TOOL_LASER_POINTER_PEN); });
     connect(utn::appendMenuButton(panel, popover, _("Temporary highlight"),
                                   _("Highlight that fades away; it is never saved")),
             [](Control* c) { selectPresentationTool(c, TOOL_LASER_POINTER_HIGHLIGHTER); });
-    auto ui = std::make_shared<PresentState>();
     ui->spotlight = utn::appendMenuButton(panel, popover, _("Spotlight"),
                                           _("Darken the page around the pointer. Choose again to show the whole page."));
     connect(ui->spotlight, [](Control* c) { selectPresentationTool(c, TOOL_HAND, true, false); });
@@ -176,6 +233,35 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     ui->exit = utn::appendMenuButton(panel, popover, _("Show the whole page"),
                                      _("Turn off Spotlight or Curtain. Escape does the same. Saved work is not changed."));
     connect(ui->exit, [](Control* c) { exitPresentationOverlay(c); });
+
+    if (students) {
+        utn::appendPopoverHeading(panel, _("Students' screen"));
+        ui->freeze = utn::appendMenuButton(panel, popover, _("Freeze students' screen"),
+                                           _("Keep showing this page while you prepare the next step"));
+        g_signal_connect(ui->freeze, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                             auto* s = static_cast<ToolStudentView*>(data);
+                             s->setFrozen(!s->isFrozen());
+                         }),
+                         students);
+        ui->blank = utn::appendMenuButton(panel, popover, _("Blank students' screen"),
+                                          _("Hide the page from students until you turn this off"));
+        g_signal_connect(ui->blank, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                             auto* s = static_cast<ToolStudentView*>(data);
+                             s->setBlanked(!s->isBlanked());
+                         }),
+                         students);
+        ui->studentWindow = utn::appendMenuButton(panel, popover, _("Open Student View on the projector"),
+                                                  _("Show students the page without your tools or private notes"));
+        g_signal_connect(ui->studentWindow, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                             auto* s = static_cast<ToolStudentView*>(data);
+                             if (s->isWindowOpen()) {
+                                 s->closeStudentView();
+                             } else {
+                                 s->showStudentView();
+                             }
+                         }),
+                         students);
+    }
 
     utn::appendPopoverHeading(panel, _("Tidy up"));
     connect(utn::appendMenuButton(panel, popover, _("Clear temporary ink"),
@@ -193,10 +279,10 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
     auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));
     gtk_box_append(heading, getNewToolIcon());
-    auto* headingLabel = gtk_label_new(_("Spotlight & Curtain"));
+    auto* headingLabel = gtk_label_new(_("Classroom"));
     gtk_widget_add_css_class(headingLabel, "utn-compact-hidden");  // icon only in compact windows; name stays
     gtk_box_append(heading, headingLabel);
-    utn::setAccessibleName(GTK_WIDGET(menuButton), _("Spotlight and Curtain"));
+    utn::setAccessibleName(GTK_WIDGET(menuButton), _("Classroom controls"));
     gtk_widget_show_all(GTK_WIDGET(heading));
     gtk_button_set_child(GTK_BUTTON(menuButton), GTK_WIDGET(heading));
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
@@ -215,18 +301,29 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                          *static_cast<PresentState*>(data) = PresentState{};
                      }),
                      ui.get());
-    refreshPresentState(*ui, control);
+    refreshPresentState(*ui, control, students);
     control->getToolHandler()->addToolChangedListener(
-            [weak = std::weak_ptr<PresentState>(ui), control = this->control](ToolType) {
+            [weak = std::weak_ptr<PresentState>(ui), control = this->control, students](ToolType) {
                 if (auto state = weak.lock(); state && state->button) {
-                    refreshPresentState(*state, control);
+                    refreshPresentState(*state, control, students);
                 }
             });
+    if (students) {
+        // Freeze and Blank change in Student View, which never fires a tool change
+        students->addStateListener([weak = std::weak_ptr<PresentState>(ui), control = this->control, students]() {
+            auto state = weak.lock();
+            if (!state || !state->button) {
+                return false;
+            }
+            refreshPresentState(*state, control, students);
+            return true;
+        });
+    }
     return xoj::util::WidgetSPtr(GTK_WIDGET(menuButton), xoj::util::adopt);
 }
 
 auto ToolPresentationKit::getToolDisplayName() const -> std::string {
-    return _("Spotlight & Curtain");
+    return _("Classroom controls");
 }
 
 auto ToolPresentationKit::getNewToolIcon() const -> GtkWidget* {

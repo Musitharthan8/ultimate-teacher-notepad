@@ -34,6 +34,7 @@ class ToolbarModel;
 class ToolButton;
 class ToolHandler;
 class ToolPageLayer;
+class ToolStudentView;
 class ToolPageSpinner;
 class ToolLessonNavigator;
 class PageTypeMenu;
@@ -107,6 +108,9 @@ public:
 
     Control* getControl();
 
+    /// Student View, which owns Freeze and Blank. Null before the items are created.
+    ToolStudentView* getStudentView() const { return studentView; }
+
     void hideAudioMenuItems();
 
     std::string iconName(const char* icon);
@@ -129,6 +133,7 @@ private:
 
     ToolPageSpinner* toolPageSpinner = nullptr;
     ToolLessonNavigator* toolLessonNavigator = nullptr;
+    ToolStudentView* studentView = nullptr;
 
     Control* control = nullptr;
     ZoomControl* zoom = nullptr;

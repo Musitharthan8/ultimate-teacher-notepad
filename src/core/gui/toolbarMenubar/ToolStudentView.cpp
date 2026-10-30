@@ -354,6 +354,35 @@ void ToolStudentView::updateState() {
     }
 
     updateTeacherOutline(state);
+
+    // Move the list aside first: a listener may react by changing something that comes back here
+    auto listeners = std::move(stateListeners);
+    stateListeners.clear();
+    std::vector<std::function<bool()>> kept;
+    for (auto& listener: listeners) {
+        if (listener()) {
+            kept.push_back(std::move(listener));
+        }
+    }
+    stateListeners.insert(stateListeners.begin(), std::make_move_iterator(kept.begin()),
+                          std::make_move_iterator(kept.end()));
+}
+
+void ToolStudentView::addStateListener(std::function<bool()> listener) {
+    stateListeners.push_back(std::move(listener));
+}
+
+void ToolStudentView::restoreNormal() {
+    if (blanked) {
+        setBlanked(false);
+    }
+    if (frozen) {
+        setFrozen(false);
+    }
+}
+
+bool ToolStudentView::isTeacherCoverShown() const {
+    return teacherCover && gtk_widget_get_visible(teacherCover);
 }
 
 void ToolStudentView::updateTeacherOutline(State state) {
@@ -867,6 +896,11 @@ void ToolStudentView::setBlanked(bool enabled) {
         showTeacherBlankCover(enabled);
     } else if (enabled && !window) {
         showStudentView();
+    }
+    if (!enabled) {
+        // The cover may have been raised before Student View opened; turning Blank off must always take it down,
+        // or the teacher is left looking at a cover that hides the only controls that could remove it
+        showTeacherBlankCover(false);
     }
     if (drawingArea) {
         gtk_widget_queue_draw(drawingArea);

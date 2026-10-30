@@ -33,6 +33,7 @@
 #include "gui/sidebar/Sidebar.h"                        // for Sidebar
 #include "gui/toolbarMenubar/DockCustomizeDialog.h"     // for showDockCustomizeDialog
 #include "gui/toolbarMenubar/ToolMenuHandler.h"         // for ToolMenuHandler
+#include "gui/toolbarMenubar/ToolStudentView.h"          // for ToolStudentView
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"       // for ToolUtnContextBar
 #include "gui/toolbarMenubar/UtnWidgets.h"              // for createColourSwatch, setAccessibleName, setSwatchSelected
 #include "gui/toolbarMenubar/model/ToolbarData.h"       // for ToolbarData
@@ -256,9 +257,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) -> gboolean {
         if (e->type == GDK_KEY_PRESS && reinterpret_cast<GdkEventKey*>(e)->keyval == GDK_KEY_Escape) {
             auto* self = static_cast<MainWindow*>(data);
-            auto* tools = self->getControl()->getToolHandler();
-            if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
-                self->exitPresentationOverlay();
+            if (self->escapeClassroom()) {
                 return TRUE;
             }
         }
@@ -1649,6 +1648,20 @@ void MainWindow::exitPresentationOverlay() {
             page->repaintPage();
         }
     }
+}
+
+bool MainWindow::escapeClassroom() {
+    auto* tools = control->getToolHandler();
+    bool handled = false;
+    if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
+        exitPresentationOverlay();
+        handled = true;
+    }
+    if (auto* students = toolbar->getStudentView(); students && students->isTeacherCoverShown()) {
+        students->setBlanked(false);
+        handled = true;
+    }
+    return handled;
 }
 
 void MainWindow::updatePresentationBanner() {

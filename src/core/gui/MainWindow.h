@@ -102,6 +102,13 @@ public:
 
     /// UTN: leave Spotlight/Curtain and show the whole page again (Escape, the banner button and the Present menu)
     void exitPresentationOverlay();
+    /**
+     * UTN: Escape in the classroom. Leaves Spotlight or Curtain, or the Blank cover that hides the teacher's own canvas
+     * (nothing else on screen could undo it). Freeze and a Blank that only covers the projector are left alone: the
+     * teacher's canvas is fully usable then, so Escape stays with text editing and selections.
+     * @return true if it did something, so the key press is consumed
+     */
+    bool escapeClassroom();
     /// UTN: banner naming the active Spotlight/Curtain with an Exit button; hidden otherwise
     void updatePresentationBanner();
     bool isPresentationBannerVisible() const;

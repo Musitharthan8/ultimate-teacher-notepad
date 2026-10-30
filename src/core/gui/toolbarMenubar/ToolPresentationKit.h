@@ -17,12 +17,16 @@
 #include "gui/IconNameHelper.h"
 
 class Control;
+class ToolStudentView;
 
 class ToolPresentationKit: public AbstractToolItem {
 public:
     static void runClassroomAction(Control* control, Action action);
 
-    ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper);
+    /// @param students Student View, so Freeze, Blank and the way back to normal sit with Spotlight and Curtain. Without
+    ///        it the controls cover only the overlays.
+    ToolPresentationKit(std::string id, Control* control, IconNameHelper iconNameHelper,
+                        ToolStudentView* students = nullptr);
     ~ToolPresentationKit() override = default;
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override;
@@ -32,5 +36,6 @@ public:
 
 private:
     Control* control;
+    ToolStudentView* students;
     std::string iconName;
 };

@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -61,6 +62,27 @@ public:
     GtkWidget* getNewToolIcon() const override;
 
     State getState() const;
+
+    // The Classroom controls drive Student View through these, the same ones its own menu and the app bar use
+    void showStudentView();
+    void closeStudentView();
+    void setFrozen(bool frozen);
+    void setBlanked(bool blanked);
+    /// Turn Freeze and Blank off, so students see the live page again. The Student View window stays open.
+    void restoreNormal();
+    bool isFrozen() const { return frozen; }
+    bool isBlanked() const { return blanked; }
+    bool isWindowOpen() const { return window != nullptr; }
+    /// True while Blank covers the teacher's own canvas (one display), hiding every control that could undo it
+    bool isTeacherCoverShown() const;
+    /// Cover or uncover the teacher's own canvas. Blank does this by itself when students watch the same screen.
+    void showTeacherBlankCover(bool show);
+    /**
+     * Called after every state change, so a control surface built earlier can follow. A listener that returns false is
+     * removed: it belonged to a toolbar that was rebuilt.
+     */
+    void addStateListener(std::function<bool()> listener);
+
     /// Pill wording for a state, e.g. "Students: Live"
     static const char* stateLabel(State state);
     /// The state word alone, as short as it can be said ("Same" for "Same screen"). The pill shows it when the app bar
@@ -74,10 +96,6 @@ public:
     void documentChanged(DocumentChangeType type) override;
 
 private:
-    void showStudentView();
-    void closeStudentView();
-    void setFrozen(bool frozen);
-    void setBlanked(bool blanked);
     void setStudentFullscreen(bool enabled);
 
     /// True when the Student View window sits on a different monitor from the teacher's window
@@ -110,8 +128,6 @@ private:
     /// Called for every change that may reduce what students can see, wherever it was made. See model/StudentVisibility.h
     void onStudentVisibilityChanged(bool mayCheckNow);
     static OverlayKind currentOverlay(Control* control);
-
-    void showTeacherBlankCover(bool show);
 
     static gboolean drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data);
     static gboolean studentViewKeyPressed(GtkWidget* widget, GdkEventKey* event, gpointer data);
@@ -158,6 +174,7 @@ private:
     GtkWidget* fullButton = nullptr;
     GtkWidget* closeButton = nullptr;
 
+    std::vector<std::function<bool()>> stateListeners;
     GtkWidget* teacherCover = nullptr;
     /// Coloured frame round the teacher's canvas while students see a frozen or blank screen
     GtkWidget* teacherOutline = nullptr;

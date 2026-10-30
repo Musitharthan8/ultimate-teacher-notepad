@@ -869,12 +869,13 @@ void ToolMenuHandler::initToolItems() {
 
     // UTN classroom page labels
 
-    // UTN classroom presentation tools
-    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper);
+    // UTN clean student-facing preview. Created first: the classroom controls drive it.
+    auto& students = emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
+    this->studentView = &students;
+    emplaceItem<ToolStudentQuick>("STUDENT_QUICK", students);
 
-    // UTN clean student-facing preview
-    auto& studentView = emplaceItem<ToolStudentView>("STUDENT_VIEW", control);
-    emplaceItem<ToolStudentQuick>("STUDENT_QUICK", studentView);
+    // UTN classroom presentation tools
+    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper, &students);
 
     // UTN consolidated shapes, STEM and classroom utilities
     emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);

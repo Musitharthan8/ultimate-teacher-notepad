@@ -2303,6 +2303,98 @@ TEST_F(ClassroomWorkflow, presentMenuShowsWhichOverlayIsOnAndOnlyOffersExitWhenT
     settle();
 }
 
+TEST_F(ClassroomWorkflow, classroomControlsGatherEveryEffectSayWhichIsOnAndBackToNormalClearsThemAll) {
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()), students.get());
+    auto item = kit.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+    auto* status = widgetNamed(menu, "utnClassroomStatus");
+    ASSERT_NE(status, nullptr) << "the controls must say what is on";
+    auto* back = buttonNamed(menu, "Back to normal");
+    ASSERT_NE(back, nullptr) << "one obvious way back, in the same place as the controls";
+    for (const char* label: {"Spotlight", "Curtain", "Freeze students' screen", "Blank students' screen",
+                             "Open Student View on the projector"}) {
+        EXPECT_NE(buttonNamed(menu, label), nullptr) << label << " belongs in the one control surface";
+    }
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Classroom is normal");
+    EXPECT_FALSE(gtk_widget_get_sensitive(back)) << "nothing to undo yet";
+
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Blank students' screen")));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "On: Blank");
+    EXPECT_TRUE(gtk_widget_get_sensitive(back));
+    EXPECT_NE(buttonNamed(menu, "Show the page to students again"), nullptr) << "a button says what it will do next";
+
+    ToolPresentationKit::runClassroomAction(control.get(), Action::CLASSROOM_SPOTLIGHT);
+    settle();
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "On: Spotlight, Blank");
+
+    gtk_button_clicked(GTK_BUTTON(back));
+    settle();
+    EXPECT_FALSE(control->getToolHandler()->isSpotlightEnabled());
+    EXPECT_NE(students->getState(), ToolStudentView::State::Blank);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Classroom is normal");
+    EXPECT_FALSE(gtk_widget_get_sensitive(back));
+
+    // A frozen screen is cleared by the same button
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open Student View on the projector")));
+    settle();
+    ASSERT_NE(studentWindow(), nullptr);
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Freeze students' screen")));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "On: Freeze");
+    gtk_button_clicked(GTK_BUTTON(back));
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Classroom is normal");
+
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Close Student View")));
+    settle();
+    gtk_widget_destroy(item.get());
+    item.reset();
+    students.reset();
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, escapeLeavesAnOverlayOrTheTeachersBlankCoverAndOtherwiseIsLeftAlone) {
+    ASSERT_FALSE(window->escapeClassroom()) << "with nothing on, Escape belongs to text editing and selections";
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+
+    ToolPresentationKit::runClassroomAction(control.get(), Action::CLASSROOM_CURTAIN);
+    settle();
+    EXPECT_TRUE(window->escapeClassroom());
+    EXPECT_FALSE(control->getToolHandler()->isCurtainEnabled());
+    EXPECT_FALSE(window->escapeClassroom()) << "a second Escape is not swallowed";
+
+    // One display: Blank covers the teacher's own canvas, which hides every control, so Escape must lead back
+    // (The display count GDK reports varies between machines, so the cover is raised directly: it is what Blank does
+    // on one display.)
+    students->setBlanked(true);
+    students->showTeacherBlankCover(true);
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    EXPECT_TRUE(window->escapeClassroom());
+    EXPECT_FALSE(students->isTeacherCoverShown());
+    EXPECT_NE(students->getState(), ToolStudentView::State::Blank);
+    EXPECT_FALSE(window->escapeClassroom());
+
+    // Extended displays: Blank only covers the projector, the teacher's canvas stays usable, so Escape stays free
+    students->setBlanked(true);
+    settle();
+    if (!students->isTeacherCoverShown()) {
+        EXPECT_FALSE(window->escapeClassroom());
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
+    }
+    students->restoreNormal();
+    if (students->isWindowOpen()) {
+        students->closeStudentView();  // Blank may have opened the projector window; later tests start without one
+    }
+    settle();
+}
+
 TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
     struct Heartbeat {
         gint64 last = g_get_monotonic_time();
