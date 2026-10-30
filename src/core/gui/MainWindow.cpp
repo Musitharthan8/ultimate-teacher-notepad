@@ -842,6 +842,11 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 }
 
 auto MainWindow::clearToolbar() -> const ToolbarData* {
+    // The "More" button is a child of the app bar and goes with it
+    this->appBarMore = nullptr;
+    this->appBarTight = false;
+    this->appBarOverflowing = false;
+    this->appBarFitWidth = -1;
     if (this->selectedToolbar != nullptr) {
         for (size_t i = 0; i < TOOLBAR_DEFINITIONS_LEN; i++) {
             ToolMenuHandler::unloadToolbar(this->toolbarWidgets[i].get());
@@ -1641,6 +1646,196 @@ void hideButtonCaption(GtkWidget* widget, bool hide) {
 }
 }  // namespace
 
+namespace {
+/// The app-bar buttons that may move into the "More" menu, least important first
+std::vector<GtkToolItem*> overflowCandidates(GtkToolbar* bar) {
+    std::vector<std::pair<int, GtkToolItem*>> ranked;
+    for (int i = 0; i < gtk_toolbar_get_n_items(bar); ++i) {
+        GtkToolItem* item = gtk_toolbar_get_nth_item(bar, i);
+        const int rank = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), utn::OVERFLOW_RANK_KEY));
+        if (rank > 0) {
+            ranked.emplace_back(rank, item);
+        }
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<GtkToolItem*> items;
+    for (const auto& entry: ranked) {
+        items.push_back(entry.second);
+    }
+    return items;
+}
+
+/// Swaps wording: what is marked `utn-tight-hidden` is the normal form and goes, what is marked `utn-tight-only` is the
+/// short form and comes. Accessible names and tooltips are not touched, so nothing is lost for assistive technology.
+void setTightWording(GtkWidget* widget, bool tight) {
+    GtkStyleContext* context = gtk_widget_get_style_context(widget);
+    if (gtk_style_context_has_class(context, "utn-tight-hidden")) {
+        gtk_widget_set_visible(widget, !tight);
+        return;
+    }
+    if (gtk_style_context_has_class(context, "utn-tight-only")) {
+        gtk_widget_set_visible(widget, tight);
+        return;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            setTightWording(GTK_WIDGET(child->data), tight);
+        }
+        g_list_free(children);
+    }
+}
+
+int naturalWidthOf(GtkWidget* widget) {
+    int minimum = 0;
+    int natural = 0;
+    gtk_widget_get_preferred_width(widget, &minimum, &natural);
+    return natural;
+}
+
+/// The button inside a tool item that runs an action, so a menu entry can run the very same one
+GtkWidget* actionButtonIn(GtkWidget* widget) {
+    if (GTK_IS_ACTIONABLE(widget) && gtk_actionable_get_action_name(GTK_ACTIONABLE(widget))) {
+        return widget;
+    }
+    GtkWidget* found = nullptr;
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child && !found; child = child->next) {
+            found = actionButtonIn(GTK_WIDGET(child->data));
+        }
+        g_list_free(children);
+    }
+    return found;
+}
+
+GtkWidget* newMoreIcon() {
+    for (const char* name: {"view-more-symbolic", "open-menu-symbolic"}) {
+        if (gtk_icon_theme_has_icon(gtk_icon_theme_get_default(), name)) {
+            return gtk_image_new_from_icon_name(name, GTK_ICON_SIZE_LARGE_TOOLBAR);
+        }
+    }
+    return gtk_label_new("\xE2\x8B\xAF");  // midline ellipsis, for an icon theme that has neither
+}
+}  // namespace
+
+void MainWindow::showMoreMenu(const std::vector<GtkToolItem*>& moved) {
+    auto* menuButton = GTK_MENU_BUTTON(gtk_bin_get_child(GTK_BIN(appBarMore)));
+    auto [popover, panel] = utn::createPopoverPanel();
+    // Entries keep the order the buttons have on the bar
+    GtkToolbar* bar = GTK_TOOLBAR(get("tbTop1"));
+    std::vector<GtkToolItem*> inBarOrder = moved;
+    std::sort(inBarOrder.begin(), inBarOrder.end(), [&](GtkToolItem* a, GtkToolItem* b) {
+        return gtk_toolbar_get_item_index(bar, a) < gtk_toolbar_get_item_index(bar, b);
+    });
+    for (GtkToolItem* item: inBarOrder) {
+        GtkWidget* source = actionButtonIn(GTK_WIDGET(item));
+        if (!source) {
+            continue;
+        }
+        const auto* label = static_cast<const char*>(g_object_get_data(G_OBJECT(item), utn::OVERFLOW_LABEL_KEY));
+        // The same action, so the entry is enabled, disabled and activated exactly as the button it stands in for
+        GtkWidget* entry = utn::appendMenuButton(panel, popover, label ? label : "");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(entry), gtk_actionable_get_action_name(GTK_ACTIONABLE(source)));
+        if (GVariant* target = gtk_actionable_get_action_target_value(GTK_ACTIONABLE(source))) {
+            gtk_actionable_set_action_target_value(GTK_ACTIONABLE(entry), target);
+        }
+    }
+    gtk_widget_show_all(GTK_WIDGET(panel));
+    gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
+}
+
+void MainWindow::fitAppBar(int width) {
+    this->appBarFitWidth = width;
+    GtkWidget* barWidget = get("tbTop1");
+    GtkToolbar* bar = GTK_TOOLBAR(barWidget);
+    const auto candidates = overflowCandidates(bar);
+
+    // Start from everything in its normal form, then take away only what the measurement asks for. The result depends
+    // on the width and on what is really on the bar, never on how a previous width left it.
+    for (GtkToolItem* item: candidates) {
+        gtk_widget_show(GTK_WIDGET(item));
+    }
+    setTightWording(barWidget, false);
+    if (appBarMore) {
+        gtk_widget_hide(appBarMore);
+    }
+    this->appBarTight = false;
+    this->appBarOverflowing = false;
+
+    const bool teacher = this->selectedToolbar && utn::isTeacherLayout(this->selectedToolbar->getId());
+    if (!teacher || width < utn::layout::MIN_MEANINGFUL_WIDTH) {  // a placeholder width says nothing
+        return;
+    }
+    if (naturalWidthOf(barWidget) <= width) {
+        return;
+    }
+
+    // 1. Shorter wording: the Students pill keeps its state, in one word
+    setTightWording(barWidget, true);
+    this->appBarTight = true;
+    const int tightNatural = naturalWidthOf(barWidget);
+    if (tightNatural <= width || candidates.empty()) {
+        return;
+    }
+
+    // 2. Least important buttons into "More". Their widths and the button's own width are measured, not assumed.
+    if (!appBarMore) {
+        auto* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
+        gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
+        gtk_button_set_child(GTK_BUTTON(menuButton), newMoreIcon());
+        gtk_widget_add_css_class(GTK_WIDGET(menuButton), "utn-more-btn");
+        gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), _("More actions"));
+        utn::setAccessibleName(GTK_WIDGET(menuButton), _("More actions"));
+        gtk_menu_button_set_direction(menuButton, GTK_ARROW_DOWN);
+        GtkToolItem* item = gtk_tool_item_new();
+        gtk_container_add(GTK_CONTAINER(item), GTK_WIDGET(menuButton));
+        gtk_widget_show_all(GTK_WIDGET(item));
+        gtk_toolbar_insert(bar, item, -1);
+        this->appBarMore = GTK_WIDGET(item);
+    }
+    gtk_widget_show(appBarMore);
+    std::vector<int> widths;
+    for (GtkToolItem* item: candidates) {
+        widths.push_back(naturalWidthOf(GTK_WIDGET(item)));
+    }
+    const int moreWidth = naturalWidthOf(appBarMore);
+    // tightNatural was measured without the "More" button; the function adds it back
+    const size_t count = utn::layout::appBarItemsToOverflow(tightNatural, width, widths, moreWidth);
+    if (count == 0) {
+        gtk_widget_hide(appBarMore);
+        return;
+    }
+    const std::vector<GtkToolItem*> moved(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count));
+    for (GtkToolItem* item: moved) {
+        gtk_widget_hide(GTK_WIDGET(item));
+    }
+    showMoreMenu(moved);
+    this->appBarOverflowing = true;
+}
+
+void MainWindow::scheduleAppBarFit() {
+    if (appBarFitPending) {
+        return;
+    }
+    appBarFitPending = true;
+    // Never change what the bar holds while GTK is still allocating the window: do it once the allocation is done
+    Util::execInUiThread([this, weakAlive = std::weak_ptr<bool>(this->alive)]() {
+        if (weakAlive.expired()) {
+            return;
+        }
+        appBarFitPending = false;
+        fitAppBar(layoutWidth);
+    });
+}
+
+void MainWindow::refitAppBar() {
+    this->appBarFitWidth = -1;
+    if (this->layoutWidth > 0) {
+        scheduleAppBarFit();
+    }
+}
+
 void MainWindow::setToolLabelMode(int mode) {
     this->toolLabels = std::clamp(mode, 0, 2);
     this->control->getSettings()->getCustomElement("utn").setInt("toolLabels", this->toolLabels);
@@ -1660,7 +1855,17 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     if (documentHeader) {
         gtk_widget_set_visible(documentHeader, !this->compactLayout);
     }
+    // Fit the app bar to this width once everything above has settled. A real allocation defers it, because the bar
+    // must not change while GTK is still allocating the window; a direct call applies it at once.
+    const auto fitAppBarToWidth = [&] {
+        if (!fromAllocation) {
+            fitAppBar(width);
+        } else if (width != this->appBarFitWidth) {
+            scheduleAppBarFit();
+        }
+    };
     if (wasCompact == this->compactLayout && wasCompactHeader == this->compactHeader && !this->compactLayoutDirty) {
+        fitAppBarToWidth();
         return;
     }
     this->compactLayoutDirty = false;
@@ -1715,6 +1920,7 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     if (documentHeader) {
         gtk_widget_set_visible(documentHeader, !this->compactLayout);
     }
+    fitAppBarToWidth();
 }
 
 void MainWindow::setDPI() const {
