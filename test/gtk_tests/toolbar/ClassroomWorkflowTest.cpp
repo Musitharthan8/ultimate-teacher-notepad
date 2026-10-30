@@ -20,6 +20,7 @@
 #include "control/actions/ActionDatabase.h"
 #include "control/jobs/AutosaveJob.h"
 #include "control/jobs/CustomExportJob.h"
+#include "control/jobs/PdfExportJob.h"
 #include "control/jobs/SaveJob.h"
 #include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
@@ -702,6 +703,174 @@ void expectNothingLost(MainWindow* window, const std::string& context) {
 }
 }  // namespace
 
+namespace {
+/// A document with nothing pending: saved, no export, no recovery file, nothing needing attention
+void resetDocumentStatus(Control* control, bool dirty = false, bool neverSaved = false) {
+    control->updateDocumentStatus([&](utn::DocumentStatusModel& status) {
+        status.saveSucceeded();
+        status.dismissExport();
+        status.clearRecovery();
+        status.clearAttention();
+        status.setDirty(dirty, neverSaved);
+    });
+}
+
+/// A failed save or export shows a message dialog; close them so they do not stay on screen for the next test
+void closeMessageDialogs() {
+    GList* windows = gtk_window_list_toplevels();
+    for (GList* w = windows; w; w = w->next) {
+        if (GTK_IS_MESSAGE_DIALOG(w->data)) {
+            gtk_widget_destroy(GTK_WIDGET(w->data));
+        }
+    }
+    g_list_free(windows);
+    settle();
+}
+
+/// PdfExportJob with the path setter made reachable, so the real job can be run without the file chooser
+struct TestPdfExport: PdfExportJob {
+    explicit TestPdfExport(Control* control): PdfExportJob(control) {}
+    using PdfExportJob::testAndSetFilepath;
+};
+
+utn::StatusSummary documentSummary(Control* control) { return utn::summarise(control->getDocumentStatus().get()); }
+}  // namespace
+
+TEST_F(ClassroomWorkflow, aFailedSaveKeepsTheDocumentUnsavedAndSaysSoUntilASaveSucceeds) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->updateCompactLayout(1450);
+    auto* status = widgetNamed(window->getWindow(), "utnDocumentSaveStatus");
+    ASSERT_TRUE(GTK_IS_LABEL(status));
+
+    const fs::path folder = Util::getTmpDirSubfolder() / "status-save";
+    fs::remove_all(folder);
+    fs::create_directories(folder);
+    Document* doc = control->getDocument();
+    doc->lock();
+    doc->setFilepath(folder / "lesson.xopp");
+    doc->unlock();
+    resetDocumentStatus(control.get());
+
+    // An edit the undo history knows about
+    auto page = doc->getPage(0);
+    auto* layer = page->getSelectedLayer();
+    addMarker(layer, 100);
+    control->getUndoRedoHandler()->addUndoAction(
+            std::make_unique<InsertUndoAction>(page, layer, layer->getElements().back().get()));
+    settle();
+    EXPECT_EQ(documentSummary(control.get()).state, utn::StatusState::Modified);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "● Unsaved changes");
+
+    // The save fails at its last step. The way Control starts a save, then the real job
+    SaveHandler::setReplaceStepForTesting(+[](const fs::path&, const fs::path&, std::string& error) {
+        error = "disk full";
+        return false;
+    });
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.beginSave(); });
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "↻ Saving…");
+    auto* failing = new SaveJob(control.get());
+    failing->run();
+    settle();
+    failing->unref();
+    control->unblock();  // a job run directly never goes through BlockingJob::execute, which is what unblocks
+    SaveHandler::setReplaceStepForTesting(nullptr);
+    closeMessageDialogs();
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "⚠ Save failed");
+    EXPECT_TRUE(control->getUndoRedoHandler()->isChanged()) << "the edits are still unsaved";
+    EXPECT_TRUE(control->getDocumentStatus().get().dirty);
+    EXPECT_NE(std::string(gtk_widget_get_tooltip_text(status)).find("disk full"), std::string::npos)
+            << "the teacher is told why";
+    EXPECT_TRUE(documentSummary(control.get()).offersSave);
+
+    // Opening and closing nothing changes it; only a save that works does
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.beginSave(); });
+    auto* working = new SaveJob(control.get());
+    working->run();
+    settle();
+    working->unref();
+    control->unblock();
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "✓");
+    EXPECT_FALSE(control->getUndoRedoHandler()->isChanged());
+    EXPECT_TRUE(fs::exists(folder / "lesson.xopp")) << "the file really exists";
+    fs::remove_all(folder);
+}
+
+TEST_F(ClassroomWorkflow, aPdfExportIsReportedSeparatelyAndNeverChangesTheSaveState) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->updateCompactLayout(1450);
+    const fs::path folder = Util::getTmpDirSubfolder() / "status-export";
+    fs::remove_all(folder);
+    fs::create_directories(folder);
+    resetDocumentStatus(control.get(), true);  // unsaved edits waiting
+
+    auto* job = new TestPdfExport(control.get());
+    ASSERT_TRUE(job->testAndSetFilepath(folder / "worksheet.pdf"));
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.beginExport(); });
+    job->run();
+    settle();
+    job->unref();
+    control->unblock();
+    closeMessageDialogs();
+
+    const auto& facts = control->getDocumentStatus().get();
+    EXPECT_EQ(facts.exportStatus, utn::ExportStatus::Completed);
+    EXPECT_EQ(facts.exportDetail, "worksheet.pdf");
+    EXPECT_TRUE(facts.dirty) << "exporting did not save the document";
+    EXPECT_EQ(documentSummary(control.get()).state, utn::StatusState::Modified)
+            << "so the header still says there are unsaved changes";
+    EXPECT_TRUE(fs::exists(folder / "worksheet.pdf")) << "and the PDF really exists";
+    const auto& details = documentSummary(control.get()).details;
+    EXPECT_TRUE(std::any_of(details.begin(), details.end(),
+                            [](const std::string& line) { return line.find("worksheet.pdf") != std::string::npos; }));
+
+    resetDocumentStatus(control.get());
+    EXPECT_EQ(documentSummary(control.get()).state, utn::StatusState::Saved);
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) {
+        model.exportSucceeded("worksheet.pdf");
+    });
+    EXPECT_EQ(documentSummary(control.get()).state, utn::StatusState::Exported);
+    fs::remove_all(folder);
+}
+
+TEST_F(ClassroomWorkflow, headerShowsEveryStateAsAShapeAWordAndASeverityClassWithTheDetailsOnHover) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->updateCompactLayout(1450);
+    auto* status = widgetNamed(window->getWindow(), "utnDocumentSaveStatus");
+    ASSERT_TRUE(GTK_IS_LABEL(status));
+    const auto hasClass = [&](const char* name) {
+        return gtk_style_context_has_class(gtk_widget_get_style_context(status), name);
+    };
+
+    resetDocumentStatus(control.get());
+    EXPECT_TRUE(hasClass("utn-status-ok"));
+
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.setRecovery("lesson.autosave.xopp"); });
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "↺ Recovery available");
+    EXPECT_TRUE(hasClass("utn-status-warning"));
+    EXPECT_FALSE(hasClass("utn-status-ok")) << "one severity at a time";
+    EXPECT_NE(std::string(gtk_widget_get_tooltip_text(status)).find("lesson.autosave.xopp"), std::string::npos);
+    EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(status)), "Document status: a recovery file is available");
+
+    resetDocumentStatus(control.get());
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) {
+        model.addAttention("The PDF this worksheet was made from is missing");
+    });
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "! Needs attention");
+    EXPECT_NE(std::string(gtk_widget_get_tooltip_text(status)).find("missing"), std::string::npos);
+
+    resetDocumentStatus(control.get());
+    control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.exportFailed("the folder is read-only"); });
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "⚠ Export failed");
+    EXPECT_TRUE(hasClass("utn-status-error"));
+    resetDocumentStatus(control.get());
+}
+
 // The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as
 // in the app: a width the window cannot reach is clamped, and the assertion reads what was really given.
 TEST_F(ClassroomWorkflow, appBarFitsOrOffersMoreAtEveryRealWindowWidth) {
@@ -1302,7 +1471,7 @@ TEST_F(ClassroomWorkflow, penPropertiesPopoverAndInkDockUseLivePenSettings) {
     window->toolbarSelected(previousToolbar);
 }
 
-TEST_F(ClassroomWorkflow, documentHeaderShowsTheCurrentNameAndDirtyStateAndHidesWhenCompact) {
+TEST_F(ClassroomWorkflow, documentHeaderShowsTheNameAndTheRealStatusAndOnlyTheNameHidesWhenCompact) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
     settle();
@@ -1311,17 +1480,22 @@ TEST_F(ClassroomWorkflow, documentHeaderShowsTheCurrentNameAndDirtyStateAndHides
     ASSERT_TRUE(GTK_IS_LABEL(title));
     ASSERT_TRUE(GTK_IS_LABEL(status));
     window->updateCompactLayout(1450);
-    auto* headerItem = gtk_widget_get_parent(gtk_widget_get_parent(title));
 
+    // The name follows the window title, the status follows the document's real state
     gtk_window_set_title(GTK_WINDOW(window->getWindow()), "lesson.xopp - Ultimate Teacher Notepad");
     EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(title)), "lesson.xopp");
+    resetDocumentStatus(control.get());
     EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "✓");
-    EXPECT_TRUE(gtk_widget_get_visible(headerItem));
+    EXPECT_TRUE(gtk_widget_get_visible(status));
     gtk_window_set_title(GTK_WINDOW(window->getWindow()), "*lesson.xopp - Ultimate Teacher Notepad");
-    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Modified");
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "✓") << "a title with a star is not evidence of unsaved edits";
+    resetDocumentStatus(control.get(), true);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "● Unsaved changes");
 
     window->updateCompactLayout(900);
-    EXPECT_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(title))));
+    EXPECT_FALSE(gtk_widget_get_visible(title)) << "the name gives way to a narrow window";
+    EXPECT_TRUE(gtk_widget_get_visible(status)) << "the status never does";
+    resetDocumentStatus(control.get());
     gtk_window_resize(GTK_WINDOW(window->getWindow()), 900, 720);
     settle();
     int railWidth = -1;
@@ -1339,7 +1513,7 @@ TEST_F(ClassroomWorkflow, documentHeaderShowsTheCurrentNameAndDirtyStateAndHides
     EXPECT_FALSE(gtk_scrolled_window_get_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller)));
     EXPECT_LE(gtk_widget_get_allocated_width(railHost), 100);
     window->updateCompactLayout(1450);
-    EXPECT_TRUE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(title))));
+    EXPECT_TRUE(gtk_widget_get_visible(title));
     EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "");
     EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(expandSettings)), "Show tool settings");
     gtk_widget_get_size_request(widgetNamed(window->getWindow(), "tbLeft1Scroller"), &railWidth, nullptr);

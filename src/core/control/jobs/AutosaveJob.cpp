@@ -10,6 +10,7 @@
 #include "model/Document.h"               // for Document
 #include "undo/UndoRedoHandler.h"         // for UndoRedoHandler
 #include "util/PathUtil.h"                // for clearExtensions, getAutosav...
+#include "util/Util.h"                    // for execInUiThread
 #include "util/XojMsgBox.h"               // for XojMsgBox
 #include "util/i18n.h"                    // for FS, _F
 
@@ -19,8 +20,14 @@ AutosaveJob::AutosaveJob(Control* control): control(control) {}
 
 AutosaveJob::~AutosaveJob() = default;
 
+namespace {
+/// Autosave is what protects the work if the program stops, so its failure is something to look at, not only a dialog
+std::string autosaveAttention() { return _("Autosave failed. Recent work may be lost if the program stops."); }
+}  // namespace
+
 void AutosaveJob::afterRun() {
     std::string msg = FS(_F("Error while autosaving: {1}") % this->error);
+    control->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.addAttention(autosaveAttention()); });
     XojMsgBox::showErrorToUser(control->getGtkWindow(), msg);
 }
 
@@ -67,6 +74,14 @@ void AutosaveJob::run() {
         callAfterRun();
     } else {
         control->setLastAutosaveFile(filepath);
+        // Same guard as SaveJob::run: with no window (headless) there is nothing to tell and no main loop to run on
+        if (control->getWindow()) {
+            // The status model belongs to the main thread
+            Util::execInUiThread([control = this->control]() {
+                control->updateDocumentStatus(
+                        [](utn::DocumentStatusModel& status) { status.removeAttention(autosaveAttention()); });
+            });
+        }
     }
 }
 

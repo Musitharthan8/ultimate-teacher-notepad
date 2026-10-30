@@ -33,6 +33,7 @@
 #include "gui/toolbarMenubar/model/ColorPalette.h"  // for ColorPalette
 #include "model/DocumentHandler.h"                  // for DocumentHandler
 #include "model/DocumentListener.h"                 // for DocumentListener
+#include "model/DocumentStatus.h"                   // for DocumentStatusModel
 #include "model/GeometryTool.h"                     // for GeometryTool
 #include "model/PageRef.h"                          // for PageRef
 #include "undo/UndoRedoHandler.h"                   // for UndoRedoHandler (ptr only)
@@ -143,6 +144,13 @@ public:
      * Marks the current document as saved if it is currently marked as unsaved.
      */
     void resetSavedStatus();
+
+    /**
+     * What the teacher is told about the document: unsaved edits, a save or export running or failed, a recovery file
+     * waiting. The facts are changed only through updateDocumentStatus() so the header always follows.
+     */
+    const utn::DocumentStatusModel& getDocumentStatus() const { return documentStatus; }
+    void updateDocumentStatus(const std::function<void(utn::DocumentStatusModel&)>& change);
 
     /**
      * Close the current document, prompting to save unsaved changes.
@@ -552,6 +560,7 @@ private:
     ZoomControl* zoom = nullptr;
 
     Settings* settings = nullptr;
+    utn::DocumentStatusModel documentStatus;
     std::unique_ptr<Palette> palette;
     MainWindow* win = nullptr;
 

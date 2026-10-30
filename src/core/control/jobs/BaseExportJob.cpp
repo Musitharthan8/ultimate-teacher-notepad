@@ -12,6 +12,7 @@
 #include "model/Document.h"             // for Document, Document::PDF
 #include "util/PathUtil.h"              // for clearExtensions
 #include "util/PopupWindowWrapper.h"    // for PopupWindowWrapper
+#include "util/StringUtils.h"           // for char_cast
 #include "util/XojMsgBox.h"             // for XojMsgBox
 #include "util/glib_casts.h"            // for wrap_for_g_callback_v
 #include "util/i18n.h"                  // for _, FS, _F
@@ -98,7 +99,12 @@ auto BaseExportJob::testAndSetFilepath(const fs::path& file) -> bool {
 }
 
 void BaseExportJob::afterRun() {
+    // Exporting is not saving: only the export state changes, never whether the document is saved
     if (!this->errorMsg.empty()) {
+        control->updateDocumentStatus([&](utn::DocumentStatusModel& status) { status.exportFailed(errorMsg); });
         XojMsgBox::showErrorToUser(control->getGtkWindow(), this->errorMsg);
+    } else {
+        const std::string target{char_cast(this->filepath.filename().u8string())};
+        control->updateDocumentStatus([&](utn::DocumentStatusModel& status) { status.exportSucceeded(target); });
     }
 }

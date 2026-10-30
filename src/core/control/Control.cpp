@@ -1788,6 +1788,8 @@ void Control::askToOpenFile() {
 
 void Control::replaceDocument(std::unique_ptr<Document> doc, int scrollToPage) {
     this->closeDocument();
+    // What happened to the last document (a failed save, an export) says nothing about this one
+    updateDocumentStatus([](utn::DocumentStatusModel& status) { status.resetForNewDocument(); });
 
     fs::path filepath = doc->getFilepath();
 
@@ -2315,6 +2317,10 @@ void Control::updateWindowTitle() {
 
     this->doc->lock_shared();
     const fs::path& refPath = doc->getFilepath().empty() ? doc->getPdfFilepath() : doc->getFilepath();
+    const bool hasEdits = undoRedo->isChanged();
+    // "Never saved" means there is no .xopp yet and either nothing to name the document by or edits that only live in
+    // memory. A PDF opened and left alone is not a loss waiting to happen.
+    const bool neverSaved = doc->getFilepath().empty() && (refPath.empty() || hasEdits);
     if (refPath.empty()) {
         title = _("Unsaved Document");
     } else {
@@ -2334,7 +2340,16 @@ void Control::updateWindowTitle() {
 
     title += " - Ultimate Teacher Notepad";
 
+    // The status comes from the facts above, never from the title text
+    updateDocumentStatus([&](utn::DocumentStatusModel& status) { status.setDirty(hasEdits, neverSaved); });
     gtk_window_set_title(getGtkWindow(), title.c_str());
+}
+
+void Control::updateDocumentStatus(const std::function<void(utn::DocumentStatusModel&)>& change) {
+    change(this->documentStatus);
+    if (this->win) {
+        this->win->refreshDocumentStatus();
+    }
 }
 
 void Control::exportAsPdf() {
@@ -2343,6 +2358,7 @@ void Control::exportAsPdf() {
     auto* job = new PdfExportJob(this);
     job->showFileChooser(
             [ctrl = this, job]() {
+                ctrl->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.beginExport(); });
                 ctrl->scheduler->addJob(job, JOB_PRIORITY_NONE);
                 job->unref();
             },
@@ -2375,6 +2391,7 @@ void Control::saveImpl(bool saveAs, std::function<void(bool)> callback) {
         // clear selection before saving
         ctrl->clearSelectionEndText();
 
+        ctrl->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.beginSave(); });
         auto* job = new SaveJob(ctrl, std::move(cb));
         ctrl->scheduler->addJob(job, JOB_PRIORITY_URGENT);
         job->unref();

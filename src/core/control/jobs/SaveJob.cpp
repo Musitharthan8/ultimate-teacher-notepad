@@ -37,10 +37,13 @@ void SaveJob::run() {
 
 void SaveJob::afterRun() {
     if (!this->lastError.empty()) {
+        // The failure is recorded before anything else, and nothing here clears the unsaved state
+        control->updateDocumentStatus([&](utn::DocumentStatusModel& status) { status.saveFailed(lastError); });
         XojMsgBox::showErrorToUser(control->getGtkWindow(), this->lastError);
         callback(false);
     } else {
         this->control->resetSavedStatus();
+        control->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.saveSucceeded(); });
         callback(true);
     }
 }

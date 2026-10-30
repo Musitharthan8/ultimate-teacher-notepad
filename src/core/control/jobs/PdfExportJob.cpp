@@ -35,8 +35,9 @@ void PdfExportJob::run() {
 
     if (!pdfe->createPdf(this->filepath, false)) {
         this->errorMsg = pdfe->getLastError();
-        if (control->getWindow()) {
-            callAfterRun();
-        }
+    }
+    // Success is reported too, so the document status can say the export finished
+    if (control->getWindow()) {
+        callAfterRun();
     }
 }

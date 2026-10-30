@@ -113,6 +113,15 @@ public:
     /// scale and the language. Call this when something changed that can change the width the bar asks for, such as
     /// the Students pill changing its word.
     void refitAppBar();
+    /// The header's save/export/recovery status follows the document status model (see model/DocumentStatus.h)
+    void refreshDocumentStatus() {
+        const std::string before = documentHeaderStatus ? gtk_label_get_text(GTK_LABEL(documentHeaderStatus)) : "";
+        updateDocumentHeader();
+        const std::string after = documentHeaderStatus ? gtk_label_get_text(GTK_LABEL(documentHeaderStatus)) : "";
+        if (before != after) {
+            refitAppBar();  // a different status word is a different width; an ordinary edit changes nothing
+        }
+    }
     /// The app bar's wording is in its short form (Students pill shows one word)
     bool isAppBarTight() const { return appBarTight; }
     /// Some app-bar buttons have moved into the "More" menu
@@ -247,6 +256,7 @@ private:
     bool appBarTight = false;
     bool appBarOverflowing = false;
     bool appBarFitPending = false;
+    std::vector<GtkToolItem*> appBarMoved;  ///< what the "More" menu holds now, so an unchanged set is not rebuilt
     int appBarFitWidth = -1;  ///< width of the last fit, so an unchanged width costs nothing
     int layoutWidth = 0;             ///< last width passed to updateCompactLayout()
     // Fresh profiles start with the rail visible and the inspector available from tool popovers.
@@ -266,6 +276,7 @@ private:
     GtkWidget* documentHeader = nullptr;
     GtkWidget* documentHeaderTitle = nullptr;
     GtkWidget* documentHeaderStatus = nullptr;
+    std::string documentHeaderSignature;  ///< what the header shows now, so an unchanged header costs no GTK work
     GtkWidget* penSettingsButton = nullptr;
     GtkWidget* penSettingsPopover = nullptr;
     GtkWidget* penSettingsFocusAnchor = nullptr;

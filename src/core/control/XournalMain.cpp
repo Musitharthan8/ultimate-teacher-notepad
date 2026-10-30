@@ -151,9 +151,15 @@ static std::vector<fs::path> documentsWithPossibleAutosave(Control* control) {
  */
 static void offerRecoveryFile(Control* ctrl, std::vector<RecoveryFiles::Candidate> candidates, size_t index) {
     if (index >= candidates.size()) {
+        // Every file was answered: nothing is waiting any more
+        ctrl->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.clearRecovery(); });
         return;
     }
     const RecoveryFiles::Candidate& candidate = candidates[index];
+    // Stays set while the question is open and if it is dismissed: the files are still there for the next start
+    ctrl->updateDocumentStatus([&](utn::DocumentStatusModel& status) {
+        status.setRecovery(std::string(char_cast(candidate.file.filename().u8string())));
+    });
 
     std::string msg;
     if (candidate.kind == RecoveryFiles::Kind::Emergency) {
@@ -177,12 +183,18 @@ static void offerRecoveryFile(Control* ctrl, std::vector<RecoveryFiles::Candidat
                     deleteFile(file, ctrl->getGtkWindow());
                     offerRecoveryFile(ctrl, std::move(candidates), index + 1);
                 } else if (response == RESTORE_FILE) {
+                    // Only this file is restored: any others stay on disk for the next start, and the status keeps saying so
+                    const bool othersWaiting = index + 1 < candidates.size();
+                    const std::string nextWaiting =
+                            othersWaiting ? std::string(char_cast(candidates[index + 1].file.filename().u8string())) :
+                                            std::string();
                     // Asks to save or discard whatever is open now, so the restore never silently replaces it
-                    ctrl->close([ctrl, file](bool closed) {
+                    ctrl->close([ctrl, file, othersWaiting, nextWaiting](bool closed) {
                         if (!closed) {
                             return;
                         }
-                        ctrl->openFileWithoutSavingTheCurrentDocument(file, false, -1, [ctrl, file](bool opened) {
+                        ctrl->openFileWithoutSavingTheCurrentDocument(file, false, -1, [ctrl, file, othersWaiting,
+                                                                                          nextWaiting](bool opened) {
                             if (!opened) {
                                 return;  // the recovery file stays where it is
                             }
@@ -191,6 +203,13 @@ static void offerRecoveryFile(Control* ctrl, std::vector<RecoveryFiles::Candidat
                             // The restored document is unsaved: mark it changed so closing asks about saving it
                             ctrl->getUndoRedoHandler()->addUndoAction(std::make_unique<EmergencySaveRestore>());
                             deleteFile(file, ctrl->getGtkWindow());
+                            ctrl->updateDocumentStatus([&](utn::DocumentStatusModel& status) {
+                                if (othersWaiting) {
+                                    status.setRecovery(nextWaiting);
+                                } else {
+                                    status.clearRecovery();
+                                }
+                            });
                         });
                     });
                 }

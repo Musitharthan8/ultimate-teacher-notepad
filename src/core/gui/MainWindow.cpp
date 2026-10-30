@@ -844,6 +844,7 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
 auto MainWindow::clearToolbar() -> const ToolbarData* {
     // The "More" button is a child of the app bar and goes with it
     this->appBarMore = nullptr;
+    this->appBarMoved.clear();
     this->appBarTight = false;
     this->appBarOverflowing = false;
     this->appBarFitWidth = -1;
@@ -904,10 +905,11 @@ void MainWindow::appendDocumentHeader() {
                                  self->documentHeader = nullptr;
                                  self->documentHeaderTitle = nullptr;
                                  self->documentHeaderStatus = nullptr;
+                                 self->documentHeaderSignature.clear();  // a rebuilt header starts from nothing
                              }
                          }), this);
         gtk_widget_show_all(GTK_WIDGET(item));
-        gtk_widget_set_visible(GTK_WIDGET(item), !compactLayout);
+        gtk_widget_set_visible(title, !compactLayout);
         updateDocumentHeader();
         return;
     }
@@ -927,21 +929,41 @@ void MainWindow::updateDocumentHeader() {
     if (!title.empty() && title.front() == '[' && pagePrefix != std::string::npos) {
         title.erase(0, pagePrefix + 3);
     }
-    bool modified = !title.empty() && title.front() == '*';
-    if (modified) {
+    if (!title.empty() && title.front() == '*') {
         title.erase(0, 1);
     }
     const size_t pathPrefix = title.find("] - ");
     if (!title.empty() && title.front() == '[' && pathPrefix != std::string::npos) {
         title.erase(0, pathPrefix + 4);
     }
-    const bool unsaved = title == _("Unsaved Document");
+    // The status is not read from the title: it comes from what saving, exporting and recovery really did
+    const utn::StatusSummary summary = utn::summarise(control->getDocumentStatus().get());
+    // A calm saved document shows a tick only; anything else says what it is, in a word and a shape
+    const std::string text =
+            summary.state == utn::StatusState::Saved ? summary.glyph : summary.glyph + " " + summary.label;
+    std::string tooltip = summary.label;
+    for (const std::string& line: summary.details) {
+        tooltip += "\n" + line;
+    }
+
+    // This runs on every edit (the title is refreshed each time), and restyling and relabelling cost GTK work:
+    // touch nothing unless what is shown has changed
+    const std::string signature = title + '\n' + text + '\n' + summary.cssClass + '\n' + tooltip;
+    if (signature == documentHeaderSignature) {
+        return;
+    }
+    documentHeaderSignature = signature;
+
     gtk_label_set_text(GTK_LABEL(documentHeaderTitle), title.c_str());
-    const char* status = unsaved ? _("Not saved") : modified ? _("Modified") : _("Saved");
-    gtk_label_set_text(GTK_LABEL(documentHeaderStatus), modified || unsaved ? status : "✓");
-    gtk_widget_set_tooltip_text(documentHeaderStatus, status);
-    utn::setAccessibleName(documentHeaderStatus, status);
     gtk_widget_set_tooltip_text(documentHeaderTitle, title.c_str());
+    GtkStyleContext* context = gtk_widget_get_style_context(documentHeaderStatus);
+    for (const char* cls: {"utn-status-ok", "utn-status-info", "utn-status-warning", "utn-status-error"}) {
+        gtk_style_context_remove_class(context, cls);
+    }
+    gtk_style_context_add_class(context, summary.cssClass.c_str());
+    gtk_label_set_text(GTK_LABEL(documentHeaderStatus), text.c_str());
+    gtk_widget_set_tooltip_text(documentHeaderStatus, tooltip.c_str());
+    utn::setAccessibleName(documentHeaderStatus, summary.accessibleName.c_str());
 }
 
 void MainWindow::appendWorkspaceMenu() {
@@ -1762,6 +1784,7 @@ void MainWindow::fitAppBar(int width) {
     }
     this->appBarTight = false;
     this->appBarOverflowing = false;
+    const std::vector<GtkToolItem*> previouslyMoved = std::exchange(this->appBarMoved, {});
 
     const bool teacher = this->selectedToolbar && utn::isTeacherLayout(this->selectedToolbar->getId());
     if (!teacher || width < utn::layout::MIN_MEANINGFUL_WIDTH) {  // a placeholder width says nothing
@@ -1810,7 +1833,11 @@ void MainWindow::fitAppBar(int width) {
     for (GtkToolItem* item: moved) {
         gtk_widget_hide(GTK_WIDGET(item));
     }
-    showMoreMenu(moved);
+    // The menu is rebuilt only when what it holds changes, so one that is open is not replaced under the teacher's hand
+    if (moved != previouslyMoved) {
+        showMoreMenu(moved);
+    }
+    this->appBarMoved = moved;
     this->appBarOverflowing = true;
 }
 
@@ -1852,8 +1879,9 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     this->compactLayout = utn::layout::nextCompactLayout(wasCompact, width);
     this->compactHeader = wasCompactHeader ? width <= 1400 : width < 1320;
     const bool paperInkRail = this->selectedToolbar && utn::isTeacherLayout(this->selectedToolbar->getId());
-    if (documentHeader) {
-        gtk_widget_set_visible(documentHeader, !this->compactLayout);
+    if (documentHeaderTitle) {
+        // The name gives way to a narrow window, the status never does: a failed save must be visible at any width
+        gtk_widget_set_visible(documentHeaderTitle, !this->compactLayout);
     }
     // Fit the app bar to this width once everything above has settled. A real allocation defers it, because the bar
     // must not change while GTK is still allocating the window; a direct call applies it at once.
@@ -1917,8 +1945,9 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
         }
     }
     // The document title is deliberately retained in the wider compact-header state.
-    if (documentHeader) {
-        gtk_widget_set_visible(documentHeader, !this->compactLayout);
+    if (documentHeaderTitle) {
+        // The name gives way to a narrow window, the status never does: a failed save must be visible at any width
+        gtk_widget_set_visible(documentHeaderTitle, !this->compactLayout);
     }
     fitAppBarToWidth();
 }
