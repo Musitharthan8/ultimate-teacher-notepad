@@ -9,6 +9,9 @@
 
 #pragma once
 
+#include <cstddef>
+#include <vector>
+
 namespace utn::layout {
 
 // The Paper & Ink teacher rail is a fixed-width icon card. Keep this in sync with
@@ -72,5 +75,29 @@ constexpr bool nextInspectorFolded(bool wasFolded, int width) {
         return false;
     }
     return wasFolded;
+}
+
+/// The app bar is measured, never assumed: its requisition depends on the font, the display scale and the language, so
+/// no width is safe to hard-code. When the bar asks for more than the window has, the least important buttons move into
+/// the "More" menu, in the order given, until what is left plus the "More" button fits.
+/// @param naturalWidth the width the bar asks for with every item shown and no "More" button
+/// @param availableWidth the width the window gives it
+/// @param movableWidths the widths of the items that may move, first to move first
+/// @param moreButtonWidth the width of the "More" button, which only appears when something moves
+/// @return how many of the movable items (from the front) move; 0 when the bar already fits, all of them when even
+/// that is not enough (the caller then falls back to scrolling)
+inline std::size_t appBarItemsToOverflow(int naturalWidth, int availableWidth, const std::vector<int>& movableWidths,
+                                         int moreButtonWidth) {
+    if (naturalWidth <= availableWidth) {
+        return 0;
+    }
+    int saved = 0;
+    for (std::size_t i = 0; i < movableWidths.size(); ++i) {
+        saved += movableWidths[i];
+        if (naturalWidth - saved + moreButtonWidth <= availableWidth) {
+            return i + 1;
+        }
+    }
+    return movableWidths.size();
 }
 }  // namespace utn::layout

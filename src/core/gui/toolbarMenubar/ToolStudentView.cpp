@@ -249,6 +249,22 @@ auto ToolStudentView::stateLabel(State state) -> const char* {
     return "";
 }
 
+auto ToolStudentView::stateShortWord(State state) -> const char* {
+    switch (state) {
+        case State::Off:
+            return _("Off");
+        case State::SameScreen:
+            return _("Same");
+        case State::Live:
+            return _("Live");
+        case State::Frozen:
+            return _("Frozen");
+        case State::Blank:
+            return _("Blank");
+    }
+    return "";
+}
+
 void ToolStudentView::updateState() {
     // Hidden answers may be shown faintly to the teacher only if the teacher asked for it AND students watch another
     // screen. It is off by default: a teacher window that is screen-shared or recorded must never show hidden answers.
@@ -273,6 +289,7 @@ void ToolStudentView::updateState() {
         const size_t split = full.find(": ");
         gtk_label_set_text(GTK_LABEL(pillPrefix), split == std::string::npos ? "" : full.substr(0, split + 1).c_str());
         gtk_label_set_text(GTK_LABEL(pillLabel), split == std::string::npos ? full.c_str() : full.c_str() + split + 2);
+        gtk_label_set_text(GTK_LABEL(pillShort), stateShortWord(state));
         utn::setAccessibleName(pill, full.c_str());
     }
     const bool open = window != nullptr;
@@ -318,8 +335,13 @@ void ToolStudentView::updateState() {
                 state == State::Live       ? _("Students see the page only: no tools, private notes or hidden answers.") :
                 state == State::Frozen     ? _("Students see a frozen picture of the page. Your screen can move on.") :
                                              _("Students see a blank screen.");
-        std::string tip = std::string(meaning) + "\n" + _("Click for Student View controls.");
+        // A tight app bar shows one word, so the tooltip leads with the whole phrase
+        std::string tip = std::string(stateLabel(state)) + "\n" + meaning + "\n" + _("Click for Student View controls.");
         gtk_widget_set_tooltip_text(pill, tip.c_str());
+        // A new word is a new width, and the app bar is fitted to what it measures
+        if (MainWindow* mainWindow = control->getWindow()) {
+            mainWindow->refitAppBar();
+        }
     }
     if (openButton) {
         gtk_button_set_label(GTK_BUTTON(openButton), open ? _("Show Student View window") : _("Open on the projector"));
@@ -661,8 +683,14 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_add_css_class(pillPrefix, "utn-narrow-hidden");  // dropped in compact windows; the state word stays
     gtk_box_append(GTK_BOX(content), pillPrefix);
     pillLabel = gtk_label_new(nullptr);
+    gtk_widget_add_css_class(pillLabel, "utn-tight-hidden");  // swapped for the short word when the app bar is tight
     gtk_box_append(GTK_BOX(content), pillLabel);
+    pillShort = gtk_label_new(nullptr);
+    gtk_widget_add_css_class(pillShort, "utn-tight-only");
+    gtk_widget_set_no_show_all(pillShort, true);  // show_all on the toolbar item must not reveal it
+    gtk_box_append(GTK_BOX(content), pillShort);
     gtk_widget_show_all(content);
+    gtk_widget_hide(pillShort);
     gtk_button_set_child(GTK_BUTTON(menuButton), content);
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
@@ -674,6 +702,7 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                              self->pill = nullptr;
                              self->pillLabel = nullptr;
                              self->pillPrefix = nullptr;
+                             self->pillShort = nullptr;
                              self->freezeToggle = nullptr;
                              self->blankToggle = nullptr;
                              self->ghostToggle = nullptr;

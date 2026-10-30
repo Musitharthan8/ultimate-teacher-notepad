@@ -309,6 +309,17 @@ const char* teacherChromeIcon(const std::string& item) {
     return nullptr;
 }
 
+/// Which app-bar buttons may move into the "More" menu, and in what order. Everything here also has a menu-bar entry and
+/// a shortcut; Undo and Redo go last because they are used mid-lesson.
+int appBarOverflowRank(const std::string& item) {
+    if (item == "SAVEPDF") return 1;
+    if (item == "OPEN") return 2;
+    if (item == "SAVE") return 3;
+    if (item == "REDO") return 4;
+    if (item == "UNDO") return 5;
+    return 0;
+}
+
 GtkWidget* firstImage(GtkWidget* widget) {
     if (GTK_IS_IMAGE(widget)) {
         return widget;
@@ -491,6 +502,13 @@ void ToolMenuHandler::load(const ToolbarData* d, GtkWidget* toolbar, const char*
                                 setTeacherTooltip(it.get(), markup.get());
                             } else {
                                 gtk_widget_set_tooltip_text(it.get(), label.c_str());
+                            }
+                            if (horizontal && g_strcmp0(toolbarName, "toolbarTop1") == 0) {
+                                if (const int rank = appBarOverflowRank(name)) {
+                                    g_object_set_data(G_OBJECT(it.get()), utn::OVERFLOW_RANK_KEY, GINT_TO_POINTER(rank));
+                                    g_object_set_data_full(G_OBJECT(it.get()), utn::OVERFLOW_LABEL_KEY,
+                                                           g_strdup(label.c_str()), g_free);
+                                }
                             }
                             if (!horizontal) {
                                 utn::setAccessibleName(it.get(), label.c_str());

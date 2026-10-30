@@ -155,3 +155,34 @@ TEST(ResponsiveLayout, PanelPoliciesIgnorePlaceholderSizesAndDoNotFlicker) {
     }
     EXPECT_EQ(changes, 2) << "one change on the way down, one on the way up";
 }
+
+// The app bar is measured, so these use the widths measured on a 96 DPI and a 120 DPI display (728 and 803 px for the
+// same bar) as plain numbers: the rule must hold for both without knowing which display it is.
+TEST(ResponsiveLayout, AppBarThatFitsMovesNothing) {
+    EXPECT_EQ(appBarItemsToOverflow(728, 800, {36, 36, 36}, 36), 0u);
+    EXPECT_EQ(appBarItemsToOverflow(800, 800, {36, 36, 36}, 36), 0u) << "exactly the available width fits";
+}
+
+TEST(ResponsiveLayout, AppBarMovesJustEnoughItemsAndPaysForTheMoreButton) {
+    const std::vector<int> movable{36, 36, 36, 36, 36};
+    // 803 -> 800 needs 3 px, but the first item only helps once it has paid for the 36 px "More" button: 2 items
+    EXPECT_EQ(appBarItemsToOverflow(803, 800, movable, 36), 2u);
+    // One item more than a bare 36 px saving: 803 needs 3 px + 36 px button = 39 px
+    EXPECT_EQ(appBarItemsToOverflow(840, 800, movable, 36), 3u);
+    EXPECT_EQ(appBarItemsToOverflow(836, 800, movable, 36), 2u) << "72 px saved - 36 px button = 36 px, which is exactly enough";
+}
+
+TEST(ResponsiveLayout, AppBarMovesEverythingMovableWhenThatIsStillNotEnough) {
+    const std::vector<int> movable{36, 36};
+    EXPECT_EQ(appBarItemsToOverflow(2000, 800, movable, 36), 2u);
+}
+
+TEST(ResponsiveLayout, AppBarWithNothingMovableStaysPut) {
+    EXPECT_EQ(appBarItemsToOverflow(2000, 800, {}, 36), 0u);
+}
+
+TEST(ResponsiveLayout, AppBarMovesTheSamePrefixWhateverTheWidthOfTheItems) {
+    // Items are taken in the order given, not by size: the least important goes first even when it is the narrow one
+    const std::vector<int> movable{20, 60, 36};
+    EXPECT_EQ(appBarItemsToOverflow(850, 800, movable, 10), 2u);  // 20 + 60 - 10 = 70 >= 50; 20 - 10 = 10 < 50
+}

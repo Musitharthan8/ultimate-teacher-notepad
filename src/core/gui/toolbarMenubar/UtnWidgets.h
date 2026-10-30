@@ -36,6 +36,11 @@ void setMenuButtonLabel(GtkWidget* button, const char* label);
 /// Pin the full settings inspector beside the worksheet from a tool popover; never changes the active tool.
 GtkWidget* appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* control);
 
+/// App-bar buttons that may move into the "More" menu when the bar is wider than its window. ToolMenuHandler tags the
+/// tool item with its rank (1 moves first) and its readable name; MainWindow::fitAppBar reads both back.
+inline constexpr const char* OVERFLOW_RANK_KEY = "utn-overflow-rank";
+inline constexpr const char* OVERFLOW_LABEL_KEY = "utn-overflow-label";
+
 /// Name read by screen readers, for buttons whose visible content is an icon, a colour or a single letter
 void setAccessibleName(GtkWidget* widget, const char* name);
 

@@ -63,6 +63,9 @@ public:
     State getState() const;
     /// Pill wording for a state, e.g. "Students: Live"
     static const char* stateLabel(State state);
+    /// The state word alone, as short as it can be said ("Same" for "Same screen"). The pill shows it when the app bar
+    /// is tight; the accessible name keeps the whole phrase.
+    static const char* stateShortWord(State state);
 
     // DocumentListener
     void pageSelected(size_t page) override;
@@ -144,6 +147,7 @@ private:
     GtkWidget* pill = nullptr;
     GtkWidget* pillLabel = nullptr;
     GtkWidget* pillPrefix = nullptr;
+    GtkWidget* pillShort = nullptr;  ///< short state word, shown instead of pillLabel while the app bar is tight
     GtkWidget* freezeToggle = nullptr;
     GtkWidget* blankToggle = nullptr;
     // The same two actions as app-bar buttons (the latest toolbar instance)

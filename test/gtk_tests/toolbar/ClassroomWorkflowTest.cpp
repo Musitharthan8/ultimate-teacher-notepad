@@ -44,6 +44,7 @@
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
+#include "gui/toolbarMenubar/UtnWidgets.h"
 #include "model/Document.h"
 #include "model/DocumentLockAudit.h"
 #include "model/Layer.h"
@@ -51,6 +52,8 @@
 #include "model/Text.h"
 #include "model/Stroke.h"
 #include "model/XojPage.h"
+#include "undo/InsertUndoAction.h"
+#include "undo/UndoRedoHandler.h"
 #include "model/eraser/MaskedStrokeCodec.h"
 #include "util/PathUtil.h"
 #include "util/PopupWindowWrapper.h"
@@ -568,6 +571,274 @@ TEST_F(ClassroomWorkflow, appBarFitsAtTheSmallestSupportedWindowSoNoMenuIsPushed
     ASSERT_NE(pill, nullptr);
     EXPECT_EQ(std::string(atk_object_get_name(gtk_widget_get_accessible(pill))).rfind("Students: ", 0), 0u)
             << "the accessible name keeps the whole phrase";
+}
+
+namespace {
+/// The app-bar buttons that may move into the "More" menu, in the order they are meant to go
+std::vector<GtkToolItem*> movableAppBarItems(GtkWidget* appBar) {
+    std::vector<std::pair<int, GtkToolItem*>> ranked;
+    auto* bar = GTK_TOOLBAR(appBar);
+    for (int i = 0; i < gtk_toolbar_get_n_items(bar); ++i) {
+        GtkToolItem* item = gtk_toolbar_get_nth_item(bar, i);
+        const int rank = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), utn::OVERFLOW_RANK_KEY));
+        if (rank > 0) {
+            ranked.emplace_back(rank, item);
+        }
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<GtkToolItem*> items;
+    for (const auto& entry: ranked) {
+        items.push_back(entry.second);
+    }
+    return items;
+}
+
+/// The button inside a tool item (or popover) that runs an action
+GtkWidget* actionableIn(GtkWidget* widget) {
+    if (GTK_IS_ACTIONABLE(widget) && gtk_actionable_get_action_name(GTK_ACTIONABLE(widget))) {
+        return widget;
+    }
+    GtkWidget* found = nullptr;
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child && !found; child = child->next) {
+            found = actionableIn(GTK_WIDGET(child->data));
+        }
+        g_list_free(children);
+    }
+    return found;
+}
+
+GtkWidget* moreButtonOf(MainWindow* window) {
+    return menuButtonAccessibleNamed(window->get("tbTop1"), "More actions");
+}
+
+/// The entries of a menu button's popover, in order
+std::vector<GtkWidget*> moreEntries(GtkWidget* more) {
+    std::vector<GtkWidget*> entries;
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* widget) {
+        if (GTK_IS_BUTTON(widget)) {
+            entries.push_back(widget);
+        } else if (GTK_IS_CONTAINER(widget)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+            for (GList* child = children; child; child = child->next) {
+                walk(GTK_WIDGET(child->data));
+            }
+            g_list_free(children);
+        }
+    };
+    if (auto* popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(more))) {
+        walk(GTK_WIDGET(popover));
+    }
+    return entries;
+}
+
+/// The text of every label inside `widget` that is showing, except the state dot
+std::vector<std::string> shownWords(GtkWidget* widget) {
+    std::vector<std::string> words;
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* w) {
+        if (GTK_IS_LABEL(w) && gtk_widget_get_visible(w) && *gtk_label_get_text(GTK_LABEL(w)) &&
+            g_strcmp0(gtk_label_get_text(GTK_LABEL(w)), "\xE2\x97\x8F") != 0) {
+            words.emplace_back(gtk_label_get_text(GTK_LABEL(w)));
+        }
+        if (GTK_IS_CONTAINER(w)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(w));
+            for (GList* child = children; child; child = child->next) {
+                walk(GTK_WIDGET(child->data));
+            }
+            g_list_free(children);
+        }
+    };
+    walk(widget);
+    return words;
+}
+
+GtkWidget* studentsPill(GtkWidget* appBar) {
+    auto* prefix = labelWithText(appBar, "Students:");
+    return prefix ? gtk_widget_get_ancestor(prefix, GTK_TYPE_MENU_BUTTON) : nullptr;
+}
+
+/// Every classroom control must be on the bar or reachable through "More", whatever the width is
+void expectNothingLost(MainWindow* window, const std::string& context) {
+    SCOPED_TRACE(context);
+    auto* appBar = window->get("tbTop1");
+    for (const char* label: {"Freeze", "Blank", "Clear"}) {
+        auto* button = buttonNamed(appBar, label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(gtk_widget_get_visible(button)) << label << " is a classroom control and must stay on the bar";
+    }
+    auto* pill = studentsPill(appBar);
+    ASSERT_NE(pill, nullptr);
+    EXPECT_TRUE(gtk_widget_get_visible(pill)) << "the Students pill must stay on the bar";
+    // The menu lists the moved buttons in the order they have on the bar
+    const auto moved = [&] {
+        std::vector<GtkToolItem*> hidden;
+        for (GtkToolItem* item: movableAppBarItems(appBar)) {
+            if (!gtk_widget_get_visible(GTK_WIDGET(item))) {
+                hidden.push_back(item);
+            }
+        }
+        std::sort(hidden.begin(), hidden.end(), [&](GtkToolItem* a, GtkToolItem* b) {
+            return gtk_toolbar_get_item_index(GTK_TOOLBAR(appBar), a) < gtk_toolbar_get_item_index(GTK_TOOLBAR(appBar), b);
+        });
+        return hidden;
+    }();
+    auto* more = moreButtonOf(window);
+    if (moved.empty()) {
+        EXPECT_TRUE(more == nullptr || !gtk_widget_is_visible(more)) << "no \"More\" button when nothing moved";
+        return;
+    }
+    ASSERT_NE(more, nullptr) << "buttons moved but there is no \"More\" menu";
+    EXPECT_TRUE(gtk_widget_is_visible(more));
+    const auto entries = moreEntries(more);
+    ASSERT_EQ(entries.size(), moved.size()) << "every moved button has exactly one entry";
+    for (size_t i = 0; i < moved.size(); ++i) {
+        auto* source = actionableIn(GTK_WIDGET(moved[i]));
+        ASSERT_NE(source, nullptr);
+        EXPECT_STREQ(gtk_actionable_get_action_name(GTK_ACTIONABLE(entries[i])),
+                     gtk_actionable_get_action_name(GTK_ACTIONABLE(source)))
+                << "the entry runs the same action as the button it stands in for";
+    }
+}
+}  // namespace
+
+// The app bar is measured against its window, so it holds at 96 and 120 DPI alike. The widths are real allocations, as
+// in the app: a width the window cannot reach is clamped, and the assertion reads what was really given.
+TEST_F(ClassroomWorkflow, appBarFitsOrOffersMoreAtEveryRealWindowWidth) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    auto* appBar = window->get("tbTop1");
+    for (int requested: {1280, 1024, 900, 800, 1280}) {
+        const int actual = allocatedWidthAfterResize(window->getWindow(), requested);
+        const std::string context = "requested " + std::to_string(requested) + ", allocated " + std::to_string(actual);
+        SCOPED_TRACE(context);
+        int minWidth = 0;
+        int natWidth = 0;
+        gtk_widget_get_preferred_width(appBar, &minWidth, &natWidth);
+        EXPECT_LE(natWidth, actual) << "the app bar must fit without scrolling or clipping";
+        expectNothingLost(window.get(), context);
+    }
+}
+
+// Forced with a width no display fits, so the overflow path is exercised whatever the scale is.
+TEST_F(ClassroomWorkflow, buttonsThatCannotFitMoveIntoAMoreMenuThatRunsTheSameActions) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* appBar = window->get("tbTop1");
+    const auto movable = movableAppBarItems(appBar);
+    ASSERT_EQ(movable.size(), 5u) << "Export, Open, Save, Undo and Redo are the buttons that may move";
+
+    window->updateCompactLayout(500);
+    EXPECT_TRUE(window->isAppBarOverflowing());
+    expectNothingLost(window.get(), "synthetic 500 px");
+    auto* more = moreButtonOf(window.get());
+    ASSERT_NE(more, nullptr);
+    EXPECT_STREQ(gtk_widget_get_tooltip_text(more), "More actions");
+    EXPECT_TRUE(gtk_widget_get_can_focus(more)) << "keyboard users reach the menu with Tab";
+    for (GtkWidget* entry: moreEntries(more)) {
+        EXPECT_TRUE(gtk_widget_get_can_focus(entry)) << "keyboard users reach every entry";
+        EXPECT_NE(std::string(gtk_button_get_label(GTK_BUTTON(entry))), "") << "every entry is named";
+    }
+
+    // States follow the action: nothing to undo yet, so the Undo and Redo entries are off
+    GtkWidget* undoEntry = nullptr;
+    GtkWidget* redoEntry = nullptr;
+    for (GtkWidget* entry: moreEntries(more)) {
+        const std::string action = gtk_actionable_get_action_name(GTK_ACTIONABLE(entry));
+        if (action == "win.undo") {
+            undoEntry = entry;
+        } else if (action == "win.redo") {
+            redoEntry = entry;
+        }
+    }
+    ASSERT_NE(undoEntry, nullptr);
+    ASSERT_NE(redoEntry, nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(undoEntry));
+    EXPECT_FALSE(gtk_widget_get_sensitive(redoEntry));
+
+    // Something to undo: the Undo entry comes alive, and running it undoes
+    auto page = control->getDocument()->getPage(0);
+    auto* layer = page->getSelectedLayer();
+    addMarker(layer, 100);
+    const Element* ink = layer->getElements().back().get();
+    control->getUndoRedoHandler()->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, ink));
+    settle();
+    const auto before = layer->getElements().size();
+    EXPECT_TRUE(gtk_widget_get_sensitive(undoEntry));
+    gtk_button_clicked(GTK_BUTTON(undoEntry));
+    settle();
+    EXPECT_EQ(layer->getElements().size(), before - 1) << "the \"More\" entry undid the stroke";
+    EXPECT_TRUE(gtk_widget_get_sensitive(redoEntry)) << "and Redo is now available from the menu too";
+    gtk_button_clicked(GTK_BUTTON(redoEntry));
+    settle();
+    EXPECT_EQ(layer->getElements().size(), before);
+
+    window->updateCompactLayout(realWidth);
+}
+
+TEST_F(ClassroomWorkflow, studentsPillShowsOneWordWhenTightAndKeepsItsWholeName) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* appBar = window->get("tbTop1");
+    auto* pill = studentsPill(appBar);
+    ASSERT_NE(pill, nullptr);
+
+    std::set<std::string> shortWords;
+    std::set<std::string> fullWords;
+    using State = ToolStudentView::State;
+    for (State state: {State::Off, State::SameScreen, State::Live, State::Frozen, State::Blank}) {
+        shortWords.insert(ToolStudentView::stateShortWord(state));
+        const std::string full = ToolStudentView::stateLabel(state);
+        fullWords.insert(full.substr(full.find(": ") + 2));
+    }
+
+    window->updateCompactLayout(1920);
+    EXPECT_FALSE(window->isAppBarTight());
+    auto words = shownWords(pill);
+    ASSERT_FALSE(words.empty());
+    EXPECT_TRUE(fullWords.count(words.back())) << words.back() << " is the whole state word, not the short one";
+
+    window->updateCompactLayout(500);
+    EXPECT_TRUE(window->isAppBarTight());
+    words = shownWords(pill);
+    ASSERT_EQ(words.size(), 1u) << "one word, never both forms";
+    EXPECT_TRUE(shortWords.count(words[0])) << words[0] << " is not a short state word";
+    EXPECT_EQ(std::string(atk_object_get_name(gtk_widget_get_accessible(pill))).rfind("Students: ", 0), 0u)
+            << "the accessible name keeps the whole phrase";
+    EXPECT_EQ(std::string(gtk_widget_get_tooltip_text(pill)).rfind("Students: ", 0), 0u)
+            << "and so does the tooltip";
+
+    window->updateCompactLayout(realWidth);
+}
+
+TEST_F(ClassroomWorkflow, wideAppBarIsUntouchedAndResizingBackAndForthRestoresEverything) {
+    window->toolbarSelected("UTN Teacher");
+    gtk_widget_show(window->getWindow());
+    settle();
+    const int realWidth = gtk_widget_get_allocated_width(window->getWindow());
+    auto* appBar = window->get("tbTop1");
+
+    for (int round = 0; round < 2; ++round) {
+        SCOPED_TRACE("round " + std::to_string(round));
+        window->updateCompactLayout(1920);
+        EXPECT_FALSE(window->isAppBarTight());
+        EXPECT_FALSE(window->isAppBarOverflowing());
+        for (GtkToolItem* item: movableAppBarItems(appBar)) {
+            EXPECT_TRUE(gtk_widget_get_visible(GTK_WIDGET(item))) << "the wide bar keeps every button";
+        }
+        auto* more = moreButtonOf(window.get());
+        EXPECT_TRUE(more == nullptr || !gtk_widget_is_visible(more));
+        expectNothingLost(window.get(), "wide");
+
+        window->updateCompactLayout(500);
+        EXPECT_TRUE(window->isAppBarOverflowing());
+        expectNothingLost(window.get(), "narrow");
+    }
+    window->updateCompactLayout(realWidth);
 }
 
 namespace {

@@ -19,7 +19,7 @@ A bare `ninja` builds neither test binary. Run them explicitly. Install with `cm
 - CSS lives in `ui/xournalpp.css`; the installed copy is what the app reads. GTK 3.24 CSS has no variables, flexbox or gap.
 - Responsive decisions are in `src/core/gui/ResponsiveLayout.h` (GTK-free, unit tested). `MainWindow::updateCompactLayout` applies them.
 - Mark a widget `utn-compact-hidden` to hide it below 1320 px, `utn-narrow-hidden` to hide it in the compact layout (under 1080 px).
-- GtkToolbar gives wrapped widgets no overflow menu: anything that does not fit is unreachable. Keep the 800 px app bar under its width.
+- GtkToolbar gives wrapped widgets no overflow menu: anything that does not fit is unreachable. `MainWindow::fitAppBar` therefore measures the app bar against its window (so font, display scale and language count) and, only when it is too wide, first swaps to short wording (`utn-tight-hidden` / `utn-tight-only`), then moves buttons into a "More" menu (rank set with `utn::OVERFLOW_RANK_KEY` in `ToolMenuHandler`). Never hard-code a width or a scale: at 96 DPI the bar asks for 728 px, at 120 DPI 803 px.
 - Every icon-only control needs a tooltip and an accessible name (`utn::setAccessibleName`).
 - Rail tools are 38 px targets in a 60 px rail (`utn::layout::TEACHER_RAIL_WIDTH`).
 

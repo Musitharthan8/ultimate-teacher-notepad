@@ -16,6 +16,7 @@
 #include <cstddef>  // for size_t
 #include <memory>   // for unique_ptr
 #include <string>   // for string
+#include <vector>   // for vector
 
 #include <gdk/gdk.h>      // for GdkDragContext, GdkEvent
 #include <glib-object.h>  // for GClosure
@@ -108,6 +109,14 @@ public:
     /// UTN: icon-only rail and tighter chrome in narrow windows (under 1080 px)
     void updateCompactLayout(int width, bool fromAllocation = false);
     bool isCompactLayout() const { return compactLayout; }
+    /// UTN: the app bar is fitted to its window by measuring it (see fitAppBar), so it adapts to the font, the display
+    /// scale and the language. Call this when something changed that can change the width the bar asks for, such as
+    /// the Students pill changing its word.
+    void refitAppBar();
+    /// The app bar's wording is in its short form (Students pill shows one word)
+    bool isAppBarTight() const { return appBarTight; }
+    /// Some app-bar buttons have moved into the "More" menu
+    bool isAppBarOverflowing() const { return appBarOverflowing; }
     /// UTN: the page comes first. Below ~1400 px the thumbnail sidebar steps aside, below ~960 px the settings inspector
     /// folds to its "Show settings" handle. Neither touches the saved settings, and both come back when the window
     /// widens, unless the teacher chose otherwise in between.
@@ -227,6 +236,18 @@ private:
     bool panelPolicyPending = false;
     void updatePanelPolicy(int width, bool fromAllocation);
     void applyPanelPolicy();
+
+    // App-bar fit. The bar is measured against the window and given what it needs, in this order: its normal wording, a
+    // shorter wording (Students pill), then the least important buttons moved into a "More" menu. Scrolling stays as
+    // the last resort only.
+    void fitAppBar(int width);
+    void scheduleAppBarFit();
+    void showMoreMenu(const std::vector<GtkToolItem*>& moved);
+    GtkWidget* appBarMore = nullptr;  ///< the "More" GtkToolItem; null until first needed, cleared when its toolbar goes
+    bool appBarTight = false;
+    bool appBarOverflowing = false;
+    bool appBarFitPending = false;
+    int appBarFitWidth = -1;  ///< width of the last fit, so an unchanged width costs nothing
     int layoutWidth = 0;             ///< last width passed to updateCompactLayout()
     // Fresh profiles start with the rail visible and the inspector available from tool popovers.
     // A previously saved workspaceTools value still overrides this default.
