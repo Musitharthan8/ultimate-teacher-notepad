@@ -51,6 +51,12 @@ public:
     void prune();
 
     /**
+     * The pages the history remembers, newest first. A page can appear more than once; the caller finds where each now
+     * is in the document, so inserted, deleted and moved pages are followed.
+     */
+    std::vector<PageRef> visitedPages() const;
+
+    /**
      * Update the enabled state of navigation actions.
      */
     void updateActions();

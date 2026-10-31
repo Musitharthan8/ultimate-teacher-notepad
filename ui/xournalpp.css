@@ -1528,3 +1528,9 @@ window.utnShell.utnHighContrast #tbTop1Scroller scrollbar.horizontal slider {
     background-color: @utn_hc_fg;
     border: 1px solid @utn_hc_fg;
 }
+
+/* Lesson Navigator: the page being shown is bold and has an edge, so it is not shown by colour alone */
+button.utn-current-page {
+    font-weight: 700;
+    border-left: 4px solid @utn_hc_focus;
+}

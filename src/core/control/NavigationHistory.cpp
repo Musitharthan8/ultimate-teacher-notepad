@@ -66,6 +66,17 @@ bool NavigationHistory::isSameState(const NavState& a, const NavState& b) const 
            std::abs(a.rect->width - b.rect->width) < EPSILON && std::abs(a.rect->height - b.rect->height) < EPSILON;
 }
 
+std::vector<PageRef> NavigationHistory::visitedPages() const {
+    std::vector<PageRef> pages;
+    pages.reserve(history.size());
+    for (auto it = history.rbegin(); it != history.rend(); ++it) {
+        if (it->page) {
+            pages.push_back(it->page);
+        }
+    }
+    return pages;
+}
+
 void NavigationHistory::prune() {
     if (history.empty()) {
         return;

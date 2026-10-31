@@ -46,6 +46,8 @@
 #include "gui/toolbarMenubar/ToolMenuHandler.h"
 #include "gui/toolbarMenubar/PenPresetsMenu.h"
 #include "gui/toolbarMenubar/RevealActions.h"
+#include "gui/sidebar/Sidebar.h"
+#include "gui/toolbarMenubar/ToolLessonNavigator.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
@@ -5028,4 +5030,193 @@ TEST_F(ClassroomWorkflow, toolbarReloadsKeepOnePenSettingsButtonAndAWorkingPopov
         EXPECT_EQ(active, 1) << "exactly one size is shown as selected, size " << static_cast<int>(size);
     }
     tools->setPenSize(previous);
+}
+
+namespace {
+void addPlainPages(Control* control, int count) {
+    for (int i = 0; i < count; ++i) {
+        auto page = std::make_shared<XojPage>(600, 800);
+        page->setBackgroundType(PageType(PageTypeFormat::Plain));
+        control->getDocument()->addPage(page);
+    }
+    control->fireDocumentChanged(DOCUMENT_CHANGE_COMPLETE);
+    control->DocumentHandler::firePageSelected(0);
+    settle();
+}
+
+
+std::vector<std::string> buttonTexts(GtkWidget* box) {
+    std::vector<std::string> out;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(box));
+    for (GList* child = children; child; child = child->next) {
+        if (GTK_IS_BUTTON(child->data)) {
+            out.emplace_back(gtk_button_get_label(GTK_BUTTON(child->data)));
+        }
+    }
+    g_list_free(children);
+    return out;
+}
+
+/// The Lesson Navigator built the way a toolbar builds it, with its popover contents refreshed as opening does
+struct NavigatorUnderTest {
+    explicit NavigatorUnderTest(Control* control): nav("LESSON_NAVIGATOR", control), item(nav.createItem(true)) {
+        popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(firstMenuButton(item.get()))));
+        refresh();
+    }
+    void refresh() {
+        g_signal_emit_by_name(popover, "show");
+        settle();
+    }
+    void goTo(const char* text) {
+        gtk_editable_set_text(GTK_EDITABLE(widgetNamed(popover, "utnGoToPage")), text);
+        g_signal_emit_by_name(widgetNamed(popover, "utnGoToPage"), "activate");
+        settle();
+    }
+    GtkWidget* named(const char* name) { return widgetNamed(popover, name); }
+    ToolLessonNavigator nav;
+    xoj::util::WidgetSPtr item;
+    GtkWidget* popover = nullptr;
+};
+}  // namespace
+
+TEST_F(ClassroomWorkflow, lessonNavigatorGoesToATypedPageKeepsToolAndZoomAndExplainsNumbersThatAreNotPages) {
+    addPlainPages(control.get(), 3);  // five pages
+    NavigatorUnderTest navigator(control.get());
+    ASSERT_NE(navigator.named("utnGoToPage"), nullptr) << "a page number box belongs in the navigator";
+    ASSERT_NE(navigator.named("utnGoToPageError"), nullptr);
+    control->selectTool(TOOL_HIGHLIGHTER);
+    const double zoom = control->getZoomControl()->getZoom();
+
+    navigator.goTo("4");
+    EXPECT_EQ(control->getCurrentPageNo(), 3u);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(navigator.named("utnGoToPageError"))), "");
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HIGHLIGHTER) << "navigating keeps the tool";
+    EXPECT_DOUBLE_EQ(control->getZoomControl()->getZoom(), zoom) << "and the zoom";
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "going to a page changes nothing in the document";
+
+    navigator.goTo("9");
+    EXPECT_EQ(control->getCurrentPageNo(), 3u) << "a number that is not a page goes nowhere";
+    const std::string message = gtk_label_get_text(GTK_LABEL(navigator.named("utnGoToPageError")));
+    EXPECT_NE(message.find("1 to 5"), std::string::npos) << "it says which pages exist: " << message;
+
+    navigator.goTo("abc");
+    EXPECT_EQ(control->getCurrentPageNo(), 3u);
+    navigator.goTo("1");
+    EXPECT_EQ(control->getCurrentPageNo(), 0u);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(navigator.named("utnGoToPageError"))), "") << "a good number clears it";
+    control->selectTool(TOOL_PEN);
+}
+
+TEST_F(ClassroomWorkflow, lessonNavigatorBookmarksThePageUndoablyAndNeverReplacesATeachersLabel) {
+    addPlainPages(control.get(), 2);
+    NavigatorUnderTest navigator(control.get());
+    auto* bookmark = navigator.named("utnBookmarkButton");
+    ASSERT_NE(bookmark, nullptr);
+    auto page = control->getDocument()->getPage(0);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(bookmark)), "Bookmark this page");
+
+    gtk_button_clicked(GTK_BUTTON(bookmark));
+    navigator.refresh();
+    EXPECT_EQ(page->getUtnPageLabel(), "Bookmark");
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(bookmark)), "Remove bookmark");
+    EXPECT_EQ(buttonTexts(navigator.named("utnLessonMap")), (std::vector<std::string>{"1   Bookmark"}))
+            << "a bookmark is in the lesson map";
+
+    control->getUndoRedoHandler()->undo();
+    EXPECT_EQ(page->getUtnPageLabel(), "") << "undo takes it off";
+    control->getUndoRedoHandler()->redo();
+    EXPECT_EQ(page->getUtnPageLabel(), "Bookmark");
+
+    gtk_button_clicked(GTK_BUTTON(bookmark));
+    navigator.refresh();
+    EXPECT_EQ(page->getUtnPageLabel(), "") << "pressing it again removes it";
+
+    page->setUtnPageLabel("Answer Key");
+    navigator.refresh();
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(bookmark)), "Page is labelled");
+    EXPECT_FALSE(gtk_widget_get_sensitive(bookmark)) << "the button cannot overwrite or remove the label of the teacher";
+    EXPECT_EQ(page->getUtnPageLabel(), "Answer Key");
+    page->setUtnPageLabel("");
+}
+
+TEST_F(ClassroomWorkflow, lessonNavigatorMarksTheCurrentPageAndListsRecentPagesThroughInsertDeleteAndMove) {
+    addPlainPages(control.get(), 3);  // five pages
+    NavigatorUnderTest navigator(control.get());
+    auto doc = control->getDocument();
+    auto pageAt = [&](size_t i) { return doc->getPage(i); };
+    PageRef first = pageAt(0), fourth = pageAt(3);
+
+    navigator.goTo("4");
+    navigator.goTo("2");
+    ASSERT_EQ(control->getCurrentPageNo(), 1u);
+    EXPECT_EQ(buttonTexts(navigator.named("utnRecentPages")), (std::vector<std::string>{"Page 4", "Page 1"}))
+            << "recent pages, newest first, without the page being shown";
+
+    // A new page in front moves every number up; the list follows the pages, not the numbers
+    control->insertNewPage(0);
+    settle();
+    navigator.refresh();
+    const size_t current = control->getCurrentPageNo();
+    std::vector<std::string> expected;
+    for (const PageRef& p: {fourth, first}) {
+        const size_t index = doc->indexOf(p);
+        if (index != current) {
+            expected.push_back("Page " + std::to_string(index + 1));
+        }
+    }
+    EXPECT_EQ(buttonTexts(navigator.named("utnRecentPages")), expected);
+    EXPECT_EQ(doc->indexOf(first), 1u) << "the first page moved down by one";
+
+    // Marked pages follow a page that moves
+    navigator.goTo("1");
+    gtk_button_clicked(GTK_BUTTON(navigator.named("utnBookmarkButton")));
+    PageRef marked = pageAt(0);
+    EXPECT_EQ(marked->getUtnPageLabel(), "Bookmark");
+    control->getActionDatabase()->fireActivateAction(Action::MOVE_PAGE_TOWARDS_END);
+    settle();
+    navigator.refresh();
+    const size_t movedTo = doc->indexOf(marked);
+    EXPECT_GT(movedTo, 0u);
+    EXPECT_EQ(buttonTexts(navigator.named("utnLessonMap")),
+              (std::vector<std::string>{std::to_string(movedTo + 1) + "   Bookmark"}));
+    ASSERT_NE(navigator.named("utnLessonMapCurrent"), nullptr) << "the page being shown is marked in the map";
+
+    // Deleting a page leaves no entry that points nowhere
+    control->deletePage();
+    settle();
+    navigator.refresh();
+    for (const auto& text: buttonTexts(navigator.named("utnRecentPages"))) {
+        const size_t number = static_cast<size_t>(std::stoul(text.substr(5)));
+        EXPECT_GE(number, 1u);
+        EXPECT_LE(number, doc->getPageCount()) << text;
+    }
+    marked->setUtnPageLabel("");
+}
+
+TEST_F(ClassroomWorkflow, lessonNavigatorBookmarksSurviveSaveAndReopenAndThumbnailsOpenTheSidebar) {
+    addPlainPages(control.get(), 2);
+    NavigatorUnderTest navigator(control.get());
+    navigator.goTo("3");
+    gtk_button_clicked(GTK_BUTTON(navigator.named("utnBookmarkButton")));
+
+    const auto file = Util::getTmpDirSubfolder() / "lesson-navigator-bookmark.xopp";
+    SaveHandler saver;
+    saver.prepareSave(control->getDocument(), file);
+    saver.saveTo(file);
+    ASSERT_TRUE(saver.getErrorMessage().empty()) << saver.getErrorMessage();
+    auto reopened = LoadHandler{}.loadDocument(file);
+    ASSERT_NE(reopened, nullptr);
+    ASSERT_EQ(reopened->getPageCount(), 4u);
+    EXPECT_EQ(reopened->getPage(2)->getUtnPageLabel(), "Bookmark") << "the bookmark is saved with its page";
+    EXPECT_EQ(reopened->getPage(0)->getUtnPageLabel(), "");
+    control->getDocument()->getPage(2)->setUtnPageLabel("");
+
+    control->setShowSidebar(false);
+    settle();
+    auto* thumbnails = buttonNamed(navigator.popover, "Show page thumbnails");
+    ASSERT_NE(thumbnails, nullptr);
+    gtk_button_clicked(GTK_BUTTON(thumbnails));
+    settle();
+    EXPECT_TRUE(control->getSettings()->isSidebarVisible());
+    EXPECT_EQ(control->getSidebar()->getSelectedTab(), 1u) << "the page thumbnails tab";
 }
