@@ -314,7 +314,33 @@ void CommandPalette::refreshAvailability() {
     // What can run changes while the palette is open (a save starts, a page changes): read it again at every listing
     for (auto& e: entries) {
         e.meta.enabled = e.available();
-        e.meta.unavailableReason = control->isBlocked() ? std::string(_("Busy saving or exporting")) : e.reason;
+        e.meta.unavailableReason = reasonFor(e);
+    }
+}
+
+std::string CommandPalette::reasonFor(const Entry& entry) const {
+    if (control->isBlocked()) {
+        return _("Busy saving or exporting");
+    }
+    return entry.reason.empty() ? std::string(_("Not available right now")) : entry.reason;
+}
+
+void CommandPalette::showStatusFor(GtkListBoxRow* row) {
+    if (!status) {
+        return;
+    }
+    const Entry* chosen = nullptr;
+    if (row) {
+        const auto index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "utn-shown"));
+        if (index >= 1 && index <= shown.size()) {
+            chosen = shown[index - 1];
+        }
+    }
+    // An unavailable command can be chosen so that its reason can be read; it never runs
+    if (chosen && !chosen->meta.enabled) {
+        gtk_label_set_text(GTK_LABEL(status), chosen->meta.unavailableReason.c_str());
+    } else {
+        gtk_label_set_text(GTK_LABEL(status), hint.c_str());
     }
 }
 
@@ -393,7 +419,11 @@ void CommandPalette::open() {
                          static_cast<CommandPalette*>(data)->listWhatWasTyped();
                      }),
                      this);
-    g_signal_connect(list, "row-activated", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
+    g_signal_connect(list, "row-selected", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
+                         static_cast<CommandPalette*>(data)->showStatusFor(row);
+                     }),
+                     this);
+    g_signal_connect(list, "row-activated",G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
                          auto* self = static_cast<CommandPalette*>(data);
                          const auto index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "utn-shown"));
                          if (index >= 1 && index <= self->shown.size()) {
@@ -508,8 +538,15 @@ void CommandPalette::filter() {
         gtk_box_pack_end(GTK_BOX(line), info, FALSE, FALSE, 0);
 
         gtk_container_add(GTK_CONTAINER(row), line);
-        gtk_widget_set_sensitive(row, e->meta.enabled);
+        // The row stays sensitive so that Up and Down can reach it; the words say it cannot run, and Enter does nothing
         utn::setAccessibleName(row, utn::accessibleLabel(e->meta).c_str());
+        if (AtkObject* accessible = gtk_widget_get_accessible(row)) {
+            // The reason, for a screen reader to read after the name
+            atk_object_set_description(accessible, e->meta.enabled ? "" : e->meta.unavailableReason.c_str());
+        }
+        if (!e->meta.enabled) {
+            gtk_style_context_add_class(gtk_widget_get_style_context(title), "dim-label");
+        }
         g_object_set_data(G_OBJECT(row), "utn-shown", GUINT_TO_POINTER(position++));
         gtk_list_box_insert(GTK_LIST_BOX(list), row, -1);
         if (!first && e->meta.enabled) {
@@ -517,12 +554,13 @@ void CommandPalette::filter() {
         }
     }
     gtk_widget_show_all(list);
+
+    const std::string count = std::to_string(shown.size()) + " " + (shown.size() == 1 ? _("command") : _("commands"));
+    hint = count + "   -   " + _("Up and Down choose, Enter runs, Escape closes");
+    gtk_label_set_text(GTK_LABEL(status), hint.c_str());
     if (first) {
         gtk_list_box_select_row(GTK_LIST_BOX(list), first);
     }
-
-    const std::string count = std::to_string(shown.size()) + " " + (shown.size() == 1 ? _("command") : _("commands"));
-    gtk_label_set_text(GTK_LABEL(status), (count + "   -   " + _("Up and Down choose, Enter runs, Escape closes")).c_str());
 }
 
 void CommandPalette::listWhatWasTyped() {
@@ -536,11 +574,10 @@ void CommandPalette::selectRow(int delta) {
         return;
     }
     GList* children = gtk_container_get_children(GTK_CONTAINER(list));
+    // Every row can be chosen, the ones that cannot run included: their reason is shown when they are chosen
     std::vector<GtkListBoxRow*> usable;
     for (GList* c = children; c; c = c->next) {
-        if (gtk_widget_get_sensitive(GTK_WIDGET(c->data))) {
-            usable.push_back(GTK_LIST_BOX_ROW(c->data));
-        }
+        usable.push_back(GTK_LIST_BOX_ROW(c->data));
     }
     g_list_free(children);
     if (usable.empty()) {
@@ -564,13 +601,22 @@ void CommandPalette::selectRow(int delta) {
 }
 
 void CommandPalette::activateEntry(const Entry* entry) {
-    if (!entry || !entry->available()) {
+    if (!entry) {
+        return;
+    }
+    if (!entry->available()) {
+        // Nothing runs, and the palette stays: the reason is what the person came to learn
+        if (status) {
+            gtk_label_set_text(GTK_LABEL(status), reasonFor(*entry).c_str());
+        }
         return;
     }
     // Close first: the keyboard returns to the page, and a command that opens a dialog or popover finds it free
     auto run = entry->run;
     close();
     run();
+    // The command may have hidden the control the keyboard went back to (a workspace, the sidebar)
+    window->keepFocusUseful();
 }
 
 void CommandPalette::activateSelected() {

@@ -54,6 +54,13 @@ void closeMenu(GtkWidget* entry) {
     }
 }
 
+/// Text a screen reader reads after the name; nullptr goes back to the tooltip, which GTK offers by default
+void setAccessibleDescription(GtkWidget* widget, const char* description) {
+    if (AtkObject* accessible = gtk_widget_get_accessible(widget)) {
+        atk_object_set_description(accessible, description);
+    }
+}
+
 /// Draw the current page as students may see it, centred and scaled into width × height
 void renderStudentFrame(Control* control, cairo_t* cr, double width, double height,
                         StudentFrameContent* content = nullptr) {
@@ -186,6 +193,10 @@ ToolStudentView::~ToolStudentView() {
     }
     // These overlays belong to the teacher window, which can outlive this tool (for example on toolbar reload).
     // Their draw/destroy callbacks hold this pointer, so remove them before the tool is released.
+    if (contentBehindCover) {
+        gtk_widget_set_sensitive(contentBehindCover, contentWasSensitive);  // never leave the window asleep under a cover
+    }
+    forgetWidgetsBehindCover();
     for (GtkWidget** overlay: {&teacherOutline, &teacherCover}) {
         if (*overlay) {
             GtkWidget* widget = std::exchange(*overlay, nullptr);
@@ -303,10 +314,15 @@ void ToolStudentView::updateState() {
                                     frozen ? _("Show students the page you are on now") :
                                              _("Keep showing this page while you prepare the next step"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(freezeToggle), frozen);
+        // The name stays the same in every state and the pressed state says whether it is on. Why it cannot be used is
+        // the description: a tooltip is not read to everyone and a toast is gone after a few seconds.
+        utn::setAccessibleName(freezeToggle, _("Freeze students' screen"));
+        setAccessibleDescription(freezeToggle, open ? nullptr : _("Open Student View on the projector first"));
     }
     if (blankToggle) {
         gtk_button_set_label(GTK_BUTTON(blankToggle), blanked ? _("Show the page again") : _("Blank screen"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankToggle), blanked);
+        utn::setAccessibleName(blankToggle, _("Blank students' screen"));
     }
     if (freezeQuick) {
         gtk_button_set_label(GTK_BUTTON(freezeQuick), frozen ? _("Resume live") : _("Freeze"));
@@ -317,14 +333,17 @@ void ToolStudentView::updateState() {
                                     frozen ? _("Students are seeing a frozen page. Choose to show them the page you are "
                                                "on now.") :
                                              _("Keep showing students this page while you prepare the next step"));
-        utn::setAccessibleName(freezeQuick, frozen ? _("Resume live view for students") : _("Freeze students' screen"));
+        utn::setAccessibleName(freezeQuick, _("Freeze students' screen"));  // the pressed state says whether it is on
+        setAccessibleDescription(freezeQuick, open ? nullptr : _("Freeze needs Student View. Open it on the projector first, "
+                                                            "then students keep seeing this page while you prepare the "
+                                                            "next step."));
     }
     if (blankQuick) {
         gtk_button_set_label(GTK_BUTTON(blankQuick), blanked ? _("Show page") : _("Blank"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankQuick), blanked);
         gtk_widget_set_tooltip_text(blankQuick, blanked ? _("Students see a blank screen. Choose to show the page again.") :
                                                           _("Hide the page from students until you turn this off"));
-        utn::setAccessibleName(blankQuick, blanked ? _("Show the page to students again") : _("Blank students' screen"));
+        utn::setAccessibleName(blankQuick, _("Blank students' screen"));  // the pressed state says whether it is on
     }
     if (pill) {
         // Teacher View and Student View are different screens; say which one the class is looking at
@@ -921,6 +940,23 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
             palette->close();
         }
     }
+    const bool raising = show && !isTeacherCoverShown();
+    if (raising) {
+        // The toolbars and tools behind the cover cannot be seen, so Tab must not reach them: the cover's own button is
+        // the only stop. Remember where the keyboard was and whether the content was awake, to put both back.
+        forgetWidgetsBehindCover();
+        focusBeforeCover = gtk_window_get_focus(GTK_WINDOW(win->getWindow()));
+        if (focusBeforeCover) {
+            g_object_add_weak_pointer(G_OBJECT(focusBeforeCover), reinterpret_cast<gpointer*>(&focusBeforeCover));
+        }
+        contentBehindCover = win->get("mainBox");
+        if (contentBehindCover) {
+            g_object_add_weak_pointer(G_OBJECT(contentBehindCover), reinterpret_cast<gpointer*>(&contentBehindCover));
+            contentWasSensitive = gtk_widget_get_sensitive(contentBehindCover);
+            gtk_widget_set_sensitive(contentBehindCover, false);
+        }
+    }
+    const bool lowering = !show && isTeacherCoverShown();
     if (!teacherCover && show) {
         teacherCover = gtk_event_box_new();
         gtk_widget_add_css_class(teacherCover, "utn-blank-cover");
@@ -943,7 +979,9 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
         gtk_container_add(GTK_CONTAINER(teacherCover), content);
         gtk_overlay_add_overlay(GTK_OVERLAY(win->get("mainOverlay")), teacherCover);
         g_signal_connect(teacherCover, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
-                             static_cast<ToolStudentView*>(data)->teacherCover = nullptr;
+                             auto* self = static_cast<ToolStudentView*>(data);
+                             self->teacherCover = nullptr;
+                             self->forgetWidgetsBehindCover();
                          }),
                          this);
     }
@@ -955,6 +993,31 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
             if (auto* showButton = GTK_WIDGET(g_object_get_data(G_OBJECT(teacherCover), "utn-show-button"))) {
                 gtk_widget_grab_focus(showButton);
             }
+        }
+    }
+    if (lowering) {
+        // The controls wake up exactly as they were, and the keyboard goes back to where it was if that still exists,
+        // otherwise to the page
+        if (contentBehindCover) {
+            gtk_widget_set_sensitive(contentBehindCover, contentWasSensitive);
+        }
+        GtkWidget* target = focusBeforeCover;
+        if (!target || !gtk_widget_get_mapped(target) || !gtk_widget_is_sensitive(target)) {
+            auto* xournal = win->getXournal();
+            target = xournal ? xournal->getWidget() : nullptr;
+        }
+        forgetWidgetsBehindCover();
+        if (target) {
+            gtk_widget_grab_focus(target);
+        }
+    }
+}
+
+void ToolStudentView::forgetWidgetsBehindCover() {
+    for (GtkWidget** widget: {&focusBeforeCover, &contentBehindCover}) {
+        if (*widget) {
+            g_object_remove_weak_pointer(G_OBJECT(*widget), reinterpret_cast<gpointer*>(widget));
+            *widget = nullptr;
         }
     }
 }

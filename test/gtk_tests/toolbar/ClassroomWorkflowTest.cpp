@@ -5320,13 +5320,11 @@ TEST_F(ClassroomWorkflow, ctrlKOpensThePaletteAndEnterRunsTheToolActionEscapeLea
     window->show(nullptr);
     settle();
     GtkWidget* top = GTK_WIDGET(window->getWindow());
-    // Whatever holds the keyboard when the palette opens must hold it again afterwards
+    // Whatever holds the keyboard when the palette opens must hold it again afterwards. An earlier test can leave it on a
+    // hidden widget (the sidebar list); the palette rightly does not give the keyboard back to that, so start from the page.
+    gtk_window_set_focus(GTK_WINDOW(top), window->getXournal()->getWidget());
+    settle();
     GtkWidget* canvas = gtk_window_get_focus(GTK_WINDOW(top));
-    if (!canvas) {
-        gtk_window_set_focus(GTK_WINDOW(top), window->getXournal()->getWidget());
-        settle();
-        canvas = gtk_window_get_focus(GTK_WINDOW(top));
-    }
     ASSERT_NE(canvas, nullptr);
     control->selectTool(TOOL_HIGHLIGHTER);
     settle();
@@ -5941,4 +5939,296 @@ TEST_F(ClassroomWorkflow, everyPaletteCommandIsListedOnceAvailableAsItsActionIsA
     EXPECT_LT(control->getZoomControl()->getZoom(), larger);
     ASSERT_NO_FATAL_FAILURE(run("view.zoom-100"));
     EXPECT_NEAR(control->getZoomControl()->getZoom(), control->getZoomControl()->getZoom100Value(), 1e-6);
+}
+
+namespace {
+/// The first button a person could Tab to, outside the page itself
+GtkWidget* firstFocusableButton(GtkWidget* widget, GtkWidget* skip) {
+    if (widget == skip) {
+        return nullptr;
+    }
+    if (GTK_IS_BUTTON(widget) && gtk_widget_get_can_focus(widget) && gtk_widget_is_drawable(widget) &&
+        gtk_widget_is_sensitive(widget)) {
+        return widget;
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        GtkWidget* found = nullptr;
+        for (GList* child = children; child && !found; child = child->next) {
+            found = firstFocusableButton(GTK_WIDGET(child->data), skip);
+        }
+        g_list_free(children);
+        return found;
+    }
+    return nullptr;
+}
+
+/// Keyboard focus a person can see and use: it exists, is shown, and accepts keys
+::testing::AssertionResult focusIsUseful(GtkWidget* top) {
+    GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(top));
+    if (!focus) {
+        return ::testing::AssertionFailure() << "no widget holds the keyboard";
+    }
+    if (!gtk_widget_get_visible(focus) || !gtk_widget_get_mapped(focus)) {
+        return ::testing::AssertionFailure() << "the focus is on a hidden widget (" << G_OBJECT_TYPE_NAME(focus) << ")";
+    }
+    if (!gtk_widget_is_sensitive(focus)) {
+        return ::testing::AssertionFailure() << "the focus is on a widget that does not accept keys";
+    }
+    return ::testing::AssertionSuccess();
+}
+
+std::string accessibleDescription(GtkWidget* widget) {
+    AtkObject* accessible = gtk_widget_get_accessible(widget);
+    const char* text = accessible ? atk_object_get_description(accessible) : nullptr;
+    return text ? text : "";
+}
+}  // namespace
+
+// A layout change destroys or hides the control that held the keyboard. Without a new place for it, Tab starts from
+// nowhere and a keyboard user has lost their position.
+TEST_F(ClassroomWorkflow, keyboardFocusLandsOnAVisibleControlAfterAWorkspaceSwitchTheDockHidingOrLeavingPresent) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    const auto focusAButton = [&]() {
+        GtkWidget* button = firstFocusableButton(window->get("mainBox"), canvas);
+        ASSERT_NE(button, nullptr) << "the layout has no control to put the keyboard on";
+        gtk_window_set_focus(GTK_WINDOW(top), button);
+        settle();
+        ASSERT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), button);
+    };
+
+    // A workspace switch from the palette
+    ASSERT_NO_FATAL_FAILURE(focusAButton());
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+    typeInPalette(palette, "mark workspace");
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    ASSERT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking");
+    EXPECT_TRUE(focusIsUseful(top)) << "after Mark workspace from the palette";
+
+    // Entering Present, revealing and hiding its dock, and leaving it
+    ASSERT_NO_FATAL_FAILURE(focusAButton());
+    window->toolbarSelected("UTN Present");
+    settle();
+    EXPECT_TRUE(focusIsUseful(top)) << "after entering Present";
+    window->setPresentToolsRevealed(true);
+    settle();
+    ASSERT_NO_FATAL_FAILURE(focusAButton());
+    window->setPresentToolsRevealed(false);
+    settle();
+    EXPECT_TRUE(focusIsUseful(top)) << "after the Present dock hides";
+    ASSERT_NO_FATAL_FAILURE(focusAButton());
+    window->leavePresent();
+    settle();
+    EXPECT_TRUE(focusIsUseful(top)) << "after leaving Present";
+
+    // A palette command that changes the layout, run from a palette that gave the keyboard back to a control
+    ASSERT_NO_FATAL_FAILURE(focusAButton());
+    window->openCommandPalette();
+    typeInPalette(palette, "present workspace");
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    ASSERT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    EXPECT_TRUE(focusIsUseful(top)) << "after Present workspace from the palette";
+    window->toolbarSelected("UTN Teacher");
+    settle();
+}
+
+// An unavailable command must still be reachable with the arrow keys: a keyboard or screen-reader user otherwise never
+// learns why it is greyed out.
+TEST_F(ClassroomWorkflow, paletteUnavailableRowsCanBeChosenWithDownAndSayWhyAndEnterOnThemRunsNothing) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+    GtkWidget* status = widgetNamed(palette->getWidget(), "utnPaletteStatus");
+    ASSERT_NE(status, nullptr);
+
+    typeInPalette(palette, "leave present");
+    ASSERT_EQ(selectedRow(palette), "") << "nothing is available, so nothing starts out chosen";
+    sendKey(palette->getWidget(), GDK_KEY_Down, 0);
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Leave Present, Workspace")) << selectedRow(palette);
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Not in Present") << "the reason is in the status line";
+    auto* row = gtk_list_box_get_selected_row(GTK_LIST_BOX(widgetNamed(palette->getWidget(), "utnPaletteList")));
+    ASSERT_NE(row, nullptr);
+    EXPECT_EQ(accessibleDescription(GTK_WIDGET(row)), "Not in Present") << "and a screen reader gets it as a description";
+
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    EXPECT_TRUE(palette->isOpen()) << "Enter on an unavailable command keeps the palette open";
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Teacher") << "and runs nothing";
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(status)), "Not in Present") << "the reason stays visible";
+
+    // Moving on to an available command puts the usual hint back
+    typeInPalette(palette, "pen");
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Pen, Tool")) << selectedRow(palette);
+    EXPECT_NE(std::string(gtk_label_get_text(GTK_LABEL(status))).find("Enter runs"), std::string::npos);
+    EXPECT_EQ(accessibleDescription(GTK_WIDGET(gtk_list_box_get_selected_row(
+                      GTK_LIST_BOX(widgetNamed(palette->getWidget(), "utnPaletteList"))))),
+              "");
+    palette->close();
+    settle();
+}
+
+// While the Blank cover is up the toolbar and tools behind it are hidden but would still take Tab, so a keyboard user
+// could press a button they cannot see.
+TEST_F(ClassroomWorkflow, theBlankCoverHoldsTheKeyboardWhileUpAndFocusAndSensitivityComeBackWhenItGoesDown) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    GtkWidget* button = firstFocusableButton(window->get("mainBox"), canvas);
+    ASSERT_NE(button, nullptr);
+    const bool buttonSensitive = gtk_widget_get_sensitive(button);
+    const bool buttonCanFocus = gtk_widget_get_can_focus(button);
+    const bool boxSensitive = gtk_widget_get_sensitive(window->get("mainBox"));
+    gtk_window_set_focus(GTK_WINDOW(top), button);
+    settle();
+
+    students->showTeacherBlankCover(true);
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    GtkWidget* show = buttonNamed(window->get("mainOverlay"), "Show page");
+    ASSERT_NE(show, nullptr);
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), show) << "the cover's own control holds the keyboard";
+    for (int i = 0; i < 6; ++i) {
+        gtk_widget_child_focus(top, i % 2 ? GTK_DIR_TAB_BACKWARD : GTK_DIR_TAB_FORWARD);
+        settle();
+        EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), show) << "Tab " << i << " left the cover";
+    }
+
+    students->showTeacherBlankCover(false);
+    settle();
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), button) << "the keyboard goes back to where it was";
+    EXPECT_EQ(gtk_widget_get_sensitive(button), buttonSensitive);
+    EXPECT_EQ(gtk_widget_get_can_focus(button), buttonCanFocus);
+    EXPECT_EQ(gtk_widget_get_sensitive(window->get("mainBox")), boxSensitive);
+
+    // Nothing to go back to: the page gets the keyboard
+    gtk_window_set_focus(GTK_WINDOW(top), nullptr);
+    students->showTeacherBlankCover(true);
+    settle();
+    students->showTeacherBlankCover(false);
+    settle();
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), canvas);
+    EXPECT_TRUE(focusIsUseful(top));
+}
+
+// Clicking a page in the open popover moves the "current page" marker and the Recent list at once; they used to stay as
+// they were until the popover was closed and opened again.
+TEST_F(ClassroomWorkflow, lessonMapAndRecentListFollowAPageClickedInsideTheOpenPopover) {
+    addPlainPages(control.get(), 3);  // five pages
+    auto doc = control->getDocument();
+    doc->getPage(0)->setUtnPageLabel("CW");
+    doc->getPage(2)->setUtnPageLabel("SW");
+    NavigatorUnderTest navigator(control.get());
+    navigator.goTo("1");
+    navigator.refresh();
+    ASSERT_EQ(control->getCurrentPageNo(), 0u);
+    auto* current = navigator.named("utnLessonMapCurrent");
+    ASSERT_NE(current, nullptr);
+    ASSERT_STREQ(gtk_button_get_label(GTK_BUTTON(current)), "1   CW");
+
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(navigator.named("utnLessonMap"), "3   SW")));
+    settle();
+    ASSERT_EQ(control->getCurrentPageNo(), 2u);
+    current = navigator.named("utnLessonMapCurrent");
+    ASSERT_NE(current, nullptr);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(current)), "3   SW") << "the marker follows the click";
+    EXPECT_EQ(accessibleName(current), "3 SW, current page");
+    const auto recent = buttonTexts(navigator.named("utnRecentPages"));
+    EXPECT_NE(std::find(recent.begin(), recent.end(), "1   CW"), recent.end()) << "the page just left is recent";
+    EXPECT_EQ(std::find(recent.begin(), recent.end(), "3   SW"), recent.end()) << "the page being shown is not";
+
+    // A click in the Recent list does the same
+    GtkWidget* back = buttonNamed(navigator.named("utnRecentPages"), "1   CW");
+    ASSERT_NE(back, nullptr);
+    gtk_button_clicked(GTK_BUTTON(back));
+    settle();
+    EXPECT_EQ(control->getCurrentPageNo(), 0u);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(navigator.named("utnLessonMapCurrent"))), "1   CW");
+    doc->getPage(0)->setUtnPageLabel("");
+    doc->getPage(2)->setUtnPageLabel("");
+}
+
+// A screen reader reads the name, then the state. A name that flips with the state ("Freeze" / "Resume live view")
+// would be heard as two different buttons.
+TEST_F(ClassroomWorkflow, freezeAndBlankKeepOneAccessibleNameWhateverTheirState) {
+    ToolStudentView students("CLASSROOM_STUDENTS", control.get());
+    auto quick = students.createQuickControls(true);
+    GtkWidget* freeze = buttonNamed(quick.get(), "Freeze");
+    GtkWidget* blank = buttonNamed(quick.get(), "Blank");
+    ASSERT_NE(freeze, nullptr);
+    ASSERT_NE(blank, nullptr);
+    EXPECT_EQ(accessibleName(freeze), "Freeze students' screen");
+    EXPECT_EQ(accessibleName(blank), "Blank students' screen");
+
+    auto pill = students.createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    GtkWidget* freezeInMenu = buttonNamed(menu, "Freeze this page");
+    GtkWidget* blankInMenu = buttonNamed(menu, "Blank screen");
+    ASSERT_NE(freezeInMenu, nullptr);
+    ASSERT_NE(blankInMenu, nullptr);
+    EXPECT_EQ(accessibleName(freezeInMenu), "Freeze students' screen");
+    EXPECT_EQ(accessibleName(blankInMenu), "Blank students' screen");
+
+    // Blank can be turned on here only when it covers this window; with a second display it would open the projector
+    // window full screen, which this test does not do
+    GdkDisplay* display = gdk_display_get_default();
+    if (display && gdk_display_get_n_monitors(display) < 2) {
+        students.setBlanked(true);
+        settle();
+        EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank))) << "the pressed state says it is on";
+        EXPECT_EQ(accessibleName(blank), "Blank students' screen");
+        EXPECT_EQ(accessibleName(blankInMenu), "Blank students' screen");
+        students.restoreNormal();
+        settle();
+        EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(blank)));
+        EXPECT_EQ(accessibleName(blank), "Blank students' screen");
+    } else {
+        RecordProperty("blank_state_flip_skipped", "two displays: Blank would open the projector window");
+    }
+}
+
+// The reason Freeze cannot be used was only in a tooltip and a 3.5 s message; a screen reader needs it on the button.
+TEST_F(ClassroomWorkflow, freezeSaysWhyItCannotBeUsedAsTheButtonsDescriptionWhileStudentViewIsClosed) {
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    ASSERT_FALSE(students->isWindowOpen());
+    auto quick = students->createQuickControls(true);
+    GtkWidget* freeze = buttonNamed(quick.get(), "Freeze");
+    ASSERT_NE(freeze, nullptr);
+    EXPECT_EQ(accessibleDescription(freeze),
+              "Freeze needs Student View. Open it on the projector first, then students keep seeing this page while you "
+              "prepare the next step.");
+
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    GtkWidget* freezeInMenu = buttonNamed(menu, "Freeze this page");
+    ASSERT_NE(freezeInMenu, nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(freezeInMenu));
+    EXPECT_EQ(accessibleDescription(freezeInMenu), "Open Student View on the projector first");
+
+    ToolPresentationKit kit("PRESENTATION_KIT", control.get(), IconNameHelper(control->getSettings()), students.get());
+    auto item = kit.createItem(true);
+    auto* kitMenu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(item.get())));
+    GtkWidget* freezeInKit = buttonNamed(kitMenu, "Freeze students' screen");
+    ASSERT_NE(freezeInKit, nullptr);
+    EXPECT_FALSE(gtk_widget_get_sensitive(freezeInKit));
+    EXPECT_EQ(accessibleDescription(freezeInKit), "Open Student View on the projector first");
+    gtk_widget_destroy(item.get());
+    item.reset();
+    quick.reset();
+    pill.reset();
+    students.reset();
+    settle();
 }

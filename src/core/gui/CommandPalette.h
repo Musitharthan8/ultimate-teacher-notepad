@@ -51,6 +51,10 @@ private:
     void buildEntries();
     /// Recompute which commands can run now, and what to say when one cannot
     void refreshAvailability();
+    /// Why @p entry cannot run now, in words
+    std::string reasonFor(const Entry& entry) const;
+    /// Say what the chosen row is in the status line: why it cannot run, or the usual hint
+    void showStatusFor(GtkListBoxRow* row);
     /// A command that runs @p action, available while that action is enabled
     void addAction(const std::string& id, const std::string& title, const std::string& category,
                    const std::string& keywords, int priority, Action action, std::function<void()> run,
@@ -79,6 +83,7 @@ private:
     std::vector<Entry> entries;
     std::optional<Entry> pageEntry;  ///< "Go to page 12", offered while the query is a page number
     std::vector<const Entry*> shown;
+    std::string hint;       ///< The usual status line: how many commands, and the keys
     std::string lastQuery;  ///< The query `shown` was made for; the entry reports a change only after a short delay
     bool closing = false;   ///< Set while the palette is destroyed with its main window
 };

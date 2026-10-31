@@ -867,6 +867,7 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     } else {
         gtk_style_context_remove_class(context, "utnPresent");
     }
+    keepFocusUseful();  // the control that held the keyboard went with the old layout
 }
 
 auto MainWindow::clearToolbar() -> const ToolbarData* {
@@ -1711,6 +1712,35 @@ void MainWindow::setPresentToolsRevealed(bool revealed) {
     }
     presentToolsRevealed = revealed;
     updateTeacherWorkspace();
+    keepFocusUseful();
+}
+
+void MainWindow::keepFocusUseful() {
+    if (focusFixPending) {
+        return;
+    }
+    focusFixPending = true;
+    // The widgets that go away or are hidden by a layout change are settled by the time this runs
+    Util::execInUiThread([this, weakAlive = std::weak_ptr<bool>(this->alive)]() {
+        if (weakAlive.expired()) {
+            return;
+        }
+        focusFixPending = false;
+        GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(this->window));
+        if (focus && gtk_widget_is_drawable(focus) && gtk_widget_is_sensitive(focus)) {
+            return;
+        }
+        // Over the Blank cover, its own button holds the keyboard
+        if (auto* students = toolbar ? toolbar->getStudentView() : nullptr; students && students->isTeacherCoverShown()) {
+            return;
+        }
+        GtkWidget* canvas = xournal ? xournal->getWidget() : nullptr;
+        if (canvas && gtk_widget_get_can_focus(canvas) && gtk_widget_is_drawable(canvas)) {
+            gtk_widget_grab_focus(canvas);
+        } else {
+            gtk_widget_child_focus(GTK_WIDGET(this->window), GTK_DIR_TAB_FORWARD);
+        }
+    });
 }
 
 void MainWindow::openCommandPalette() {

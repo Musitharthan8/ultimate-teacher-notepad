@@ -176,6 +176,12 @@ private:
 
     std::vector<std::function<bool()>> stateListeners;
     GtkWidget* teacherCover = nullptr;
+    /// While the cover is up: what held the keyboard before (cleared if it goes away), and whether the controls behind
+    /// the cover were awake, so both can be put back exactly
+    GtkWidget* focusBeforeCover = nullptr;
+    GtkWidget* contentBehindCover = nullptr;  ///< the main window's toolbars and canvas
+    bool contentWasSensitive = true;
+    void forgetWidgetsBehindCover();
     /// Coloured frame round the teacher's canvas while students see a frozen or blank screen
     GtkWidget* teacherOutline = nullptr;
     void updateTeacherOutline(State state);

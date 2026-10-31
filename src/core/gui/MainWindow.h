@@ -117,6 +117,12 @@ public:
     bool isPresentToolsRevealed() const { return presentToolsRevealed; }
     void setPresentToolsRevealed(bool revealed);
     /**
+     * UTN: after a layout change (or a command that may have hidden the control that held the keyboard) make sure the
+     * keyboard is on something a person can see: the page, or the first control that takes it. A focus that is still
+     * good is left alone. Done once the change has settled.
+     */
+    void keepFocusUseful();
+    /**
      * UTN: Ctrl+Shift+1, 2, 3 choose Teach, Mark, Present; Ctrl+Shift+P enters or leaves Present; Ctrl+Shift+T shows or
      * hides the tools in Present. Anything else, plain keys included, is left to the application.
      * @return true if the key press was a workspace shortcut
@@ -274,6 +280,7 @@ private:
     bool inkDockEnabled = false;
     bool syncingInkDock = false;
     bool panelPolicyPending = false;
+    bool focusFixPending = false;
     /// The workspace Present was entered from, so leaving it goes back there. Empty when there was none.
     std::string workspaceBeforePresent;
     bool presentToolsRevealed = false;

@@ -432,9 +432,30 @@ private:
                     auto* self = static_cast<Instance*>(data);
                     size_t page = static_cast<size_t>(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "utn-page-index")));
                     jumpToPage(self->control, page);
+                    // The popover stays open: its current-page marker and Recent list follow the click, not the next opening
+                    self->refresh();
+                    self->focusPageButton(page);
                 }),
                 this);
         return button;
+    }
+
+    /// The clicked button went with the rebuilt list: give the keyboard to the page's button in the map, or to the page
+    /// number box, so it is not left on nothing
+    void focusPageButton(size_t page) {
+        if (!gtk_widget_get_mapped(GTK_WIDGET(popover))) {
+            return;  // closed: there is no keyboard position in it to keep
+        }
+        GtkWidget* target = nullptr;
+        GList* children = gtk_container_get_children(GTK_CONTAINER(labelList));
+        for (GList* child = children; child && !target; child = child->next) {
+            if (GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(child->data), "utn-page-index")) == page &&
+                GTK_IS_BUTTON(child->data)) {
+                target = GTK_WIDGET(child->data);
+            }
+        }
+        g_list_free(children);
+        gtk_widget_grab_focus(target ? target : GTK_WIDGET(goEntry));
     }
 
     void rebuildLabelList() {
