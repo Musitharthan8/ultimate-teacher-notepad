@@ -388,8 +388,8 @@ public:
 
     void block(const std::string& name);
     void unblock();
-    /// True from block() until unblock(): a save or export is running and every action is disabled
-    bool isBlocked() const { return isBlocking; }
+    /// True from the first block() until its matching unblock(): a save or export is running and every action is disabled
+    bool isBlocked() const { return blockDepth > 0; }
 
     void setLastAutosaveFile(fs::path newAutosaveFile);
     void deleteLastAutosaveFile();
@@ -646,7 +646,7 @@ private:
     GtkLabel* lbState = nullptr;
     GtkProgressBar* pgState = nullptr;
     size_t maxState = 0;
-    bool isBlocking;
+    unsigned blockDepth = 0;  ///< block() calls not yet matched by unblock(): a second job must not reopen the gates
 
     GladeSearchpath* gladeSearchPath;
 

@@ -35,8 +35,6 @@
 
 namespace {
 constexpr std::array<const char*, 4> QUICK_LABELS{{"CW", "SW", "Answer Key", "Revision"}};
-/// The sidebar's second tab (see Sidebar::initTabs): the page thumbnails, which are only rendered as they scroll into view
-constexpr size_t SIDEBAR_PAGES_TAB = 1;
 constexpr size_t MAX_RECENT_PAGES = 5;
 
 void jumpToPage(Control* control, size_t page) {

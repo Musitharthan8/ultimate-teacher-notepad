@@ -70,6 +70,7 @@ CommandPalette::~CommandPalette() {
 void CommandPalette::add(Entry entry) {
     // While a save or export runs, Control has disabled every action. A command that does not go through one (or that
     // fires a state change, which GAction does not hold back) must be as unavailable as the ones that do.
+    entry.reason = entry.meta.unavailableReason;
     entry.available = [this, available = std::move(entry.available)]() { return !control->isBlocked() && available(); };
     entries.push_back(std::move(entry));
 }
@@ -306,11 +307,14 @@ void CommandPalette::buildEntries() {
     simple("file.export-pdf", _("Export as PDF..."), file.c_str(), "share print send", PRIORITY_FILE,
            Action::EXPORT_AS_PDF);
 
+    refreshAvailability();
+}
+
+void CommandPalette::refreshAvailability() {
+    // What can run changes while the palette is open (a save starts, a page changes): read it again at every listing
     for (auto& e: entries) {
         e.meta.enabled = e.available();
-        if (control->isBlocked()) {
-            e.meta.unavailableReason = _("Busy saving or exporting");
-        }
+        e.meta.unavailableReason = control->isBlocked() ? std::string(_("Busy saving or exporting")) : e.reason;
     }
 }
 
@@ -462,6 +466,7 @@ void CommandPalette::filter() {
         pageEntry = std::move(e);
     }
 
+    refreshAvailability();
     std::vector<utn::PaletteCommand> metas;
     metas.reserve(entries.size());
     for (const auto& e: entries) {

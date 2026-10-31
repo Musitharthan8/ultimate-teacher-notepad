@@ -21,6 +21,9 @@
 
 class Control;
 
+/// The sidebar's second tab (see Sidebar::initTabs): the page thumbnails, which are only rendered as they scroll into view
+constexpr size_t SIDEBAR_PAGES_TAB = 1;
+
 class ToolLessonNavigator: public AbstractToolItem {
 public:
     ToolLessonNavigator(std::string id, Control* control);

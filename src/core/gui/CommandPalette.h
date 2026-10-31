@@ -45,9 +45,12 @@ private:
         utn::PaletteCommand meta;
         std::function<bool()> available;
         std::function<void()> run;
+        std::string reason;  // why it is unavailable for its own sake, when it is
     };
 
     void buildEntries();
+    /// Recompute which commands can run now, and what to say when one cannot
+    void refreshAvailability();
     /// A command that runs @p action, available while that action is enabled
     void addAction(const std::string& id, const std::string& title, const std::string& category,
                    const std::string& keywords, int priority, Action action, std::function<void()> run,

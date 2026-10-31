@@ -129,7 +129,7 @@ using std::string;
 Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool disableAudio): gtkApp(gtkApp) {
     this->undoRedo = new UndoRedoHandler(this);
     this->undoRedo->addUndoRedoListener(this);
-    this->isBlocking = false;
+    this->blockDepth = 0;
 
     this->gladeSearchPath = gladeSearchPath;
 
@@ -2229,7 +2229,8 @@ void Control::print() {
 }
 
 void Control::block(const string& name) {
-    if (this->isBlocking) {
+    if (this->blockDepth > 0) {
+        ++this->blockDepth;  // already blocked by another job: it stays blocked until every job has let go
         return;
     }
 
@@ -2247,11 +2248,14 @@ void Control::block(const string& name) {
     gtk_widget_show(this->statusbar);
 
     this->maxState = 100;
-    this->isBlocking = true;
+    this->blockDepth = 1;
 }
 
 void Control::unblock() {
-    if (!this->isBlocking) {
+    if (this->blockDepth == 0) {
+        return;
+    }
+    if (--this->blockDepth > 0) {
         return;
     }
 
@@ -2261,8 +2265,6 @@ void Control::unblock() {
     disableSidebarTmp(false);
 
     gtk_widget_hide(this->statusbar);
-
-    this->isBlocking = false;
 }
 
 void Control::setMaximumState(size_t max) { this->maxState = max; }
