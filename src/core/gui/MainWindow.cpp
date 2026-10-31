@@ -1128,7 +1128,12 @@ void MainWindow::appendWorkspaceMenu() {
                              gtk_popover_popdown(GTK_POPOVER(open));
                          }
                          // Once the menu has let go of the keyboard
-                         Util::execInUiThread([self = static_cast<MainWindow*>(data)]() { self->openCommandPalette(); });
+                         auto* self = static_cast<MainWindow*>(data);
+                         Util::execInUiThread([self, weakAlive = std::weak_ptr<bool>(self->alive)]() {
+                             if (!weakAlive.expired()) {
+                                 self->openCommandPalette();
+                             }
+                         });
                      }), this);
     gtk_box_append(GTK_BOX(panel), commands);
     GtkWidget* customiseDock = gtk_button_new_with_label(_("Customise tool dock…"));
@@ -1709,6 +1714,14 @@ void MainWindow::setPresentToolsRevealed(bool revealed) {
 }
 
 void MainWindow::openCommandPalette() {
+    // Over the Blank cover it would show the class what the teacher is doing; while a save or export runs it could run
+    // nothing, because every action is disabled
+    if (control->isBlocked()) {
+        return;
+    }
+    if (auto* students = toolbar ? toolbar->getStudentView() : nullptr; students && students->isTeacherCoverShown()) {
+        return;
+    }
     if (!commandPalette) {
         commandPalette = std::make_unique<CommandPalette>(control, this);
     }

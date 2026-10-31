@@ -51,7 +51,8 @@ void jumpToPage(Control* control, size_t page) {
 
 void setCurrentPageLabel(Control* control, const std::string& label) {
     PageRef page = control->getCurrentPage();
-    if (!page || page->getUtnPageLabel() == label) {
+    // A save or export is running: the document is not to change under it
+    if (control->isBlocked() || !page || page->getUtnPageLabel() == label) {
         return;
     }
 
@@ -64,6 +65,7 @@ void setCurrentPageLabel(Control* control, const std::string& label) {
 
     control->getUndoRedoHandler()->addUndoAction(
             std::make_unique<PageLabelUndoAction>(page, std::move(oldLabel), label));
+    ToolLessonNavigator::refreshLabels(control);
 }
 
 std::string getPageLabel(Control* control, size_t pageIndex) {
@@ -107,7 +109,7 @@ bool ToolLessonNavigator::goToPage(Control* control, size_t pageIndex) {
 
 utn::BookmarkChange ToolLessonNavigator::toggleBookmark(Control* control) {
     PageRef page = control->getCurrentPage();
-    if (!page) {
+    if (!page || control->isBlocked()) {
         return utn::BookmarkChange::KeepLabel;
     }
     const auto toggle = utn::toggleBookmark(page->getUtnPageLabel());
@@ -123,6 +125,9 @@ bool ToolLessonNavigator::currentPageIsMarked(Control* control) {
 }
 
 void ToolLessonNavigator::showThumbnails(Control* control) {
+    if (control->isBlocked()) {
+        return;  // firing the sidebar state works even while every action is disabled
+    }
     control->getActionDatabase()->fireChangeActionState(Action::SHOW_SIDEBAR, true);
     if (auto* sidebar = control->getSidebar()) {
         sidebar->setSelectedTab(SIDEBAR_PAGES_TAB);
@@ -348,6 +353,9 @@ public:
         refreshMainLabel();
     }
 
+    /// The page label may have changed without the navigator being used (palette, undo, redo)
+    void refreshLabel() { setPageInfo(control->getCurrentPageNo(), control->getDocument()->getPageCount()); }
+
     void disconnect() { handler = nullptr; }
     ToolLessonNavigator* getHandler() const { return handler; }
 
@@ -536,10 +544,32 @@ private:
     GtkBox* recentList = nullptr;
 };
 
+namespace {
+/// Every navigator that exists, so a label changed by a static call (the palette) or by undo reaches the buttons
+std::vector<ToolLessonNavigator*>& allNavigators() {
+    static std::vector<ToolLessonNavigator*> navigators;
+    return navigators;
+}
+}  // namespace
+
 ToolLessonNavigator::ToolLessonNavigator(std::string id, Control* control):
-        AbstractToolItem(std::move(id), Category::NAVIGATION), control(control) {}
+        AbstractToolItem(std::move(id), Category::NAVIGATION), control(control) {
+    allNavigators().push_back(this);
+}
+
+void ToolLessonNavigator::refreshLabels(Control* control) {
+    for (auto* navigator: allNavigators()) {
+        if (navigator->control == control) {
+            for (auto* instance: navigator->instances) {
+                instance->refreshLabel();
+            }
+        }
+    }
+}
 
 ToolLessonNavigator::~ToolLessonNavigator() {
+    auto& navigators = allNavigators();
+    navigators.erase(std::remove(navigators.begin(), navigators.end(), this), navigators.end());
     for (auto* instance: instances) {
         instance->disconnect();
     }

@@ -388,6 +388,8 @@ public:
 
     void block(const std::string& name);
     void unblock();
+    /// True from block() until unblock(): a save or export is running and every action is disabled
+    bool isBlocked() const { return isBlocking; }
 
     void setLastAutosaveFile(fs::path newAutosaveFile);
     void deleteLastAutosaveFile();

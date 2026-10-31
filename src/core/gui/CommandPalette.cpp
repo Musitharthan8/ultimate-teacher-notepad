@@ -61,12 +61,18 @@ constexpr int PRIORITY_FILE = 30;
 CommandPalette::CommandPalette(Control* control, MainWindow* window): control(control), window(window) {}
 
 CommandPalette::~CommandPalette() {
+    closing = true;  // the main window is going away with us: the destroy handler must not touch it
     if (dialog) {
         gtk_widget_destroy(dialog);
     }
 }
 
-void CommandPalette::add(Entry entry) { entries.push_back(std::move(entry)); }
+void CommandPalette::add(Entry entry) {
+    // While a save or export runs, Control has disabled every action. A command that does not go through one (or that
+    // fires a state change, which GAction does not hold back) must be as unavailable as the ones that do.
+    entry.available = [this, available = std::move(entry.available)]() { return !control->isBlocked() && available(); };
+    entries.push_back(std::move(entry));
+}
 
 void CommandPalette::addAction(const std::string& id, const std::string& title, const std::string& category,
                                const std::string& keywords, int priority, Action action, std::function<void()> run,
@@ -302,6 +308,9 @@ void CommandPalette::buildEntries() {
 
     for (auto& e: entries) {
         e.meta.enabled = e.available();
+        if (control->isBlocked()) {
+            e.meta.unavailableReason = _("Busy saving or exporting");
+        }
     }
 }
 
@@ -376,7 +385,8 @@ void CommandPalette::open() {
     gtk_box_pack_start(GTK_BOX(box), status, FALSE, FALSE, 0);
 
     g_signal_connect(search, "search-changed", G_CALLBACK(+[](GtkSearchEntry*, gpointer data) {
-                         static_cast<CommandPalette*>(data)->filter();
+                         // Down, Up or Enter may already have listed what was typed: do not start the list over
+                         static_cast<CommandPalette*>(data)->listWhatWasTyped();
                      }),
                      this);
     g_signal_connect(list, "row-activated", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
@@ -399,6 +409,9 @@ void CommandPalette::open() {
                              g_object_remove_weak_pointer(G_OBJECT(target),
                                                           reinterpret_cast<gpointer*>(&self->previousFocus));
                              self->previousFocus = nullptr;
+                         }
+                         if (self->closing) {
+                             return;  // the owner is being destroyed: there is nobody to give the keyboard back to
                          }
                          // The keyboard goes back to where it was; a widget that has gone is simply not used
                          if (gtk_widget_in_destruction(self->window->getWindow())) {
@@ -441,7 +454,9 @@ void CommandPalette::filter() {
         e.meta.title = std::string(_("Go to page")) + " " + std::to_string(*target + 1);
         e.meta.category = _("Page");
         e.meta.priority = 100;
-        e.available = []() { return true; };
+        e.meta.unavailableReason = _("Busy saving or exporting");
+        e.available = [this]() { return !control->isBlocked(); };
+        e.meta.enabled = e.available();
         const size_t index = *target;
         e.run = [this, index]() { ToolLessonNavigator::goToPage(control, index); };
         pageEntry = std::move(e);
@@ -505,6 +520,12 @@ void CommandPalette::filter() {
     gtk_label_set_text(GTK_LABEL(status), (count + "   -   " + _("Up and Down choose, Enter runs, Escape closes")).c_str());
 }
 
+void CommandPalette::listWhatWasTyped() {
+    if (search && gtk_entry_get_text(GTK_ENTRY(search)) != lastQuery) {
+        filter();
+    }
+}
+
 void CommandPalette::selectRow(int delta) {
     if (!list) {
         return;
@@ -552,9 +573,7 @@ void CommandPalette::activateSelected() {
         return;
     }
     // Enter can come before the entry has reported the last keystrokes: run what is typed, not the list of a moment ago
-    if (gtk_entry_get_text(GTK_ENTRY(search)) != lastQuery) {
-        filter();
-    }
+    listWhatWasTyped();
     if (auto* row = gtk_list_box_get_selected_row(GTK_LIST_BOX(list))) {
         const auto index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "utn-shown"));
         if (index >= 1 && index <= shown.size()) {
@@ -572,10 +591,12 @@ gboolean CommandPalette::onKeyPress(GtkWidget*, GdkEventKey* event, gpointer dat
             return TRUE;
         case GDK_KEY_Down:
         case GDK_KEY_KP_Down:
+            self->listWhatWasTyped();
             self->selectRow(+1);
             return TRUE;
         case GDK_KEY_Up:
         case GDK_KEY_KP_Up:
+            self->listWhatWasTyped();
             self->selectRow(-1);
             return TRUE;
         case GDK_KEY_Return:

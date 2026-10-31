@@ -41,6 +41,8 @@ public:
     static bool currentPageIsMarked(Control* control);
     /// Show the sidebar on its page thumbnails
     static void showThumbnails(Control* control);
+    /// Bring the page label shown on every navigator button up to date; for a label changed from outside the navigator
+    static void refreshLabels(Control* control);
 
 private:
     class Instance;

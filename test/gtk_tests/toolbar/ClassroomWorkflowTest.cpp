@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -285,11 +286,29 @@ void addMarker(Layer* layer, double y) {
     layer->addElement(std::move(ink));
 }
 
+/// A failed save or export shows a message dialog; close them so they do not stay on screen for the next test
+void closeMessageDialogs() {
+    GList* windows = gtk_window_list_toplevels();
+    for (GList* w = windows; w; w = w->next) {
+        if (GTK_IS_MESSAGE_DIALOG(w->data)) {
+            gtk_widget_destroy(GTK_WIDGET(w->data));
+        }
+    }
+    g_list_free(windows);
+    settle();
+}
+
 class ClassroomWorkflow: public ::testing::Test {
 protected:
     void SetUp() override {
         if (!gtk_init_check(nullptr, nullptr)) {
             GTEST_SKIP() << "No display available";
+        }
+        // A test that ran a failing save, export or autosave directly leaves a modal message box (which takes every key)
+        // and, if it never unblocked, every action disabled. Neither may reach the next test.
+        closeMessageDialogs();
+        if (control) {
+            control->unblock();  // does nothing when the application is not blocked
         }
         if (!control) {
             app = gtk_application_new("org.utn.classroom.qa", G_APPLICATION_NON_UNIQUE);
@@ -307,6 +326,7 @@ protected:
         } else {
             control->clearSelectionEndText();
             control->getUndoRedoHandler()->clearContents();
+            control->undoRedoChanged();  // clearing the history does not tell the Undo and Redo actions
             control->getDocument()->clearDocument(true);
         }
         control->setGhostHiddenAnswers(false);
@@ -319,6 +339,22 @@ protected:
         }
         control->fireDocumentChanged(DOCUMENT_CHANGE_COMPLETE);
         control->DocumentHandler::firePageSelected(0);
+        settle();
+    }
+
+    void TearDown() override {
+        if (!window) {
+            return;
+        }
+        // A test that failed half way must not leave the palette or the Blank cover up for the next one
+        if (auto* palette = window->getCommandPalette()) {
+            palette->close();
+        }
+        if (auto* handler = window->getToolMenuHandler()) {
+            if (auto* students = handler->getStudentView(); students && students->isTeacherCoverShown()) {
+                students->showTeacherBlankCover(false);
+            }
+        }
         settle();
     }
 
@@ -720,18 +756,6 @@ void resetDocumentStatus(Control* control, bool dirty = false, bool neverSaved =
         status.clearAttention();
         status.setDirty(dirty, neverSaved);
     });
-}
-
-/// A failed save or export shows a message dialog; close them so they do not stay on screen for the next test
-void closeMessageDialogs() {
-    GList* windows = gtk_window_list_toplevels();
-    for (GList* w = windows; w; w = w->next) {
-        if (GTK_IS_MESSAGE_DIALOG(w->data)) {
-            gtk_widget_destroy(GTK_WIDGET(w->data));
-        }
-    }
-    g_list_free(windows);
-    settle();
 }
 
 /// PdfExportJob with the path setter made reachable, so the real job can be run without the file chooser
@@ -1449,14 +1473,21 @@ TEST_F(ClassroomWorkflow, buttonsThatCannotFitMoveIntoAMoreMenuThatRunsTheSameAc
     // States follow the action: nothing to undo yet, so the Undo and Redo entries are off
     GtkWidget* undoEntry = nullptr;
     GtkWidget* redoEntry = nullptr;
-    for (GtkWidget* entry: moreEntries(more)) {
-        const std::string action = gtk_actionable_get_action_name(GTK_ACTIONABLE(entry));
-        if (action == "win.undo") {
-            undoEntry = entry;
-        } else if (action == "win.redo") {
-            redoEntry = entry;
+    // The menu may be built again when an action changes: look the entries up again whenever they are used
+    const auto findEntries = [&] {
+        undoEntry = redoEntry = nullptr;
+        if (auto* current = moreButtonOf(window.get())) {
+            for (GtkWidget* entry: moreEntries(current)) {
+                const std::string action = gtk_actionable_get_action_name(GTK_ACTIONABLE(entry));
+                if (action == "win.undo") {
+                    undoEntry = entry;
+                } else if (action == "win.redo") {
+                    redoEntry = entry;
+                }
+            }
         }
-    }
+    };
+    findEntries();
     ASSERT_NE(undoEntry, nullptr);
     ASSERT_NE(redoEntry, nullptr);
     EXPECT_FALSE(gtk_widget_get_sensitive(undoEntry));
@@ -1470,10 +1501,14 @@ TEST_F(ClassroomWorkflow, buttonsThatCannotFitMoveIntoAMoreMenuThatRunsTheSameAc
     control->getUndoRedoHandler()->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, ink));
     settle();
     const auto before = layer->getElements().size();
+    findEntries();
+    ASSERT_NE(undoEntry, nullptr);
     EXPECT_TRUE(gtk_widget_get_sensitive(undoEntry));
     gtk_button_clicked(GTK_BUTTON(undoEntry));
     settle();
     EXPECT_EQ(layer->getElements().size(), before - 1) << "the \"More\" entry undid the stroke";
+    findEntries();
+    ASSERT_NE(redoEntry, nullptr);
     EXPECT_TRUE(gtk_widget_get_sensitive(redoEntry)) << "and Redo is now available from the menu too";
     gtk_button_clicked(GTK_BUTTON(redoEntry));
     settle();
@@ -3334,6 +3369,7 @@ TEST_F(ClassroomWorkflow, compatibilityExportDoesNotBlockEditingErasingOrAutosav
         ++rounds;
     }
     exporting.join();
+    control->unblock();  // the job blocks the application when it is made; a job run directly never unblocks it
     settle();
     RecordProperty("export_overlap_rounds", rounds);
     RecordProperty("export_worst_edit_ms", std::to_string(worstMs));
@@ -5034,6 +5070,9 @@ TEST_F(ClassroomWorkflow, toolbarReloadsKeepOnePenSettingsButtonAndAWorkingPopov
 }
 
 namespace {
+/// The sidebar's second tab (see Sidebar::initTabs): the page thumbnails
+constexpr size_t SIDEBAR_PAGES_TAB = 1;
+
 void addPlainPages(Control* control, int count) {
     for (int i = 0; i < count; ++i) {
         auto page = std::make_shared<XojPage>(600, 800);
@@ -5219,10 +5258,13 @@ TEST_F(ClassroomWorkflow, lessonNavigatorBookmarksSurviveSaveAndReopenAndThumbna
     gtk_button_clicked(GTK_BUTTON(thumbnails));
     settle();
     EXPECT_TRUE(control->getSettings()->isSidebarVisible());
-    EXPECT_EQ(control->getSidebar()->getSelectedTab(), 1u) << "the page thumbnails tab";
+    EXPECT_EQ(control->getSidebar()->getSelectedTab(), SIDEBAR_PAGES_TAB) << "the page thumbnails tab";
 }
 
 namespace {
+/// Delivers the key through the main loop, like a real press. The return value only says "delivered": whether a handler
+/// took the key is not reported by gtk_main_do_event, and delivering it any other way (gtk_widget_event) would skip the
+/// modal grab the palette tests depend on, so every test checks the effect of the key instead.
 bool sendKey(GtkWidget* widget, guint keyval, guint state) {
     FakeKey fake(widget, keyval, state);
     // Real key events name their keyboard and are delivered by the main loop (which also applies the modal grab of the
@@ -5284,20 +5326,12 @@ TEST_F(ClassroomWorkflow, ctrlKOpensThePaletteAndEnterRunsTheToolActionEscapeLea
     }
     ASSERT_NE(canvas, nullptr);
     control->selectTool(TOOL_HIGHLIGHTER);
-    control->getActionDatabase()->enableAction(Action::SELECT_TOOL, true);  // an earlier test can leave it disabled
     settle();
 
     // Keys that are not Ctrl+K leave the palette shut
     sendKey(top, GDK_KEY_k, 0);
     sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
     EXPECT_EQ(window->getCommandPalette() != nullptr && window->getCommandPalette()->isOpen(), false);
-    // A modal message box left by an earlier test would rightly take the key; start from a clean desktop
-    for (GList* l = gtk_window_list_toplevels(); l; l = l->next) {
-        if (GTK_IS_MESSAGE_DIALOG(l->data)) {
-            gtk_widget_destroy(GTK_WIDGET(l->data));
-        }
-    }
-    settle();
 
     sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
     auto* palette = window->getCommandPalette();
@@ -5410,18 +5444,21 @@ TEST_F(ClassroomWorkflow, paletteWorkspaceAndClassroomCommandsDoWhatTheirButtons
     // Freeze is greyed out exactly while the popover greys its own Freeze: Student View must be open first
     auto* students = window->getToolMenuHandler()->getStudentView();
     ASSERT_NE(students, nullptr);
-    if (!students->isWindowOpen()) {
-        window->openCommandPalette();
-        auto* palette = window->getCommandPalette();
-        typeInPalette(palette, "freeze");
-        const auto rows = paletteRows(palette);
-        ASSERT_FALSE(rows.empty());
-        EXPECT_NE(std::find(rows.begin(), rows.end(), "Freeze students' screen, Classroom, unavailable: Open Student View first"), rows.end())
-                << "Freeze is listed, and says why it cannot run";
-        EXPECT_EQ(students->getState(), ToolStudentView::State::Off);
-        palette->close();
-        settle();
-    }
+    // Opening Student View is fullscreen and is never done in these tests: if one is open, the check below would prove
+    // nothing, so say so instead of passing without having looked
+    ASSERT_FALSE(students->isWindowOpen()) << "Student View is open, so the Freeze check cannot be made";
+    // With one monitor the resting state is SameScreen, with two or more it is Off: either way the palette must not change it
+    const auto restingState = students->getState();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    typeInPalette(palette, "freeze");
+    const auto rows = paletteRows(palette);
+    ASSERT_FALSE(rows.empty());
+    EXPECT_NE(std::find(rows.begin(), rows.end(), "Freeze students' screen, Classroom, unavailable: Open Student View first"), rows.end())
+            << "Freeze is listed, and says why it cannot run";
+    EXPECT_EQ(students->getState(), restingState);
+    palette->close();
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, paletteGoesToATypedPageBookmarksAndNeverListsPageLabels) {
@@ -5502,13 +5539,7 @@ TEST_F(ClassroomWorkflow, paletteEnterRunsWhatWasTypedEvenBeforeTheSearchHasCaug
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
     settle();
-    for (GList* l = gtk_window_list_toplevels(); l; l = l->next) {
-        if (GTK_IS_MESSAGE_DIALOG(l->data)) {
-            gtk_widget_destroy(GTK_WIDGET(l->data));
-        }
-    }
     control->selectTool(TOOL_HIGHLIGHTER);
-    control->getActionDatabase()->enableAction(Action::SELECT_TOOL, true);
     window->openCommandPalette();
     auto* palette = window->getCommandPalette();
     ASSERT_TRUE(palette->isOpen());
@@ -5521,4 +5552,319 @@ TEST_F(ClassroomWorkflow, paletteEnterRunsWhatWasTypedEvenBeforeTheSearchHasCaug
     EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HIGHLIGHTER) << "the top command of the old list must not run";
     EXPECT_FALSE(palette->isOpen());
     control->selectTool(TOOL_PEN);
+}
+
+// The Blank cover hides the page from the class on the same screen. The palette is a window of its own, so the cover does
+// not hide it: command names, "Remove bookmark" and "Unavailable: This page already has a label" would be on show, and the
+// class could watch commands run. It must not open over the cover, and must go away when the cover goes up.
+TEST_F(ClassroomWorkflow, paletteNeverOpensOverTheBlankCoverAndClosesWhenTheCoverGoesUp) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    const auto paletteOpen = [&] { return window->getCommandPalette() && window->getCommandPalette()->isOpen(); };
+
+    students->showTeacherBlankCover(true);  // the cover inside the main window; never Student View itself
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    EXPECT_FALSE(paletteOpen()) << "Ctrl+K opened the palette over the cover";
+    window->openCommandPalette();  // what the Workspace menu button calls
+    settle();
+    EXPECT_FALSE(paletteOpen()) << "the Workspace menu opened the palette over the cover";
+
+    students->showTeacherBlankCover(false);
+    settle();
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    ASSERT_TRUE(paletteOpen()) << "with the cover down Ctrl+K opens it again";
+
+    students->showTeacherBlankCover(true);
+    settle();
+    EXPECT_FALSE(paletteOpen()) << "an open palette was left on show when the cover went up";
+
+    students->showTeacherBlankCover(false);
+    settle();
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    EXPECT_TRUE(paletteOpen());
+    window->getCommandPalette()->close();
+    settle();
+}
+
+// Control::block() disables every action while a save or export runs; GAction ignores a disabled action, so the palette
+// has to say the same, in words, for the commands that do not go through one (and for Ctrl+K itself).
+TEST_F(ClassroomWorkflow, paletteRefusesEveryCommandWhileTheApplicationIsBusySavingOrExporting) {
+    addPlainPages(control.get(), 3);  // five pages
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    control->setShowSidebar(false);
+    settle();
+    ASSERT_FALSE(control->getSettings()->isSidebarVisible());
+    const auto paletteOpen = [&] { return window->getCommandPalette() && window->getCommandPalette()->isOpen(); };
+
+    // Open before the job starts, then block: Enter must run nothing
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(paletteOpen());
+    const auto enterWhileBusy = [&](const char* query, const char* row) {
+        typeInPalette(palette, query);
+        ASSERT_TRUE(startsWith(selectedRow(palette), row)) << selectedRow(palette);
+        control->block("Saving");
+        sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+        const bool stillOpen = paletteOpen();
+        control->unblock();
+        settle();
+        EXPECT_TRUE(stillOpen) << row << ": a refused command leaves the palette open";
+    };
+    enterWhileBusy("thumbnails", "Show page thumbnails");
+    EXPECT_FALSE(control->getSettings()->isSidebarVisible()) << "Show page thumbnails ran while the application was busy";
+    enterWhileBusy("page 2", "Go to page 2");
+    EXPECT_EQ(control->getCurrentPageNo(), 0u) << "Go to page ran while the application was busy";
+    enterWhileBusy("sidebar", "Show sidebar");
+    EXPECT_FALSE(control->getSettings()->isSidebarVisible()) << "the sidebar command ran while the application was busy";
+    palette->close();
+    settle();
+    control->block("Saving");
+
+    // The palette does not open at all, and every command says why it cannot run
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    EXPECT_FALSE(paletteOpen()) << "Ctrl+K opened the palette while the application was busy";
+    window->openCommandPalette();
+    EXPECT_FALSE(paletteOpen());
+    for (const auto& command: palette->describeCommands()) {
+        EXPECT_FALSE(command.enabled) << command.id;
+        EXPECT_EQ(command.unavailableReason, "Busy saving or exporting") << command.id;
+    }
+
+    // The navigator's own paths are shut too
+    EXPECT_EQ(ToolLessonNavigator::toggleBookmark(control.get()), utn::BookmarkChange::KeepLabel);
+    EXPECT_EQ(control->getCurrentPage()->getUtnPageLabel(), "") << "a label was written while the application was busy";
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo());
+    ToolLessonNavigator::showThumbnails(control.get());
+    EXPECT_FALSE(control->getSettings()->isSidebarVisible());
+
+    // Once it is free again the same commands work
+    control->unblock();
+    settle();
+    window->openCommandPalette();
+    ASSERT_TRUE(paletteOpen());
+    typeInPalette(palette, "thumbnails");
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    EXPECT_TRUE(control->getSettings()->isSidebarVisible());
+    EXPECT_FALSE(paletteOpen());
+}
+
+// The toolbar button says "Page 3/10 · Bookmark". The palette, and Undo and Redo, change the label without going through
+// the navigator's own buttons, so the button has to follow them.
+TEST_F(ClassroomWorkflow, theNavigatorButtonFollowsABookmarkFromThePaletteAndItsUndoAndRedo) {
+    addPlainPages(control.get(), 3);  // five pages
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    NavigatorUnderTest navigator(control.get());
+    navigator.goTo("3");
+    ASSERT_EQ(control->getCurrentPageNo(), 2u);
+    auto* button = GTK_BUTTON(firstMenuButton(navigator.item.get()));
+    const auto buttonText = [&] { return std::string(gtk_button_get_label(button)); };
+    ASSERT_EQ(buttonText(), "Page 3/5");
+
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    typeInPalette(palette, "bookmark");
+    ASSERT_TRUE(startsWith(selectedRow(palette), "Bookmark this page")) << selectedRow(palette);
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    ASSERT_EQ(control->getDocument()->getPage(2)->getUtnPageLabel(), "Bookmark");
+    EXPECT_NE(buttonText().find("Bookmark"), std::string::npos) << "after the palette bookmark: " << buttonText();
+
+    control->getUndoRedoHandler()->undo();
+    settle();
+    EXPECT_EQ(buttonText().find("Bookmark"), std::string::npos) << "after undo: " << buttonText();
+    control->getUndoRedoHandler()->redo();
+    settle();
+    EXPECT_NE(buttonText().find("Bookmark"), std::string::npos) << "after redo: " << buttonText();
+    control->getUndoRedoHandler()->undo();
+    settle();
+}
+
+// A key can arrive before the entry has said its text changed (it does so about 150 ms later). Down must then move over the
+// list of what was typed, and the late "changed" must not put the choice back on the first row.
+TEST_F(ClassroomWorkflow, downAfterTypingChoosesInTheNewListAndALateSearchChangedKeepsTheChoice) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+
+    // What a settled search for "tool" looks like, and where Down goes from its first row
+    typeInPalette(palette, "tool");
+    const auto rows = paletteRows(palette);
+    const std::string firstRow = selectedRow(palette);
+    ASSERT_FALSE(firstRow.empty());
+    sendKey(palette->getWidget(), GDK_KEY_Down, 0);
+    const std::string secondRow = selectedRow(palette);
+    ASSERT_NE(secondRow, firstRow) << "the search needs two available rows";
+
+    typeInPalette(palette, "page");
+    ASSERT_NE(paletteRows(palette), rows);
+    // Same words again, but now the entry has not reported them yet when Down arrives
+    gtk_entry_set_text(GTK_ENTRY(widgetNamed(palette->getWidget(), "utnPaletteSearch")), "tool");
+    sendKey(palette->getWidget(), GDK_KEY_Down, 0);
+    for (int i = 0; i < 5; ++i) {
+        settle();  // the late search-changed arrives here
+    }
+    EXPECT_EQ(paletteRows(palette), rows) << "the list is that of the typed words";
+    EXPECT_EQ(selectedRow(palette), secondRow) << "Down moved over the new list, and the late signal kept the choice";
+    palette->close();
+    settle();
+}
+
+namespace {
+const Action* actionBehind(const std::string& id) {
+    static const std::map<std::string, Action> actions = {
+            {"tool.pen", Action::SELECT_TOOL},
+            {"tool.highlighter", Action::SELECT_TOOL},
+            {"tool.eraser", Action::SELECT_TOOL},
+            {"tool.text", Action::SELECT_TOOL},
+            {"tool.select-rect", Action::SELECT_TOOL},
+            {"tool.select-region", Action::SELECT_TOOL},
+            {"tool.hand", Action::SELECT_TOOL},
+            {"tool.laser", Action::SELECT_TOOL},
+            {"edit.undo", Action::UNDO},
+            {"edit.redo", Action::REDO},
+            {"page.goto", Action::GOTO_PAGE},
+            {"page.next", Action::GOTO_NEXT},
+            {"page.previous", Action::GOTO_PREVIOUS},
+            {"page.first", Action::GOTO_FIRST},
+            {"page.last", Action::GOTO_LAST},
+            {"page.next-annotated", Action::GOTO_NEXT_ANNOTATED_PAGE},
+            {"page.previous-annotated", Action::GOTO_PREVIOUS_ANNOTATED_PAGE},
+            {"page.back", Action::NAVIGATE_BACK},
+            {"page.forward", Action::NAVIGATE_FORWARD},
+            {"page.new-after", Action::NEW_PAGE_AFTER},
+            {"page.new-before", Action::NEW_PAGE_BEFORE},
+            {"page.new-end", Action::NEW_PAGE_AT_END},
+            {"page.duplicate", Action::DUPLICATE_PAGE},
+            {"page.move-earlier", Action::MOVE_PAGE_TOWARDS_BEGINNING},
+            {"page.move-later", Action::MOVE_PAGE_TOWARDS_END},
+            {"page.delete", Action::DELETE_PAGE},
+            {"view.zoom-in", Action::ZOOM_IN},
+            {"view.zoom-out", Action::ZOOM_OUT},
+            {"view.zoom-fit", Action::ZOOM_FIT},
+            {"view.zoom-100", Action::ZOOM_100},
+            {"file.save", Action::SAVE},
+            {"file.save-as", Action::SAVE_AS},
+            {"file.export-pdf", Action::EXPORT_AS_PDF},
+    };
+    const auto it = actions.find(id);
+    return it == actions.end() ? nullptr : &it->second;
+}
+
+/// Commands that are not one GAction: their availability is their own rule
+bool isOwnRuleCommand(const std::string& id) {
+    static const std::set<std::string> own = {
+            "page.bookmark",          "page.thumbnails",         "workspace.teach",          "workspace.mark",
+            "workspace.present",      "workspace.leave-present", "workspace.present-tools",  "classroom.spotlight",
+            "classroom.curtain",      "classroom.exit-overlay",  "classroom.freeze",         "classroom.blank",
+            "classroom.student-view", "classroom.back-to-normal", "view.sidebar"};
+    return own.count(id) != 0;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, everyPaletteCommandIsListedOnceAvailableAsItsActionIsAndASafeSubsetDoesWhatItSays) {
+    addPlainPages(control.get(), 3);  // five pages
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    ToolLessonNavigator::goToPage(control.get(), 1);
+    settle();
+
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    const auto commands = palette->describeCommands();  // closes the palette: the list is read for the state of now
+    ASSERT_FALSE(commands.empty());
+    std::set<std::string> ids;
+    for (const auto& command: commands) {
+        EXPECT_FALSE(command.id.empty());
+        EXPECT_TRUE(ids.insert(command.id).second) << "listed twice: " << command.id;
+        EXPECT_FALSE(command.title.empty()) << command.id;
+        if (const Action* action = actionBehind(command.id)) {
+            EXPECT_EQ(command.enabled, control->getActionDatabase()->isActionEnabled(*action))
+                    << command.id << " is not available exactly when its action is enabled";
+        } else {
+            EXPECT_TRUE(isOwnRuleCommand(command.id)) << command.id << " is new: say which action it is backed by";
+        }
+    }
+
+    const auto titleOf = [&](const char* id) {
+        for (const auto& command: commands) {
+            if (command.id == id) {
+                return command.title;
+            }
+        }
+        ADD_FAILURE() << "no command " << id;
+        return std::string{};
+    };
+    const auto run = [&](const char* id) {
+        const std::string title = titleOf(id);
+        window->openCommandPalette();
+        auto* open = window->getCommandPalette();
+        ASSERT_TRUE(open->isOpen()) << id;
+        typeInPalette(open, title.c_str());
+        ASSERT_TRUE(startsWith(selectedRow(open), (title + ", ").c_str())) << id << ": " << selectedRow(open);
+        sendKey(open->getWidget(), GDK_KEY_Return, 0);
+        settle();
+        EXPECT_FALSE(open->isOpen()) << id;
+    };
+
+    // Pages
+    run("page.next");
+    EXPECT_EQ(control->getCurrentPageNo(), 2u);
+    run("page.previous");
+    EXPECT_EQ(control->getCurrentPageNo(), 1u);
+    run("page.last");
+    EXPECT_EQ(control->getCurrentPageNo(), 4u);
+    run("page.first");
+    EXPECT_EQ(control->getCurrentPageNo(), 0u);
+
+    // Tools
+    const std::vector<std::pair<const char*, ToolType>> tools = {{"tool.highlighter", TOOL_HIGHLIGHTER},
+                                                                {"tool.eraser", TOOL_ERASER},
+                                                                {"tool.text", TOOL_TEXT},
+                                                                {"tool.select-rect", TOOL_SELECT_RECT},
+                                                                {"tool.select-region", TOOL_SELECT_REGION},
+                                                                {"tool.hand", TOOL_HAND},
+                                                                {"tool.laser", TOOL_LASER_POINTER_PEN}};
+    for (const auto& [id, type]: tools) {
+        run(id);
+        EXPECT_EQ(control->getToolHandler()->getToolType(), type) << id;
+    }
+    control->selectTool(TOOL_PEN);
+
+    // Undo and Redo, over one change the history knows about
+    auto page = control->getCurrentPage();
+    auto* layer = page->getSelectedLayer();
+    const size_t before = layer->getElements().size();
+    addMarker(layer, 100);
+    control->getUndoRedoHandler()->addUndoAction(
+            std::make_unique<InsertUndoAction>(page, layer, layer->getElements().back().get()));
+    settle();
+    ASSERT_EQ(layer->getElements().size(), before + 1);
+    run("edit.undo");
+    EXPECT_EQ(layer->getElements().size(), before);
+    run("edit.redo");
+    EXPECT_EQ(layer->getElements().size(), before + 1);
+
+    // Zoom
+    const double start = control->getZoomControl()->getZoom();
+    run("view.zoom-in");
+    const double larger = control->getZoomControl()->getZoom();
+    EXPECT_GT(larger, start);
+    run("view.zoom-out");
+    EXPECT_LT(control->getZoomControl()->getZoom(), larger);
+    run("view.zoom-100");
+    EXPECT_NEAR(control->getZoomControl()->getZoom(), control->getZoomControl()->getZoom100Value(), 1e-6);
 }

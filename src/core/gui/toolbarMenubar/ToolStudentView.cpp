@@ -21,6 +21,7 @@
 #include "control/ToolHandler.h"
 #include "control/UtnPerf.h"
 #include "control/settings/Settings.h"
+#include "gui/CommandPalette.h"
 #include "gui/MainWindow.h"
 #include "gui/PageView.h"
 #include "gui/XournalView.h"
@@ -912,6 +913,13 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
     auto* win = control->getWindow();
     if (!win) {
         return;
+    }
+    if (show) {
+        // The palette is a window of its own that the cover does not hide; the class would watch commands being chosen.
+        // Closed before the cover takes the keyboard, because closing hands focus back to where it was.
+        if (auto* palette = win->getCommandPalette()) {
+            palette->close();
+        }
     }
     if (!teacherCover && show) {
         teacherCover = gtk_event_box_new();

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "control/Control.h"
+#include "gui/toolbarMenubar/ToolLessonNavigator.h"
 #include "model/Document.h"
 #include "model/XojPage.h"
 #include "util/i18n.h"
@@ -31,6 +32,7 @@ auto PageLabelUndoAction::undo(Control* control) -> bool {
     doc->lock();
     this->page->setUtnPageLabel(this->oldLabel);
     doc->unlock();
+    ToolLessonNavigator::refreshLabels(control);
     return true;
 }
 
@@ -39,5 +41,6 @@ auto PageLabelUndoAction::redo(Control* control) -> bool {
     doc->lock();
     this->page->setUtnPageLabel(this->newLabel);
     doc->unlock();
+    ToolLessonNavigator::refreshLabels(control);
     return true;
 }
