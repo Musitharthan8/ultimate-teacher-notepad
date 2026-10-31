@@ -6,7 +6,8 @@ Handoff reference between Nitro5, the home PC, Claude and Codex. Facts only; upd
 
 - Branch `feature/utn-teacher-ux-program`, worktree `C:\Users\musit\Documents\utn-teacher-ux`, build dir `C:\Users\musit\Documents\utn-teacher-ux-build` (outside the repo).
 - Baseline: `aafdea359` (`design/utn-teacher-first-2026-10-30` as pushed). Its tree is identical to the verified `8b69e3e1b`.
-- Nothing from this branch is pushed or merged.
+- Phase 3 work was pushed to `origin/feature/utn-teacher-ux-program` at `216f22134` (verified at the start of Phase 4). The Phase 4 commits below are local only. Nothing is merged.
+- Also usable: `GIT_DIR=C:/Users/musit/Documents/ultimate-teacher-notepad/.git/worktrees/utn-teacher-ux GIT_WORK_TREE=C:/Users/musit/Documents/utn-teacher-ux git ...` from Git Bash (the worktree is listed "prunable" because of the MSYS path; do not prune it).
 - The worktree's `.git` file uses an MSYS-style path: run git there with the MSYS git (`C:\msys64\usr\bin\git.exe`, or `. /c/Users/musit/utn-nitro5-env.sh` first). Git for Windows cannot read it.
 
 ## Build and test (Nitro5, MSYS2 UCRT64)
@@ -30,7 +31,7 @@ test-gtk-integration.exe --gtest_filter='-*Soak*:*Stress*:*heavySession*'
 | 1 | 15 visual system, 13 document status | 13 implemented, partially verified; 15 partially implemented (see below) |
 | 2 | 1, 2, 4, 10 | 4, 10, 1 implemented, partially verified (no native interaction checks); 2 already existed, audited |
 | 3 | 3, 6, 8 | implemented on existing systems, automated tests and independent reviews done; native checks limited (see Phase 3) |
-| 4 | 7, 11 | not started |
+| 4 | 7, 11 | implemented on existing systems, automated tests and one independent review done; native checks NOT done (see Phase 4) |
 | 5 | 9, 5 | not started |
 | 6 | 12, integration | not started |
 
@@ -98,6 +99,62 @@ Teach, Mark and Present are the layouts `UTN Teacher`, `UTN Marking` and `UTN Pr
 - Hardening items from review, not done: `ToolStudentView::updateState` listeners are moved aside during notification (fine while listeners only read state); the tool-changed listener added per popover build is never removed (small growth per toolbar rebuild); `restoreNormal` notifies listeners twice; closing Student View while Blank or Frozen clears both; the popover's Freeze is greyed out without Student View and does not explain why.
 - Cross-feature scenarios 5, 6, 7 and 8 are covered in part by the automated tests; scenarios 9 and 10 (unsaved annotations through Present, restart after classroom use) have no automated test.
 - Not started: `ecc:i18n-sync` for the new strings, `awesome-privacy-audit` and a full skill inventory matrix. Skills actually invoked this phase: `caveman:investigate-first`; `ecc:team-builder` selection led to the four agent reviews above.
+
+## Phase 4
+
+Start `216f22134` (Phase 3 plus the project report; `09321b85b` is its parent code commit; pushed, verified against `origin`). End `e6017b5c5`. Local commits, oldest first: `93f2fcb29` pure rules, `97fcebbbc` Lesson Navigator, `d0514a301` Command Palette, `3dc75d0a9` menu entry + 300-page test + order-proof tests, `e6017b5c5` review fix. Nothing pushed, merged or rewritten.
+
+### What already existed and was reused (Feature 7)
+
+`ToolLessonNavigator` (the "Lesson Navigator" popover: Page n/N, previous/next, per-page label with undo, quick labels, lesson map, previous/next labelled), `XojPage::utnPageLabel` (saved per page for teacher exports only, never in student exports, followed automatically by insert/delete/move), `NavigationHistory` (holds `PageRef`s; Alt+Left/Right), the sidebar page thumbnails (`SidebarPreviewPages`, drawn in the widget `draw` handler so only painted entries render), the PDF outline tab, `GOTO_PAGE`. **No new page manager and no new stored field.**
+
+### Added: Feature 7, Page Navigator
+
+- `model/PageNavigation.{h,cpp}`: typed page number rules, bookmark toggle, adjacent marked page, recent pages (GTK-free, 9 unit tests).
+- Lesson Navigator popover now has: a "Go to page number" box with an error line ("Enter a page from 1 to N"), "Bookmark this page" / "Remove bookmark" / "Page is labelled", "Show page thumbnails", the current page marked in the lesson map (bold, edge, accessible name "..., current page"), and "Recent pages" (up to 5, from `NavigationHistory::visitedPages()`, resolved through `Document::indexOf`, so inserted, deleted and moved pages are followed). The panel scrolls in short windows.
+- A bookmark is the page label `Bookmark` (undoable, saved with the page). A page with a label of its own is never overwritten or cleared by the button (the button reads "Page is labelled" and is greyed).
+- The operations are static on `ToolLessonNavigator` (`goToPage`, `toggleBookmark`, `showThumbnails`) so the Command Palette runs the same code.
+
+### Added: Feature 11, Command Palette
+
+- `model/CommandPalette.{h,cpp}` (GTK-free: ranking, accessible label, page-number query; 8 unit tests) and `gui/CommandPalette.{h,cpp}`.
+- Ctrl+K handled in the existing main-window key hook in `MainWindow` (no other Ctrl+K binding existed; only exactly Ctrl, so plain `k` and Ctrl+Shift+K are untouched). Also "Command palette (Ctrl+K)..." in the Workspace menu. Ctrl+K again closes it.
+- Modal window with a search box, a list, Up/Down (skip unavailable rows), Enter, Escape. Unavailable commands are listed in words ("Unavailable: reason"), cannot be selected and cannot run; accessible name carries category, shortcut and availability. Teacher commands rank first (tools 90, pages 80, classroom 75, workspaces 70). A typed page number offers "Go to page N".
+- Commands run the existing code: tools = `Action::SELECT_TOOL`; pages = the `GOTO_*`, `NEW_PAGE_*`, `DELETE_PAGE` etc. actions; workspaces = `MainWindow::toolbarSelected/leavePresent/setPresentToolsRevealed` (same as Ctrl+Shift+1,2,3,P,T); classroom = `ToolPresentationKit::runClassroomAction`, new `ToolPresentationKit::backToNormal` (the popover button's own function) and the same `ToolStudentView` methods the buttons call. Freeze is unavailable until Student View is open, exactly like the popover.
+- Focus returns to the widget that held it. Page labels are never listed or searchable (they may be on screen while the class watches).
+
+### Verification (final code `e6017b5c5`)
+
+- Build exit 0 (`-j2`). Units 500 passed, 1 skipped (was 483). GTK 119/119 at 120 DPI and 119/119 at 96 DPI (was 109). Real `%LOCALAPPDATA%\utn\settings.xml` SHA-256 `6c73cda17090...cdb44` and mtime `2026-10-30 11:40:33` unchanged before and after.
+- Phase 3 verification closed by automated tests only: `ClassroomWorkflow` (Escape, Present enter/exit, Ctrl+Shift+1/2/3/P/T, dock reveal, workspace restore, Student View privacy, no shortcuts while typing) passed 80/80 at the start of Phase 4 on the unchanged code.
+- New GTK tests (all in `ClassroomWorkflowTest.cpp`): typed page + tool/zoom kept + no undo entry; bookmark + undo/redo + teacher label protected; recent pages through insert, move, delete + current page marked; save/reopen keeps the bookmark; thumbnails open the sidebar tab; 300-page rapid navigation (50 jumps, slowest 155 ms incl. a 60 ms settle); Ctrl+K open/Up/Down/Enter/Escape/focus return; unavailable commands; workspace + classroom commands; typed page, bookmark, labels never listed; Enter before the search entry reports (found by review, red before fix).
+- Mutation checks turned tests red for: Ctrl+K modifier check loosened; focus restore removed; Enter-before-search (before the fix).
+- Independent review: `ecc:cpp-reviewer` (read-only). 4 findings, none critical: Enter on a stale list (fixed, tested), focus restore during window destruction (fixed), `describeCommands` under an open list (fixed), raw `MainWindow*` in the deferred call of the Workspace menu button (NOT fixed, narrow: the window must be destroyed between click and idle). No privacy finding.
+- Skills/agents actually used: `superpowers:using-git-worktrees` (worked in place; the branch is already a linked worktree), `superpowers:test-driven-development` (models and navigator: red first; palette window was written before its GTK tests, then tests added and mutation-checked, a departure from strict TDD), `ecc:cpp-reviewer`. NOT used, although listed in the brief: `ecc:dev-team`, `product-lens`, `codebase-onboarding`, `iterative-retrieval`, `inherit-legacy-style`, `contract-first`, `design-system`, `frontend-a11y`, `click-path-audit`, `windows-desktop-e2e`, `i18n-sync`, the awesome-* and remaining caveman/superpowers skills, accessibility and security agents. Codebase reading was done directly.
+
+### Native GUI verification: NOT DONE
+
+No real mouse/keyboard run of the navigator or the palette (Ctrl+K on a real keyboard, popover look, palette window position and size at 800/1024/1280, dark mode, High Contrast, touch). Fullscreen Blank / Student View were deliberately not activated (shared desktop; GTK still reports two monitors on this machine). The GTK tests drive real widgets and key events through `gtk_main_do_event`, not a human.
+
+### Performance and privacy findings
+
+- 50 jumps over a 300-page document with the sidebar open: slowest 155 ms including the test's 60 ms settle; no thumbnail is rendered by the navigator itself (existing draw-on-paint). Not measured on a real large PDF.
+- Navigation adds no undo entry and does not change content. Labels are teacher-only data: not in student exports (existing), not in the palette. The Lesson Navigator popover still shows labels, as before.
+- Test hygiene found: earlier GTK tests can leave a modal `GtkMessageDialog` and a disabled `SELECT_TOOL`; the palette tests clear both first. Not investigated which test leaves them.
+
+### Known gaps (Phase 4)
+
+- Bookmark is a label named "Bookmark": two bookmarks look identical in the map except by page number; no rename-on-bookmark. A document opened from a student export has no labels at all.
+- Recent pages hold at most 5 and come from the 50-entry history (also fed by search jumps); entries are not persisted across sessions.
+- Page thumbnails are not inside the popover (the button opens the existing sidebar tab). PDF outline sections are in the existing outline tab, not in the popover.
+- Palette: no fuzzy typo matching; commands are English keywords with translated titles; no recent-commands memory; shortcut labels read from GTK accelerators ("Ctrl+Shift+..." for workspaces is fixed text); no pen-preset or dock commands yet; "Delete page" is offered (undoable, same as the menu).
+- Palette and navigator strings are not in the translation files (`i18n-sync` not run).
+- Accessibility not audited by an agent: the palette status line is a plain label (no live-region announcement of the result count), the palette is undecorated (accessible name set), row Up/Down is custom key handling over a `GtkListBox`.
+- Raw `MainWindow*` captured by the Workspace menu button's deferred call (review finding 3).
+
+### Recommendations for Phase 5
+
+Run the native pass first (real keyboard: Ctrl+K, Go to page, bookmark, thumbnails; two window widths; dark and High Contrast) on a non-shared desktop, then the a11y agent on the palette and navigator. Then Features 9 and 5 on the existing systems, and fold the palette into any new feature by adding one `addAction` line.
 
 ### Known gaps (Phase 1)
 
