@@ -45,6 +45,7 @@ class GladeSearchpath;
 
 class Menubar;
 class ToolUtnContextBar;
+class CommandPalette;
 
 typedef std::array<xoj::util::WidgetSPtr, TOOLBAR_DEFINITIONS_LEN> ToolbarWidgetArray;
 
@@ -121,6 +122,10 @@ public:
      * @return true if the key press was a workspace shortcut
      */
     bool workspaceShortcut(const GdkEventKey* event);
+    /// UTN: Ctrl+K. Opens the Command Palette (or puts it away if it is open). Its commands run the same actions as the
+    /// buttons and menus; see gui/CommandPalette.h.
+    void openCommandPalette();
+    CommandPalette* getCommandPalette() const { return commandPalette.get(); }
     /// UTN: banner naming the active Spotlight/Curtain with an Exit button; hidden otherwise
     void updatePresentationBanner();
     bool isPresentationBannerVisible() const;
@@ -250,6 +255,7 @@ private:
     std::unique_ptr<PdfFloatingToolbox> pdfFloatingToolBox;
     std::unique_ptr<FloatingToolbox> floatingToolbox;
     std::unique_ptr<UtnToast> toast;
+    std::unique_ptr<CommandPalette> commandPalette;
     GtkWidget* presentationBanner = nullptr;
     GtkWidget* presentationBannerLabel = nullptr;
     /// 0 = off, 1 = Spotlight, 2 = Curtain; lets Student View be told only when this really changes

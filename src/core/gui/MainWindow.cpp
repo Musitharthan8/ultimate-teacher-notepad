@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "control/UtnLayout.h"  // for isTeacherLayout
+#include "gui/CommandPalette.h"  // for CommandPalette
 #include "gui/UtnToast.h"        // for UtnToast
 #include <regex>
 
@@ -255,6 +256,15 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     // "watch over" all key events; Escape is an obvious exit for temporary classroom overlays.
     // Keep native GTK handling whenever no classroom overlay is active.
     auto keyPropagate = +[](GtkWidget* w, GdkEvent* e, gpointer data) -> gboolean {
+        if (e->type == GDK_KEY_PRESS) {
+            // Ctrl+K opens the Command Palette. No ordinary typing uses Ctrl+K, so this takes nothing from a text box.
+            auto* key = reinterpret_cast<GdkEventKey*>(e);
+            if ((key->keyval == GDK_KEY_k || key->keyval == GDK_KEY_K) &&
+                (key->state & gtk_accelerator_get_default_mod_mask()) == GDK_CONTROL_MASK) {
+                static_cast<MainWindow*>(data)->openCommandPalette();
+                return TRUE;
+            }
+        }
         if (e->type == GDK_KEY_PRESS &&
             static_cast<MainWindow*>(data)->workspaceShortcut(reinterpret_cast<GdkEventKey*>(e))) {
             return TRUE;
@@ -317,6 +327,7 @@ void MainWindow::populate(GladeSearchpath* gladeSearchPath) {
 GMenuModel* MainWindow::getMenuModel() const { return menubar->getModel(); }
 
 MainWindow::~MainWindow() {
+    commandPalette.reset();
     // GtkSettings is shared and can outlive this window.
     g_signal_handlers_disconnect_by_data(gtk_widget_get_settings(this->window), this);
     destroyPenSettingsMenu();
@@ -1684,6 +1695,17 @@ void MainWindow::setPresentToolsRevealed(bool revealed) {
     }
     presentToolsRevealed = revealed;
     updateTeacherWorkspace();
+}
+
+void MainWindow::openCommandPalette() {
+    if (!commandPalette) {
+        commandPalette = std::make_unique<CommandPalette>(control, this);
+    }
+    if (commandPalette->isOpen()) {
+        commandPalette->close();
+    } else {
+        commandPalette->open();
+    }
 }
 
 bool MainWindow::workspaceShortcut(const GdkEventKey* event) {

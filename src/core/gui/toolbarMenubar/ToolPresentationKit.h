@@ -22,6 +22,8 @@ class ToolStudentView;
 class ToolPresentationKit: public AbstractToolItem {
 public:
     static void runClassroomAction(Control* control, Action action);
+    /// What the "Back to normal" button does: Spotlight and Curtain off, Freeze and Blank off. Saved work is untouched.
+    static void backToNormal(Control* control, ToolStudentView* students);
 
     /// @param students Student View, so Freeze, Blank and the way back to normal sit with Spotlight and Curtain. Without
     ///        it the controls cover only the overlays.

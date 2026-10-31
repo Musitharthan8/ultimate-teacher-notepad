@@ -46,6 +46,7 @@
 #include "gui/toolbarMenubar/ToolMenuHandler.h"
 #include "gui/toolbarMenubar/PenPresetsMenu.h"
 #include "gui/toolbarMenubar/RevealActions.h"
+#include "gui/CommandPalette.h"
 #include "gui/sidebar/Sidebar.h"
 #include "gui/toolbarMenubar/ToolLessonNavigator.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
@@ -5219,4 +5220,232 @@ TEST_F(ClassroomWorkflow, lessonNavigatorBookmarksSurviveSaveAndReopenAndThumbna
     settle();
     EXPECT_TRUE(control->getSettings()->isSidebarVisible());
     EXPECT_EQ(control->getSidebar()->getSelectedTab(), 1u) << "the page thumbnails tab";
+}
+
+namespace {
+bool sendKey(GtkWidget* widget, guint keyval, guint state) {
+    FakeKey fake(widget, keyval, state);
+    // Real key events name their keyboard and are delivered by the main loop (which also applies the modal grab of the
+    // palette, and sets the current event the canvas key handler reads)
+    gdk_event_set_device(fake.event, gdk_seat_get_keyboard(gdk_display_get_default_seat(gdk_display_get_default())));
+    gtk_main_do_event(fake.event);
+    settle();
+    return true;
+}
+
+std::string accessibleName(GtkWidget* widget) {
+    AtkObject* accessible = gtk_widget_get_accessible(widget);
+    const char* name = accessible ? atk_object_get_name(accessible) : nullptr;
+    return name ? name : "";
+}
+
+/// What the palette lists, in order, as a screen reader would be told
+std::vector<std::string> paletteRows(CommandPalette* palette) {
+    std::vector<std::string> out;
+    GtkWidget* list = widgetNamed(palette->getWidget(), "utnPaletteList");
+    GList* children = gtk_container_get_children(GTK_CONTAINER(list));
+    for (GList* child = children; child; child = child->next) {
+        out.push_back(accessibleName(GTK_WIDGET(child->data)));
+    }
+    g_list_free(children);
+    return out;
+}
+
+std::string selectedRow(CommandPalette* palette) {
+    GtkWidget* list = widgetNamed(palette->getWidget(), "utnPaletteList");
+    auto* row = gtk_list_box_get_selected_row(GTK_LIST_BOX(list));
+    return row ? accessibleName(GTK_WIDGET(row)) : std::string{};
+}
+
+void typeInPalette(CommandPalette* palette, const char* text) {
+    GtkWidget* search = widgetNamed(palette->getWidget(), "utnPaletteSearch");
+    gtk_entry_set_text(GTK_ENTRY(search), text);
+    g_signal_emit_by_name(search, "search-changed");  // the entry waits a moment before saying it
+    settle();
+}
+
+bool startsWith(const std::string& text, const char* prefix) { return text.rfind(prefix, 0) == 0; }
+}  // namespace
+
+TEST_F(ClassroomWorkflow, ctrlKOpensThePaletteAndEnterRunsTheToolActionEscapeLeavesAndFocusComesBack) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    gtk_widget_set_can_focus(canvas, true);
+    gtk_widget_grab_focus(canvas);
+    settle();
+    ASSERT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), canvas);
+    control->selectTool(TOOL_HIGHLIGHTER);
+
+    // Keys that are not Ctrl+K leave the palette shut
+    sendKey(top, GDK_KEY_k, 0);
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    EXPECT_EQ(window->getCommandPalette() != nullptr && window->getCommandPalette()->isOpen(), false);
+
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    auto* palette = window->getCommandPalette();
+    ASSERT_NE(palette, nullptr);
+    ASSERT_TRUE(palette->isOpen());
+    EXPECT_NE(widgetNamed(palette->getWidget(), "utnPaletteSearch"), nullptr);
+    EXPECT_EQ(accessibleName(widgetNamed(palette->getWidget(), "utnPaletteSearch")), "Search commands");
+    EXPECT_FALSE(paletteRows(palette).empty()) << "an empty search lists the commands";
+
+    typeInPalette(palette, "pen");
+    ASSERT_FALSE(paletteRows(palette).empty());
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Pen, Tool")) << selectedRow(palette);
+
+    // Up and Down move the choice and never leave the search box
+    const std::string first = selectedRow(palette);
+    sendKey(palette->getWidget(), GDK_KEY_Down, 0);
+    EXPECT_NE(selectedRow(palette), first);
+    sendKey(palette->getWidget(), GDK_KEY_Up, 0);
+    EXPECT_EQ(selectedRow(palette), first);
+
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    EXPECT_FALSE(palette->isOpen());
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_PEN) << "Enter ran the same action as the Pen button";
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), canvas) << "the keyboard went back to the page";
+
+    // Escape puts it away and changes nothing
+    control->selectTool(TOOL_HIGHLIGHTER);
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    ASSERT_TRUE(palette->isOpen());
+    typeInPalette(palette, "eraser");
+    sendKey(palette->getWidget(), GDK_KEY_Escape, 0);
+    settle();
+    EXPECT_FALSE(palette->isOpen());
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HIGHLIGHTER);
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), canvas);
+
+    // Ctrl+K again closes it, too
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    ASSERT_TRUE(palette->isOpen());
+    sendKey(palette->getWidget(), GDK_KEY_k, GDK_CONTROL_MASK);
+    settle();
+    EXPECT_FALSE(palette->isOpen());
+    control->selectTool(TOOL_PEN);
+}
+
+TEST_F(ClassroomWorkflow, paletteListsUnavailableCommandsInWordsAndNeverRunsThem) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+
+    typeInPalette(palette, "leave present");
+    const auto rows = paletteRows(palette);
+    ASSERT_FALSE(rows.empty());
+    EXPECT_EQ(rows[0], "Leave Present, Workspace, shortcut Ctrl+Shift+P, unavailable: Not in Present");
+    EXPECT_EQ(selectedRow(palette), "") << "an unavailable command cannot be chosen";
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    EXPECT_TRUE(palette->isOpen()) << "Enter on nothing runs nothing and keeps the palette open";
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Teacher");
+
+    // An available command sorts above an unavailable one for the same words
+    typeInPalette(palette, "present");
+    const auto present = paletteRows(palette);
+    ASSERT_GE(present.size(), 2u);
+    EXPECT_TRUE(startsWith(present.front(), "Present workspace")) << present.front();
+    EXPECT_NE(present.back().find("unavailable"), std::string::npos);
+    window->getCommandPalette()->close();
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, paletteWorkspaceAndClassroomCommandsDoWhatTheirButtonsDo) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto run = [&](const char* query) {
+        window->openCommandPalette();
+        auto* palette = window->getCommandPalette();
+        EXPECT_TRUE(palette->isOpen());
+        typeInPalette(palette, query);
+        sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+        settle();
+        EXPECT_FALSE(palette->isOpen()) << query;
+    };
+
+    run("mark workspace");
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking");
+    run("present workspace");
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    run("show tools");
+    EXPECT_TRUE(window->isPresentToolsRevealed()) << "the same reveal as Ctrl+Shift+T";
+    run("leave present");
+    EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking") << "back to where the teacher came from";
+    window->toolbarSelected("UTN Teacher");
+
+    run("spotlight");
+    EXPECT_TRUE(control->getToolHandler()->isSpotlightEnabled());
+    run("back to normal");
+    EXPECT_FALSE(control->getToolHandler()->isSpotlightEnabled());
+    run("curtain");
+    EXPECT_TRUE(control->getToolHandler()->isCurtainEnabled());
+    run("exit spotlight");
+    EXPECT_FALSE(control->getToolHandler()->isCurtainEnabled());
+
+    // Freeze is greyed out exactly while the popover greys its own Freeze: Student View must be open first
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    if (!students->isWindowOpen()) {
+        window->openCommandPalette();
+        auto* palette = window->getCommandPalette();
+        typeInPalette(palette, "freeze");
+        const auto rows = paletteRows(palette);
+        ASSERT_FALSE(rows.empty());
+        EXPECT_NE(std::find(rows.begin(), rows.end(), "Freeze students' screen, Classroom, unavailable: Open Student View first"), rows.end())
+                << "Freeze is listed, and says why it cannot run";
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Off);
+        palette->close();
+        settle();
+    }
+}
+
+TEST_F(ClassroomWorkflow, paletteGoesToATypedPageBookmarksAndNeverListsPageLabels) {
+    addPlainPages(control.get(), 3);  // five pages
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+
+    typeInPalette(palette, "page 4");
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Go to page 4, Page")) << selectedRow(palette);
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    EXPECT_EQ(control->getCurrentPageNo(), 3u);
+
+    window->openCommandPalette();
+    typeInPalette(palette, "bookmark");
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Bookmark this page, Page")) << selectedRow(palette);
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    EXPECT_EQ(control->getDocument()->getPage(3)->getUtnPageLabel(), "Bookmark");
+    control->getUndoRedoHandler()->undo();
+    EXPECT_EQ(control->getDocument()->getPage(3)->getUtnPageLabel(), "") << "the same undoable label as the button";
+
+    window->openCommandPalette();
+    typeInPalette(palette, "page 9");
+    for (const auto& row: paletteRows(palette)) {
+        EXPECT_FALSE(startsWith(row, "Go to page")) << "there is no page 9: " << row;
+    }
+    palette->close();
+
+    // A label is the teacher's private note: it can be on screen while the class watches, so it is never listed
+    control->getDocument()->getPage(3)->setUtnPageLabel("Secret answers");
+    window->openCommandPalette();
+    typeInPalette(palette, "secret");
+    EXPECT_TRUE(paletteRows(palette).empty());
+    typeInPalette(palette, "bookmark");
+    ASSERT_FALSE(paletteRows(palette).empty());
+    EXPECT_NE(paletteRows(palette)[0].find("unavailable: This page already has a label"), std::string::npos)
+            << "it does not replace a label of the teacher";
+    palette->close();
+    settle();
+    control->getDocument()->getPage(3)->setUtnPageLabel("");
 }

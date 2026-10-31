@@ -162,6 +162,10 @@ void clearTemporaryInk(Control* control) {
 }
 }  // namespace
 
+void ToolPresentationKit::backToNormal(Control* control, ToolStudentView* students) {
+    ::backToNormal(control, students);  // the button's own function, so the palette and the button cannot differ
+}
+
 void ToolPresentationKit::runClassroomAction(Control* control, Action action) {
     switch (action) {
         case Action::CLASSROOM_SPOTLIGHT:
