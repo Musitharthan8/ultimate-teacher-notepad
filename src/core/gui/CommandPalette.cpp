@@ -306,6 +306,9 @@ void CommandPalette::buildEntries() {
 }
 
 std::vector<utn::PaletteCommand> CommandPalette::describeCommands() {
+    if (dialog) {  // `shown` points into the entries; rebuilding them under an open list would leave it dangling
+        close();
+    }
     buildEntries();
     std::vector<utn::PaletteCommand> out;
     out.reserve(entries.size());
@@ -398,6 +401,9 @@ void CommandPalette::open() {
                              self->previousFocus = nullptr;
                          }
                          // The keyboard goes back to where it was; a widget that has gone is simply not used
+                         if (gtk_widget_in_destruction(self->window->getWindow())) {
+                             return;  // the whole window is going away (destroy_with_parent): nothing to give back
+                         }
                          gtk_window_present(GTK_WINDOW(self->window->getWindow()));
                          if (target && gtk_widget_get_mapped(target)) {
                              gtk_widget_grab_focus(target);
@@ -422,6 +428,7 @@ void CommandPalette::filter() {
         return;
     }
     const std::string query = gtk_entry_get_text(GTK_ENTRY(search));
+    lastQuery = query;
 
     pageEntry.reset();
     size_t pageCount = 0;
@@ -543,6 +550,10 @@ void CommandPalette::activateEntry(const Entry* entry) {
 void CommandPalette::activateSelected() {
     if (!list) {
         return;
+    }
+    // Enter can come before the entry has reported the last keystrokes: run what is typed, not the list of a moment ago
+    if (gtk_entry_get_text(GTK_ENTRY(search)) != lastQuery) {
+        filter();
     }
     if (auto* row = gtk_list_box_get_selected_row(GTK_LIST_BOX(list))) {
         const auto index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "utn-shown"));

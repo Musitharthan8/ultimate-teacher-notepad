@@ -74,4 +74,5 @@ private:
     std::vector<Entry> entries;
     std::optional<Entry> pageEntry;  ///< "Go to page 12", offered while the query is a page number
     std::vector<const Entry*> shown;
+    std::string lastQuery;  ///< The query `shown` was made for; the entry reports a change only after a short delay
 };

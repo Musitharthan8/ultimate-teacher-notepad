@@ -5496,3 +5496,29 @@ TEST_F(ClassroomWorkflow, navigatingAThreeHundredPageDocumentRapidlyWithThumbnai
     EXPECT_LT(slowest, 2 * G_USEC_PER_SEC) << "no single jump may freeze the window for two seconds";
     EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "rapid navigation leaves the document untouched";
 }
+
+TEST_F(ClassroomWorkflow, paletteEnterRunsWhatWasTypedEvenBeforeTheSearchHasCaughtUp) {
+    addPlainPages(control.get(), 3);  // five pages
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    for (GList* l = gtk_window_list_toplevels(); l; l = l->next) {
+        if (GTK_IS_MESSAGE_DIALOG(l->data)) {
+            gtk_widget_destroy(GTK_WIDGET(l->data));
+        }
+    }
+    control->selectTool(TOOL_HIGHLIGHTER);
+    control->getActionDatabase()->enableAction(Action::SELECT_TOOL, true);
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+
+    // The entry reports a changed search about 150 ms later. Enter pressed sooner must still run what was typed, not the
+    // command that happened to be on top of the old list.
+    gtk_entry_set_text(GTK_ENTRY(widgetNamed(palette->getWidget(), "utnPaletteSearch")), "last page");
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    EXPECT_EQ(control->getCurrentPageNo(), 4u) << "the last page was typed";
+    EXPECT_EQ(control->getToolHandler()->getToolType(), TOOL_HIGHLIGHTER) << "the top command of the old list must not run";
+    EXPECT_FALSE(palette->isOpen());
+    control->selectTool(TOOL_PEN);
+}
