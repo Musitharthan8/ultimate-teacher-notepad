@@ -1120,6 +1120,17 @@ void MainWindow::appendWorkspaceMenu() {
     }
     updateInterfaceModeButtons();
     gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* commands = gtk_button_new_with_label(_("Command palette (Ctrl+K)…"));
+    gtk_widget_set_tooltip_text(commands, _("Search every command by name"));
+    utn::setAccessibleName(commands, _("Command palette, shortcut Control K"));
+    g_signal_connect(commands, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                         if (GtkWidget* open = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER)) {
+                             gtk_popover_popdown(GTK_POPOVER(open));
+                         }
+                         // Once the menu has let go of the keyboard
+                         Util::execInUiThread([self = static_cast<MainWindow*>(data)]() { self->openCommandPalette(); });
+                     }), this);
+    gtk_box_append(GTK_BOX(panel), commands);
     GtkWidget* customiseDock = gtk_button_new_with_label(_("Customise tool dock…"));
     gtk_widget_set_tooltip_text(customiseDock, _("Pin, hide and reorder the tools on the left"));
     utn::setAccessibleName(customiseDock, _("Customise tool dock"));

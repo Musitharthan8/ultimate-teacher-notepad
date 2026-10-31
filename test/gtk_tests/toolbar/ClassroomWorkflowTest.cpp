@@ -5260,8 +5260,11 @@ std::string selectedRow(CommandPalette* palette) {
 void typeInPalette(CommandPalette* palette, const char* text) {
     GtkWidget* search = widgetNamed(palette->getWidget(), "utnPaletteSearch");
     gtk_entry_set_text(GTK_ENTRY(search), text);
-    g_signal_emit_by_name(search, "search-changed");  // the entry waits a moment before saying it
-    settle();
+    // The entry says "search-changed" about 150 ms after the text changes: wait for that, so a late second signal cannot
+    // rebuild the list in the middle of a test
+    for (int i = 0; i < 5; ++i) {
+        settle();
+    }
 }
 
 bool startsWith(const std::string& text, const char* prefix) { return text.rfind(prefix, 0) == 0; }
@@ -5272,17 +5275,29 @@ TEST_F(ClassroomWorkflow, ctrlKOpensThePaletteAndEnterRunsTheToolActionEscapeLea
     window->show(nullptr);
     settle();
     GtkWidget* top = GTK_WIDGET(window->getWindow());
-    GtkWidget* canvas = window->getXournal()->getWidget();
-    gtk_widget_set_can_focus(canvas, true);
-    gtk_widget_grab_focus(canvas);
-    settle();
-    ASSERT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), canvas);
+    // Whatever holds the keyboard when the palette opens must hold it again afterwards
+    GtkWidget* canvas = gtk_window_get_focus(GTK_WINDOW(top));
+    if (!canvas) {
+        gtk_window_set_focus(GTK_WINDOW(top), window->getXournal()->getWidget());
+        settle();
+        canvas = gtk_window_get_focus(GTK_WINDOW(top));
+    }
+    ASSERT_NE(canvas, nullptr);
     control->selectTool(TOOL_HIGHLIGHTER);
+    control->getActionDatabase()->enableAction(Action::SELECT_TOOL, true);  // an earlier test can leave it disabled
+    settle();
 
     // Keys that are not Ctrl+K leave the palette shut
     sendKey(top, GDK_KEY_k, 0);
     sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
     EXPECT_EQ(window->getCommandPalette() != nullptr && window->getCommandPalette()->isOpen(), false);
+    // A modal message box left by an earlier test would rightly take the key; start from a clean desktop
+    for (GList* l = gtk_window_list_toplevels(); l; l = l->next) {
+        if (GTK_IS_MESSAGE_DIALOG(l->data)) {
+            gtk_widget_destroy(GTK_WIDGET(l->data));
+        }
+    }
+    settle();
 
     sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
     auto* palette = window->getCommandPalette();
@@ -5296,12 +5311,15 @@ TEST_F(ClassroomWorkflow, ctrlKOpensThePaletteAndEnterRunsTheToolActionEscapeLea
     ASSERT_FALSE(paletteRows(palette).empty());
     EXPECT_TRUE(startsWith(selectedRow(palette), "Pen, Tool")) << selectedRow(palette);
 
-    // Up and Down move the choice and never leave the search box
+    // Up and Down move the choice (over a search with several available commands) and never leave the search box
+    typeInPalette(palette, "page");
     const std::string first = selectedRow(palette);
     sendKey(palette->getWidget(), GDK_KEY_Down, 0);
     EXPECT_NE(selectedRow(palette), first);
     sendKey(palette->getWidget(), GDK_KEY_Up, 0);
     EXPECT_EQ(selectedRow(palette), first);
+    typeInPalette(palette, "pen");
+    EXPECT_TRUE(startsWith(selectedRow(palette), "Pen, Tool")) << selectedRow(palette);
 
     sendKey(palette->getWidget(), GDK_KEY_Return, 0);
     settle();
@@ -5448,4 +5466,33 @@ TEST_F(ClassroomWorkflow, paletteGoesToATypedPageBookmarksAndNeverListsPageLabel
     palette->close();
     settle();
     control->getDocument()->getPage(3)->setUtnPageLabel("");
+}
+
+TEST_F(ClassroomWorkflow, navigatingAThreeHundredPageDocumentRapidlyWithThumbnailsOpenStaysResponsive) {
+    addPlainPages(control.get(), 298);  // 300 pages
+    ASSERT_EQ(control->getDocument()->getPageCount(), 300u);
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    control->setShowSidebar(true);
+    settle();
+    NavigatorUnderTest navigator(control.get());
+    ToolLessonNavigator::showThumbnails(control.get());
+    settle();
+
+    const gint64 start = g_get_monotonic_time();
+    gint64 slowest = 0;
+    const char* targets[] = {"300", "1", "150", "299", "2", "77", "250", "10", "280", "40"};
+    for (int round = 0; round < 5; ++round) {
+        for (const char* target: targets) {
+            const gint64 before = g_get_monotonic_time();
+            navigator.goTo(target);
+            slowest = std::max(slowest, g_get_monotonic_time() - before);
+        }
+    }
+    const double totalMs = static_cast<double>(g_get_monotonic_time() - start) / 1000.0;
+    g_message("UTN navigator perf: 50 jumps over 300 pages in %.0f ms, slowest %.0f ms (each includes a 60 ms settle)",
+              totalMs, static_cast<double>(slowest) / 1000.0);
+    EXPECT_EQ(control->getCurrentPageNo(), 39u);
+    EXPECT_LT(slowest, 2 * G_USEC_PER_SEC) << "no single jump may freeze the window for two seconds";
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "rapid navigation leaves the document untouched";
 }
