@@ -54,6 +54,11 @@ void closeMenu(GtkWidget* entry) {
     }
 }
 
+/// The name of a quick button begins with the label it shows (so "click Show page" works by voice), and says the same
+/// thing in words: the label flips with the state, so the name does too
+const char* quickFreezeName(bool frozen) { return frozen ? _("Resume live view for students") : _("Freeze students' screen"); }
+const char* quickBlankName(bool blanked) { return blanked ? _("Show page to students again") : _("Blank students' screen"); }
+
 /// Text a screen reader reads after the name; nullptr goes back to the tooltip, which GTK offers by default
 void setAccessibleDescription(GtkWidget* widget, const char* description) {
     if (AtkObject* accessible = gtk_widget_get_accessible(widget)) {
@@ -316,13 +321,11 @@ void ToolStudentView::updateState() {
         utn::syncToggle(GTK_TOGGLE_BUTTON(freezeToggle), frozen);
         // The name stays the same in every state and the pressed state says whether it is on. Why it cannot be used is
         // the description: a tooltip is not read to everyone and a toast is gone after a few seconds.
-        utn::setAccessibleName(freezeToggle, _("Freeze students' screen"));
         setAccessibleDescription(freezeToggle, open ? nullptr : _("Open Student View on the projector first"));
     }
     if (blankToggle) {
         gtk_button_set_label(GTK_BUTTON(blankToggle), blanked ? _("Show the page again") : _("Blank screen"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankToggle), blanked);
-        utn::setAccessibleName(blankToggle, _("Blank students' screen"));
     }
     if (freezeQuick) {
         gtk_button_set_label(GTK_BUTTON(freezeQuick), frozen ? _("Resume live") : _("Freeze"));
@@ -333,7 +336,7 @@ void ToolStudentView::updateState() {
                                     frozen ? _("Students are seeing a frozen page. Choose to show them the page you are "
                                                "on now.") :
                                              _("Keep showing students this page while you prepare the next step"));
-        utn::setAccessibleName(freezeQuick, _("Freeze students' screen"));  // the pressed state says whether it is on
+        utn::setAccessibleName(freezeQuick, quickFreezeName(frozen));
         setAccessibleDescription(freezeQuick, open ? nullptr : _("Freeze needs Student View. Open it on the projector first, "
                                                             "then students keep seeing this page while you prepare the "
                                                             "next step."));
@@ -343,7 +346,7 @@ void ToolStudentView::updateState() {
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankQuick), blanked);
         gtk_widget_set_tooltip_text(blankQuick, blanked ? _("Students see a blank screen. Choose to show the page again.") :
                                                           _("Hide the page from students until you turn this off"));
-        utn::setAccessibleName(blankQuick, _("Blank students' screen"));  // the pressed state says whether it is on
+        utn::setAccessibleName(blankQuick, quickBlankName(blanked));
     }
     if (pill) {
         // Teacher View and Student View are different screens; say which one the class is looking at
@@ -981,6 +984,9 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
         g_signal_connect(teacherCover, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer data) {
                              auto* self = static_cast<ToolStudentView*>(data);
                              self->teacherCover = nullptr;
+                             if (self->contentBehindCover) {
+                                 gtk_widget_set_sensitive(self->contentBehindCover, self->contentWasSensitive);
+                             }
                              self->forgetWidgetsBehindCover();
                          }),
                          this);

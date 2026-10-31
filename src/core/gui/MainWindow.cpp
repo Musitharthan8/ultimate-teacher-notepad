@@ -744,6 +744,7 @@ void MainWindow::setSidebarVisible(bool visible) {
     }
 
     gtk_widget_set_visible(sidebarWidget.get(), visible);
+    keepFocusUseful();  // a thumbnail or outline entry that had the keyboard may have just gone
 }
 
 /**
@@ -1611,6 +1612,7 @@ void MainWindow::updateTeacherWorkspace() {
     gtk_widget_set_visible(get("utnCollapseInspector"), teacher && mode == 0);
     gtk_widget_set_visible(get("utnExpandInspector"), teacher && mode == 1);
     updateInkDock();
+    keepFocusUseful();  // the inspector or rail may have hidden what held the keyboard
 }
 
 void MainWindow::reloadToolbars() {
@@ -1735,7 +1737,7 @@ void MainWindow::keepFocusUseful() {
             return;
         }
         GtkWidget* canvas = xournal ? xournal->getWidget() : nullptr;
-        if (canvas && gtk_widget_get_can_focus(canvas) && gtk_widget_is_drawable(canvas)) {
+        if (canvas && gtk_widget_get_can_focus(canvas) && gtk_widget_is_drawable(canvas) && gtk_widget_is_sensitive(canvas)) {
             gtk_widget_grab_focus(canvas);
         } else {
             gtk_widget_child_focus(GTK_WIDGET(this->window), GTK_DIR_TAB_FORWARD);

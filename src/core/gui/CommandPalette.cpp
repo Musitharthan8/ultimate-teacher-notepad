@@ -423,7 +423,7 @@ void CommandPalette::open() {
                          static_cast<CommandPalette*>(data)->showStatusFor(row);
                      }),
                      this);
-    g_signal_connect(list, "row-activated",G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
+    g_signal_connect(list, "row-activated", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer data) {
                          auto* self = static_cast<CommandPalette*>(data);
                          const auto index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "utn-shown"));
                          if (index >= 1 && index <= self->shown.size()) {
@@ -452,8 +452,10 @@ void CommandPalette::open() {
                              return;  // the whole window is going away (destroy_with_parent): nothing to give back
                          }
                          gtk_window_present(GTK_WINDOW(self->window->getWindow()));
-                         if (target && gtk_widget_get_mapped(target)) {
+                         if (target && gtk_widget_is_drawable(target) && gtk_widget_is_sensitive(target)) {
                              gtk_widget_grab_focus(target);
+                         } else {
+                             self->window->keepFocusUseful();  // it is hidden or gone: the page, not nowhere
                          }
                      }),
                      this);
@@ -539,7 +541,10 @@ void CommandPalette::filter() {
 
         gtk_container_add(GTK_CONTAINER(row), line);
         // The row stays sensitive so that Up and Down can reach it; the words say it cannot run, and Enter does nothing
-        utn::setAccessibleName(row, utn::accessibleLabel(e->meta).c_str());
+        // The name says it is unavailable once; the reason is the description (and the status line), not repeated here
+        utn::PaletteCommand named = e->meta;
+        named.unavailableReason.clear();
+        utn::setAccessibleName(row, utn::accessibleLabel(named).c_str());
         if (AtkObject* accessible = gtk_widget_get_accessible(row)) {
             // The reason, for a screen reader to read after the name
             atk_object_set_description(accessible, e->meta.enabled ? "" : e->meta.unavailableReason.c_str());
@@ -614,9 +619,13 @@ void CommandPalette::activateEntry(const Entry* entry) {
     // Close first: the keyboard returns to the page, and a command that opens a dialog or popover finds it free
     auto run = entry->run;
     close();
+    MainWindow* const mainWindow = window;  // this palette goes with the window if a command ever destroys it
+    const auto windowAlive = mainWindow->getAliveToken();
     run();
     // The command may have hidden the control the keyboard went back to (a workspace, the sidebar)
-    window->keepFocusUseful();
+    if (!windowAlive.expired()) {
+        mainWindow->keepFocusUseful();
+    }
 }
 
 void CommandPalette::activateSelected() {

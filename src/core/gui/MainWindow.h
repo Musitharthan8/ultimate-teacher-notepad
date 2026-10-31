@@ -122,6 +122,8 @@ public:
      * good is left alone. Done once the change has settled.
      */
     void keepFocusUseful();
+    /// Expires when this window is destroyed
+    std::weak_ptr<bool> getAliveToken() const { return alive; }
     /**
      * UTN: Ctrl+Shift+1, 2, 3 choose Teach, Mark, Present; Ctrl+Shift+P enters or leaves Present; Ctrl+Shift+T shows or
      * hides the tools in Present. Anything else, plain keys included, is left to the application.
