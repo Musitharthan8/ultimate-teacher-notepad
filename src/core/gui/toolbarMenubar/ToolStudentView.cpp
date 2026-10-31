@@ -1017,6 +1017,8 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
             gtk_widget_grab_focus(target);
         }
     }
+    // The selection toolbar sits in the same overlay: it goes away with the cover up and comes back after
+    win->updateSelectionToolbar();
 }
 
 void ToolStudentView::forgetWidgetsBehindCover() {

@@ -784,6 +784,36 @@ window.utnShell.utnTouch .utn-paper-dock {
     padding: 8px 10px;
 }
 
+/* Floating selection toolbar (gui/SelectionToolbar): the ink dock's surface, smaller, so it never hides much page */
+window.utnShell .utn-selection-toolbar {
+    background-color: @utn_paper_surface;
+    color: @utn_paper_text;
+    padding: 3px 4px;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px alpha(black, 0.16);
+}
+window.utnShell .utn-selection-toolbar button {
+    min-height: 28px;
+    padding: 2px 8px;
+    border-radius: 8px;
+}
+window.utnShell.darkMode .utn-selection-toolbar {
+    background-color: @utn_paper_dark_surface;
+    color: @utn_paper_dark_text;
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.utnHighContrast .utn-selection-toolbar {
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 2px solid @utn_hc_fg;
+    box-shadow: none;
+}
+window.utnShell.utnTouch .utn-selection-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+}
+
 /* Adjacent Eraser tool panel: four always-visible modes, not a hidden arrow dropdown.
    GTK's checked radio-button state makes the active behaviour easy to recognise. */
 window.utnShell #utnContextSide .utn-eraser-modes button {

@@ -85,7 +85,8 @@
 #include "model/Setsquare.h"                                     // for Sets...
 #include "model/Stroke.h"                                        // for Stroke
 #include "model/StrokeStyle.h"                                   // for Stro...
-#include "model/TexImage.h"                                      // for TexI...
+#include "model/StudentVisibility.h"                             // for notifyStudentVisibilityChanged
+#include "model/TexImage.h"                                    // for TexI...
 #include "model/Text.h"                                          // for Text
 #include "model/XojPage.h"                                       // for XojPage
 #include "pdf/base/XojPdfPage.h"                                 // for XojP...
@@ -569,6 +570,58 @@ void Control::reorderSelection(EditSelection::OrderChange change) {
 
     auto undoAction = sel->rearrangeInsertionOrder(change);
     this->undoRedo->addUndoAction(std::move(undoAction));
+}
+
+bool Control::canDuplicateSelection() const {
+    const EditSelection* sel = win ? win->getXournal()->getSelection() : nullptr;
+    if (!sel || isBlocked()) {
+        return false;
+    }
+    const PageRef page = sel->getSourcePage();
+    const XojPageView* view = sel->getView();
+    return page && view && view->getPage() == page && page->getSelectedLayer() == sel->getSourceLayer();
+}
+
+void Control::duplicateSelection() {
+    if (!canDuplicateSelection()) {
+        return;
+    }
+    XournalView* xournal = win->getXournal();
+    EditSelection* sel = xournal->getSelection();
+    const PageRef page = sel->getSourcePage();
+    Layer* layer = sel->getSourceLayer();
+    XojPageView* view = sel->getView();
+    const auto originals = sel->getElementsView().clone();
+
+    // The originals go back where they came from, with any pending move or resize applied, so the copy matches them
+    clearSelection();
+
+    // Never through the clipboard: a paste lands in whatever layer is active, while a copy of teacher-only or hidden
+    // content must stay in that layer
+    constexpr double offset = 12;  // enough to see that there are two
+    std::vector<const Element*> copies;
+    copies.reserve(originals.size());
+    InsertionOrderRef positions;
+    positions.reserve(originals.size());
+    this->doc->lock();
+    for (const Element* e: originals) {
+        auto copy = e->clone();
+        copy->move(offset, offset);
+        copies.push_back(copy.get());
+        layer->addElement(std::move(copy));
+    }
+    for (const Element* e: copies) {
+        positions.emplace_back(e, layer->indexOf(e));
+    }
+    this->doc->unlock();
+    this->undoRedo->addUndoAction(std::make_unique<InsertsUndoAction>(page, layer, copies));
+    if (utn::visibleToStudents(*layer)) {
+        utn::notifyStudentVisibilityChanged(true);
+    }
+
+    // The copy becomes the selection, so it can be dragged away at once
+    auto copySelection = SelectionFactory::createFromElementsOnActiveLayer(this, page, view, std::move(positions));
+    xournal->setSelection(copySelection.release());
 }
 
 /**
@@ -2249,6 +2302,7 @@ void Control::block(const string& name) {
 
     this->maxState = 100;
     this->blockDepth = 1;
+    win->updateSelectionToolbar();  // its buttons would act on a document a job is working on
 }
 
 void Control::unblock() {
@@ -2265,6 +2319,7 @@ void Control::unblock() {
     disableSidebarTmp(false);
 
     gtk_widget_hide(this->statusbar);
+    win->updateSelectionToolbar();
 }
 
 void Control::setMaximumState(size_t max) { this->maxState = max; }

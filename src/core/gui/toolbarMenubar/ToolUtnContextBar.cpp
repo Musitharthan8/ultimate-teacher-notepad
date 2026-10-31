@@ -45,19 +45,8 @@
 
 namespace {
 
-struct NamedSwatch {
-    const char* name;  ///< untranslated
-    Color colour;
-};
-
-// Few, clearly distinct classroom colours; "More colours" opens the full chooser
-constexpr std::array<NamedSwatch, 5> INK_SWATCHES{{
-        {N_("Black"), Color{0x00U, 0x00U, 0x00U}},
-        {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
-        {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}},
-        {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
-        {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}},
-}};
+using utn::NamedSwatch;
+using utn::INK_SWATCHES;  // shared with the selection toolbar
 
 constexpr std::array<NamedSwatch, 5> HIGHLIGHT_SWATCHES{{
         {N_("Yellow"), Color{0xFFU, 0xEBU, 0x3BU}},

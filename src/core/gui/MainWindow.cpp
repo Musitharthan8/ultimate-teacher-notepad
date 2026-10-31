@@ -2,6 +2,7 @@
 
 #include "control/UtnLayout.h"  // for isTeacherLayout
 #include "gui/CommandPalette.h"  // for CommandPalette
+#include "gui/SelectionToolbar.h"  // for SelectionToolbar
 #include "gui/UtnToast.h"        // for UtnToast
 #include <regex>
 
@@ -203,6 +204,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
             if (!weakAlive.expired()) {
                 updatePresentationBanner();
                 updateInkDock();
+                updateSelectionToolbar();  // also fires when a selection is made or cleared
             }
         });
     }
@@ -216,6 +218,8 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
                            get("tbTop1Scroller"));
 
     initXournalWidget();
+    // In the same overlay as the ink dock and the Blank cover (added later, so the cover is on top of it)
+    selectionToolbar = std::make_unique<SelectionToolbar>(this, control, GTK_OVERLAY(get("mainOverlay")));
 
     setSidebarVisible(control->getSettings()->isSidebarVisible());
 
@@ -328,6 +332,7 @@ GMenuModel* MainWindow::getMenuModel() const { return menubar->getModel(); }
 
 MainWindow::~MainWindow() {
     commandPalette.reset();
+    selectionToolbar.reset();
     // GtkSettings is shared and can outlive this window.
     g_signal_handlers_disconnect_by_data(gtk_widget_get_settings(this->window), this);
     destroyPenSettingsMenu();
@@ -1148,6 +1153,17 @@ void MainWindow::appendWorkspaceMenu() {
                          utn::showDockCustomizeDialog(static_cast<MainWindow*>(data)->getControl());
                      }), this);
     gtk_box_append(GTK_BOX(panel), customiseDock);
+    GtkWidget* selectionToggle = gtk_check_button_new_with_label(_("Show selection toolbar"));
+    gtk_widget_set_tooltip_text(selectionToggle, _("Delete, Duplicate, Colour and arrange buttons beside a selection"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(selectionToggle),
+                                 selectionToolbar && selectionToolbar->isEnabled());
+    g_signal_connect(selectionToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* toggle, gpointer data) {
+                         auto* self = static_cast<MainWindow*>(data);
+                         if (self->selectionToolbar) {
+                             self->selectionToolbar->setEnabled(gtk_toggle_button_get_active(toggle));
+                         }
+                     }), this);
+    gtk_box_append(GTK_BOX(panel), selectionToggle);
     // A popover's content is not shown by showing the toolbar item that owns it: without this the menu opens as an empty
     // bubble
     gtk_widget_show_all(panel);
@@ -1474,6 +1490,12 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     inkDock = dock;
     gtk_widget_show_all(dock);
     updateInkDock();
+}
+
+void MainWindow::updateSelectionToolbar() {
+    if (selectionToolbar) {
+        selectionToolbar->update();
+    }
 }
 
 void MainWindow::updateInkDock() {

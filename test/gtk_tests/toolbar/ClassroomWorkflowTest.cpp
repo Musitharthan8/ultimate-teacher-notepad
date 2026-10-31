@@ -39,7 +39,9 @@
 #include "gui/dialog/ExportDialog.h"
 #include "gui/FloatingToolbox.h"
 #include "gui/PdfFloatingToolbox.h"
+#include "gui/Layout.h"
 #include "gui/PageView.h"
+#include "gui/SelectionToolbar.h"
 #include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
@@ -6299,4 +6301,317 @@ TEST_F(ClassroomWorkflow, aPageClickedInTheOpenLessonPopoverKeepsTheKeyboardInsi
     gtk_widget_destroy(host);
     control->getDocument()->getPage(0)->setUtnPageLabel("");
     control->getDocument()->getPage(2)->setUtnPageLabel("");
+}
+
+namespace {
+/// The floating selection toolbar's button with this visible label, or nullptr
+GtkWidget* selectionToolbarButton(MainWindow* window, const char* label) {
+    return buttonNamed(window->getSelectionToolbar()->getWidget(), label);
+}
+
+bool selectionToolbarShown(MainWindow* window) {
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    return gtk_widget_get_visible(toolbar) && gtk_widget_get_mapped(toolbar);
+}
+
+/// Teach workspace, one black pen stroke on the current page's selected layer, selected with the rectangle tool
+void selectOneStroke(Control* control, MainWindow* window, Layer* layer, double y = 200) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    addMarker(layer, y);
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+}
+}  // namespace
+
+// The toolbar appears beside a fresh selection, leaves the keyboard on the page, names every button as it reads, and
+// sits next to the selection, not on it.
+TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTakingTheKeyboard) {
+    auto page = control->getCurrentPage();
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    gtk_widget_grab_focus(canvas);
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), canvas) << "appearing never takes the keyboard";
+
+    for (const char* label: {"Delete", "Duplicate", "Colour", "Bring to front", "Send to back"}) {
+        GtkWidget* button = selectionToolbarButton(window.get(), label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(gtk_widget_get_visible(button)) << label;
+        EXPECT_TRUE(gtk_widget_get_can_focus(button)) << label << " must be reachable by keyboard";
+        EXPECT_NE(accessibleName(button).find(label), std::string::npos) << label << ": the name contains the label";
+        gchar* tip = gtk_widget_get_tooltip_text(button);
+        EXPECT_TRUE(tip && *tip) << label << " explains itself";
+        g_free(tip);
+    }
+    EXPECT_TRUE(gtk_widget_is_sensitive(selectionToolbarButton(window.get(), "Duplicate")));
+
+    // Beside the selection, not over it, and inside the visible canvas
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    GtkWidget* scroller = gtk_widget_get_ancestor(canvas, GTK_TYPE_SCROLLED_WINDOW);
+    ASSERT_NE(scroller, nullptr);
+    const auto box = window->getXournal()->getSelection()->getBoundingBoxInView();
+    const auto visible = window->getXournal()->getLayout()->getVisibleRect();
+    int tx = 0, ty = 0;
+    ASSERT_TRUE(gtk_widget_translate_coordinates(toolbar, scroller, 0, 0, &tx, &ty));
+    const int tw = gtk_widget_get_allocated_width(toolbar);
+    const int th = gtk_widget_get_allocated_height(toolbar);
+    const double sx = box.x - visible.x, sy = box.y - visible.y;
+    const bool overlaps = tx < sx + box.width && sx < tx + tw && ty < sy + box.height && sy < ty + th;
+    EXPECT_FALSE(overlaps) << "toolbar " << tx << "," << ty << " " << tw << "x" << th << " selection " << sx << ","
+                           << sy << " " << box.width << "x" << box.height;
+    EXPECT_LE(ty + th, sy) << "there is room above, so it goes above";
+    EXPECT_GE(tx, 0);
+    EXPECT_GE(ty, 0);
+    EXPECT_LE(tx + tw, gtk_widget_get_allocated_width(scroller));
+
+    control->clearSelection();
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(toolbar)) << "no selection, no toolbar";
+}
+
+// Escape in the toolbar puts it away for this selection and gives the keyboard back to the page; changing the tool, the
+// page or the workspace hides it too.
+TEST_F(ClassroomWorkflow, selectionToolbarHidesOnEscapeToolChangePageChangeAndOutsideTheTeacherWorkspace) {
+    auto page = control->getCurrentPage();
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+
+    GtkWidget* front = selectionToolbarButton(window.get(), "Bring to front");
+    gtk_widget_grab_focus(front);
+    ASSERT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), front);
+    sendKey(window->getWindow(), GDK_KEY_Escape, 0);
+    EXPECT_FALSE(selectionToolbarShown(window.get())) << "Escape dismisses the toolbar";
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), canvas) << "and returns the keyboard to the page";
+    EXPECT_NE(window->getXournal()->getSelection(), nullptr) << "the selection itself stays";
+    window->updateSelectionToolbar();
+    settle();
+    EXPECT_FALSE(selectionToolbarShown(window.get())) << "dismissed until the selection changes";
+
+    control->clearSelection();
+    control->selectAllOnPage();
+    settle();
+    EXPECT_TRUE(selectionToolbarShown(window.get())) << "a new selection brings it back";
+
+    control->firePageSelected(1);
+    settle();
+    EXPECT_FALSE(selectionToolbarShown(window.get())) << "another page is current";
+    control->firePageSelected(0);
+    settle();
+
+    control->clearSelection();
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    control->selectTool(TOOL_PEN);
+    settle();
+    EXPECT_FALSE(selectionToolbarShown(window.get())) << "a drawing tool has no selection toolbar";
+
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    window->toolbarSelected("Xournal++");
+    settle();
+    EXPECT_FALSE(selectionToolbarShown(window.get())) << "classic layouts keep the original interface";
+    window->toolbarSelected("UTN Teacher");
+    control->clearSelection();
+    settle();
+}
+
+// Never over the Blank cover that hides the teacher's canvas, and never while a job holds the application.
+TEST_F(ClassroomWorkflow, selectionToolbarNeverShowsOverTheBlankCoverOrWhileTheApplicationIsBusy) {
+    auto page = control->getCurrentPage();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+
+    students->showTeacherBlankCover(true);
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "hidden behind the cover";
+    window->updateSelectionToolbar();
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "and stays hidden";
+    students->showTeacherBlankCover(false);
+    settle();
+    EXPECT_TRUE(selectionToolbarShown(window.get())) << "back once the cover is down";
+
+    control->block("test");
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "busy: nothing to click";
+    control->unblock();
+    settle();
+    EXPECT_TRUE(selectionToolbarShown(window.get()));
+    control->clearSelection();
+    settle();
+}
+
+// Delete runs the real delete: the stroke goes, Undo brings it back, Redo removes it again.
+TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) {
+    auto page = control->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
+    selectOneStroke(control.get(), window.get(), layer);
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+
+    gtk_button_clicked(GTK_BUTTON(selectionToolbarButton(window.get(), "Delete")));
+    settle();
+    EXPECT_EQ(window->getXournal()->getSelection(), nullptr);
+    EXPECT_TRUE(layer->getElements().empty());
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget()));
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    control->clearSelection();
+    EXPECT_EQ(layer->getElements().size(), 1U) << "Undo restores the stroke";
+    control->getActionDatabase()->fireActivateAction(Action::REDO);
+    settle();
+    control->clearSelection();
+    EXPECT_TRUE(layer->getElements().empty()) << "Redo deletes it again";
+}
+
+// Duplicate copies into the layer the objects came from, here a teacher-only layer below the top one, never the
+// clipboard; the copy is offset, selected, and one Undo removes it.
+TEST_F(ClassroomWorkflow, selectionToolbarDuplicateCopiesIntoTheSourceLayerAsOneUndoStep) {
+    auto page = control->getCurrentPage();
+    auto* layers = control->getLayerController();
+    Layer* open = page->getSelectedLayer();
+    addMarker(open, 400);
+    layers->addNewLayer(false);
+    Layer* priv = page->getSelectedLayer();
+    priv->setAudience(LayerAudience::TeacherOnly);
+    layers->addNewLayer(false);
+    Layer* top = page->getSelectedLayer();
+    layers->switchToLay(2);
+    ASSERT_EQ(page->getSelectedLayer(), priv);
+    control->getUndoRedoHandler()->clearContents();  // adding layers is undoable; only the duplicate counts here
+    selectOneStroke(control.get(), window.get(), priv);
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    const double originalLeft = window->getXournal()->getSelection()->getRect().x;
+
+    GtkWidget* duplicate = selectionToolbarButton(window.get(), "Duplicate");
+    ASSERT_TRUE(gtk_widget_is_sensitive(duplicate));
+    gtk_button_clicked(GTK_BUTTON(duplicate));
+    settle();
+    auto* copy = window->getXournal()->getSelection();
+    ASSERT_NE(copy, nullptr) << "the copy is selected";
+    EXPECT_EQ(copy->getSourceLayer(), priv);
+    EXPECT_GT(copy->getRect().x, originalLeft) << "offset, so both can be seen";
+    EXPECT_TRUE(selectionToolbarShown(window.get()));
+
+    control->clearSelection();
+    EXPECT_EQ(priv->getElements().size(), 2U) << "original and copy in the teacher-only layer";
+    EXPECT_EQ(open->getElements().size(), 1U) << "the layer students see is untouched";
+    EXPECT_TRUE(top->getElements().empty()) << "nothing pasted into another layer";
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    control->clearSelection();
+    EXPECT_EQ(priv->getElements().size(), 1U) << "one Undo removes the copy";
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "the duplicate was one step";
+    control->getActionDatabase()->fireActivateAction(Action::REDO);
+    settle();
+    control->clearSelection();
+    EXPECT_EQ(priv->getElements().size(), 2U);
+    layers->switchToLay(1);
+}
+
+// A Duplicate that cannot keep the copy in its source layer is greyed with the reason and does nothing when activated;
+// Colour is offered only while the selection has a colour, and recolouring is undoable.
+TEST_F(ClassroomWorkflow, selectionToolbarButtonsOnlyRunWhatTheSelectionAllowsAndColourIsUndoable) {
+    auto page = control->getCurrentPage();
+    auto* layers = control->getLayerController();
+    Layer* first = page->getSelectedLayer();
+    layers->addNewLayer(false);
+    Layer* second = page->getSelectedLayer();
+    layers->switchToLay(1);
+    control->getUndoRedoHandler()->clearContents();
+    selectOneStroke(control.get(), window.get(), first);
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+
+    // Another layer selected under the selection (not through the layer controls, which clear the selection)
+    page->setSelectedLayerId(2);
+    window->updateSelectionToolbar();
+    GtkWidget* duplicate = selectionToolbarButton(window.get(), "Duplicate");
+    EXPECT_FALSE(gtk_widget_is_sensitive(duplicate));
+    gchar* reason = gtk_widget_get_tooltip_text(duplicate);
+    ASSERT_NE(reason, nullptr);
+    EXPECT_EQ(std::string(reason).rfind("Unavailable", 0), 0U) << reason;
+    g_free(reason);
+    gtk_button_clicked(GTK_BUTTON(duplicate));  // even if a click reaches it
+    settle();
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "nothing ran";
+    EXPECT_TRUE(second->getElements().empty());
+    page->setSelectedLayerId(1);
+    window->updateSelectionToolbar();
+    EXPECT_TRUE(gtk_widget_is_sensitive(duplicate));
+
+    // Colour follows what the selection can take
+    GtkWidget* colour = selectionToolbarButton(window.get(), "Colour");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(colour));
+    EXPECT_TRUE(gtk_widget_get_visible(colour));
+    control->getToolHandler()->setSelectionEditTools(false, false, false, false);  // as for a picture
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(colour)) << "no colour to change, no Colour button";
+    control->clearSelection();
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(gtk_widget_get_visible(colour));
+
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(colour)));
+    GtkWidget* red = buttonAccessibleNamed(popover, "Red");
+    ASSERT_NE(red, nullptr);
+    gtk_button_clicked(GTK_BUTTON(red));
+    settle();
+    control->clearSelection();
+    ASSERT_EQ(first->getElements().size(), 1U);
+    const Color recoloured = first->getElements().front()->getColor();
+    EXPECT_EQ(recoloured.red, 0xD3U);
+    EXPECT_EQ(recoloured.green, 0x2FU);
+    EXPECT_EQ(recoloured.blue, 0x2FU);
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    control->clearSelection();
+    const Color restored = first->getElements().front()->getColor();
+    EXPECT_EQ(restored.red, 0U);
+    EXPECT_EQ(restored.green, 0U);
+    EXPECT_EQ(restored.blue, 0U);
+    control->selectTool(TOOL_PEN);
+}
+
+// The Workspace menu turns the toolbar off and on again, and remembers the choice in the (test) settings.
+TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
+    auto page = control->getCurrentPage();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    auto& utnSettings = control->getSettings()->getCustomElement("utn");
+
+    auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Workspace layout");
+    ASSERT_NE(menu, nullptr);
+    GtkWidget* toggle = buttonNamed(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))),
+                                    "Show selection toolbar");
+    ASSERT_TRUE(GTK_IS_CHECK_BUTTON(toggle));
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle))) << "on by default";
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), false);
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget()));
+    bool saved = true;
+    EXPECT_TRUE(utnSettings.getBool(SelectionToolbar::SETTING, saved));
+    EXPECT_FALSE(saved);
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), true);  // also the state the next test expects
+    settle();
+    EXPECT_TRUE(selectionToolbarShown(window.get()));
+    EXPECT_TRUE(utnSettings.getBool(SelectionToolbar::SETTING, saved));
+    EXPECT_TRUE(saved);
+    control->clearSelection();
+    settle();
 }

@@ -363,6 +363,17 @@ public:
 
     void reorderSelection(EditSelection::OrderChange change);
 
+    /**
+     * UTN: whether duplicateSelection() can run. The copy must land in the layer the objects came from; a selection
+     * dragged onto another page, or whose page has another layer selected now, would not put them back there.
+     */
+    bool canDuplicateSelection() const;
+    /**
+     * UTN: copy the selected objects into their own layer (never the clipboard), a little down and to the right, as one
+     * undo step. The copy becomes the selection; the original stays where it was.
+     */
+    void duplicateSelection();
+
     void setToolSize(ToolSize size);
 
     /**

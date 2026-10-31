@@ -46,6 +46,7 @@ class GladeSearchpath;
 class Menubar;
 class ToolUtnContextBar;
 class CommandPalette;
+class SelectionToolbar;
 
 typedef std::array<xoj::util::WidgetSPtr, TOOLBAR_DEFINITIONS_LEN> ToolbarWidgetArray;
 
@@ -134,6 +135,10 @@ public:
     /// buttons and menus; see gui/CommandPalette.h.
     void openCommandPalette();
     CommandPalette* getCommandPalette() const { return commandPalette.get(); }
+    /// UTN: the floating toolbar beside the selection (gui/SelectionToolbar.h)
+    SelectionToolbar* getSelectionToolbar() const { return selectionToolbar.get(); }
+    /// UTN: show, hide or move it after a change it cannot see by itself (busy, Blank cover, workspace, tool)
+    void updateSelectionToolbar();
     /// UTN: banner naming the active Spotlight/Curtain with an Exit button; hidden otherwise
     void updatePresentationBanner();
     bool isPresentationBannerVisible() const;
@@ -264,6 +269,7 @@ private:
     std::unique_ptr<FloatingToolbox> floatingToolbox;
     std::unique_ptr<UtnToast> toast;
     std::unique_ptr<CommandPalette> commandPalette;
+    std::unique_ptr<SelectionToolbar> selectionToolbar;  ///< after xournal: goes before the page widget it follows
     GtkWidget* presentationBanner = nullptr;
     GtkWidget* presentationBannerLabel = nullptr;
     /// 0 = off, 1 = Spotlight, 2 = Curtain; lets Student View be told only when this really changes

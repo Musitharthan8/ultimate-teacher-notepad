@@ -8,13 +8,30 @@
 
 #pragma once
 
+#include <array>
+
 #include <gtk/gtk.h>
 
 #include "util/Color.h"
+#include "util/i18n.h"
 
 class Control;
 
 namespace utn {
+
+struct NamedSwatch {
+    const char* name;  ///< untranslated
+    Color colour;
+};
+
+// Few, clearly distinct classroom colours; "More colours" opens the full chooser
+inline constexpr std::array<NamedSwatch, 5> INK_SWATCHES{{
+        {N_("Black"), Color{0x00U, 0x00U, 0x00U}},
+        {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
+        {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}},
+        {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
+        {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}},
+}};
 
 /// A popover with the standard UTN menu panel inside it
 struct PopoverPanel {
