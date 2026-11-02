@@ -179,7 +179,7 @@ MainWindow::MainWindow(GladeSearchpath* gladeSearchPath, Control* control, GtkAp
     // Spotlight/Curtain swallow page input, so a visible banner always names the active mode and offers the way out.
     presentationBanner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_add_css_class(presentationBanner, "utn-toast");
-    gtk_widget_add_css_class(presentationBanner, "utn-presentation-banner");
+    gtk_widget_add_css_class(presentationBanner, utn::PRESENTATION_BANNER_CLASS);
     gtk_widget_set_halign(presentationBanner, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(presentationBanner, GTK_ALIGN_START);
     gtk_widget_set_margin_top(presentationBanner, 12);
@@ -873,6 +873,9 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     } else {
         gtk_style_context_remove_class(context, "utnPresent");
     }
+    // Present keeps the selection toolbar out of sight and other layouts may show it: decided here, not left to
+    // whichever tool listener happens to run
+    updateSelectionToolbar();
     keepFocusUseful();  // the control that held the keyboard went with the old layout
 }
 
@@ -1392,7 +1395,7 @@ void MainWindow::appendPenSettingsMenu() {
 
 void MainWindow::createInkDock(GtkOverlay* overlay) {
     GtkWidget* dock = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_name(dock, "utnInkDock");
+    gtk_widget_set_name(dock, utn::INK_DOCK_NAME);
     gtk_widget_add_css_class(dock, "utn-paper-dock");
     gtk_widget_set_halign(dock, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(dock, GTK_ALIGN_END);

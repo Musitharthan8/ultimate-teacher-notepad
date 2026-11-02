@@ -58,6 +58,11 @@ GtkWidget* appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* 
 inline constexpr const char* OVERFLOW_RANK_KEY = "utn-overflow-rank";
 inline constexpr const char* OVERFLOW_LABEL_KEY = "utn-overflow-label";
 
+/// Widget name of the ink dock in the main overlay; the selection toolbar finds it by this name to keep clear of it
+inline constexpr const char* INK_DOCK_NAME = "utnInkDock";
+/// Style class of the Spotlight/Curtain banner in the main overlay; the selection toolbar keeps clear of it too
+inline constexpr const char* PRESENTATION_BANNER_CLASS = "utn-presentation-banner";
+
 /// Name read by screen readers, for buttons whose visible content is an icon, a colour or a single letter
 void setAccessibleName(GtkWidget* widget, const char* name);
 

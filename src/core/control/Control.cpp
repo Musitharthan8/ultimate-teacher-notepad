@@ -621,10 +621,20 @@ void Control::duplicateSelection() {
         bounds.unite(e->getBoundingBox());
     }
     const auto shift = [](double start, double size, double pageSize) {
-        if (start + size + offset <= pageSize) {
+        const double after = pageSize - (start + size);  // room to the right of it, or below it
+        if (after >= offset) {
             return offset;
         }
-        return start - offset >= 0 ? -offset : 0.0;
+        if (start >= offset) {
+            return -offset;
+        }
+        // No room for a whole step on either side: as far as the page allows, and where it allows nothing, a whole step
+        // on all the same (the page edge cuts the copy off), so the copy never lies exactly over the original
+        const double room = std::max(after, start);
+        if (room >= 1) {
+            return after >= start ? room : -room;
+        }
+        return offset;
     };
     const double dx = shift(bounds.x, bounds.width, page->getWidth());
     const double dy = shift(bounds.y, bounds.height, page->getHeight());

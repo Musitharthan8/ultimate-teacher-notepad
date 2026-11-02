@@ -132,7 +132,15 @@ SelectionToolbar::SelectionToolbar(MainWindow* win, Control* control, GtkOverlay
     canvas = win->getXournal()->getWidget();
     g_object_ref(canvas);
     g_signal_connect(canvas, "draw", G_CALLBACK(+[](GtkWidget*, cairo_t*, gpointer data) -> gboolean {
-                         static_cast<SelectionToolbar*>(data)->scheduleUpdate();
+                         auto* self = static_cast<SelectionToolbar*>(data);
+                         // Every redraw of the page comes here: with nothing selected, nothing shown and nothing to
+                         // forget there is nothing to update
+                         auto* xournal = self->win->getXournal();
+                         if ((!xournal || !xournal->getSelection()) && !gtk_widget_get_visible(self->widget) &&
+                             !self->dismissedFor) {
+                             return false;
+                         }
+                         self->scheduleUpdate();
                          return false;
                      }),
                      this);
@@ -195,8 +203,8 @@ std::optional<utn::ToolbarPosition> SelectionToolbar::placeFor(const EditSelecti
     for (GList* c = children; c; c = c->next) {
         auto* child = GTK_WIDGET(c->data);
         const bool dockOrBanner =
-                std::string_view(gtk_widget_get_name(child)) == "utnInkDock" ||
-                gtk_style_context_has_class(gtk_widget_get_style_context(child), "utn-presentation-banner");
+                std::string_view(gtk_widget_get_name(child)) == utn::INK_DOCK_NAME ||
+                gtk_style_context_has_class(gtk_widget_get_style_context(child), utn::PRESENTATION_BANNER_CLASS);
         int x = 0, y = 0;
         if (!dockOrBanner || !gtk_widget_get_mapped(child) ||
             !gtk_widget_translate_coordinates(child, canvas, 0, 0, &x, &y)) {

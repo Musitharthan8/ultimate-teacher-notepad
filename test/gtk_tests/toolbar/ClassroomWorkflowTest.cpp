@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -6304,6 +6305,57 @@ TEST_F(ClassroomWorkflow, aPageClickedInTheOpenLessonPopoverKeepsTheKeyboardInsi
 }
 
 namespace {
+/**
+ * Puts one attribute of the in-memory "utn" settings back as it was when the test ends, also when an assertion ends it
+ * early, or removes it again if it was not there. The fixture's Control lives for the whole suite and saves its
+ * settings on quit, so a value a test left behind would reach the next test and the saved file.
+ */
+class UtnSettingGuard {
+public:
+    UtnSettingGuard(Settings* settings, std::string key): settings(settings), key(std::move(key)) {
+        auto& attributes = settings->getCustomElement("utn").attributes();
+        if (auto it = attributes.find(this->key); it != attributes.end()) {
+            saved = it->second;
+        }
+    }
+    ~UtnSettingGuard() {
+        auto& attributes = settings->getCustomElement("utn").attributes();
+        if (saved) {
+            attributes[key] = *saved;
+        } else {
+            attributes.erase(key);
+        }
+    }
+    UtnSettingGuard(const UtnSettingGuard&) = delete;
+    UtnSettingGuard& operator=(const UtnSettingGuard&) = delete;
+
+private:
+    Settings* settings;
+    std::string key;
+    std::optional<SAttribute> saved;
+};
+
+/// The selection toolbar switched on for one test. Afterwards the toolbar is on or off as before and its setting is
+/// back as it was (or absent again).
+class SelectionToolbarOn {
+public:
+    SelectionToolbarOn(MainWindow* window, Settings* settings):
+            toolbar(window->getSelectionToolbar()),
+            wasEnabled(toolbar->isEnabled()),
+            setting(settings, SelectionToolbar::SETTING) {
+        toolbar->setEnabled(true);
+    }
+    /// Runs before `setting` is destroyed, so the attribute this writes is then put back or removed
+    ~SelectionToolbarOn() { toolbar->setEnabled(wasEnabled); }
+    SelectionToolbarOn(const SelectionToolbarOn&) = delete;
+    SelectionToolbarOn& operator=(const SelectionToolbarOn&) = delete;
+
+private:
+    SelectionToolbar* toolbar;
+    bool wasEnabled;
+    UtnSettingGuard setting;
+};
+
 /// The floating selection toolbar's button with this visible label, or nullptr
 GtkWidget* selectionToolbarButton(MainWindow* window, const char* label) {
     return buttonNamed(window->getSelectionToolbar()->getWidget(), label);
@@ -6328,7 +6380,7 @@ void selectOneStroke(Control* control, MainWindow* window, Layer* layer, double 
 // The toolbar appears beside a fresh selection, leaves the keyboard on the page, names every button as it reads, and
 // sits next to the selection, not on it.
 TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTakingTheKeyboard) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     window->toolbarSelected("UTN Teacher");
@@ -6379,7 +6431,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTaking
 // Escape in the toolbar puts it away for this selection and gives the keyboard back to the page; changing the tool, the
 // page or the workspace hides it too.
 TEST_F(ClassroomWorkflow, selectionToolbarHidesOnEscapeToolChangePageChangeAndOutsideTheTeacherWorkspace) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
@@ -6429,7 +6481,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarHidesOnEscapeToolChangePageChangeAndOu
 
 // Never over the Blank cover that hides the teacher's canvas, and never while a job holds the application.
 TEST_F(ClassroomWorkflow, selectionToolbarNeverShowsOverTheBlankCoverOrWhileTheApplicationIsBusy) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_TRUE(selectionToolbarShown(window.get()));
@@ -6459,7 +6511,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarNeverShowsOverTheBlankCoverOrWhileTheA
 
 // Delete runs the real delete: the stroke goes, Undo brings it back, Redo removes it again.
 TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     Layer* layer = page->getSelectedLayer();
     selectOneStroke(control.get(), window.get(), layer);
@@ -6484,7 +6536,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) 
 // Duplicate copies into the layer the objects came from, here a teacher-only layer below the top one, never the
 // clipboard; the copy is offset, selected, and one Undo removes it.
 TEST_F(ClassroomWorkflow, selectionToolbarDuplicateCopiesIntoTheSourceLayerAsOneUndoStep) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     auto* layers = control->getLayerController();
     Layer* open = page->getSelectedLayer();
@@ -6531,7 +6583,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDuplicateCopiesIntoTheSourceLayerAsOne
 // A Duplicate that cannot keep the copy in its source layer is greyed with the reason and does nothing when activated;
 // Colour is offered only while the selection has a colour, and recolouring is undoable.
 TEST_F(ClassroomWorkflow, selectionToolbarButtonsOnlyRunWhatTheSelectionAllowsAndColourIsUndoable) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     auto* layers = control->getLayerController();
     Layer* first = page->getSelectedLayer();
@@ -6596,12 +6648,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarButtonsOnlyRunWhatTheSelectionAllowsAn
 TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
     // Control loads the real settings, where the teacher may have turned it off: start from on and put back whatever
     // was there, even when an assertion ends the test early
-    struct RestoreSetting {
-        SelectionToolbar* toolbar;
-        bool enabled;
-        ~RestoreSetting() { toolbar->setEnabled(enabled); }
-    } restore{window->getSelectionToolbar(), window->getSelectionToolbar()->isEnabled()};
-    window->getSelectionToolbar()->setEnabled(true);
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_TRUE(selectionToolbarShown(window.get()));
@@ -6636,7 +6683,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
 // Present is the quiet projector layout: its tools stay out of the class's sight until the teacher reveals them, and
 // the selection toolbar (a red Delete among them) is one of those tools.
 TEST_F(ClassroomWorkflow, selectionToolbarStaysHiddenInPresentUntilTheToolsAreRevealed) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_TRUE(selectionToolbarShown(window.get()));
@@ -6678,7 +6725,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarStaysHiddenInPresentUntilTheToolsAreRe
 // Undo straight after Duplicate, while the copy is still selected: the copy goes, the original stays where it was
 // (the same object), and Redo brings back the very same copy.
 TEST_F(ClassroomWorkflow, selectionToolbarDuplicateThenImmediateUndoRemovesOnlyTheCopyAndRedoRestoresIt) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     Layer* layer = page->getSelectedLayer();
     selectOneStroke(control.get(), window.get(), layer);
@@ -6719,7 +6766,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDuplicateThenImmediateUndoRemovesOnlyT
 
 // A copy of something at the right or bottom edge of the page is offset the other way, so it stays on the page.
 TEST_F(ClassroomWorkflow, selectionToolbarDuplicateAtThePageEdgeKeepsTheCopyOnThePage) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     Layer* layer = page->getSelectedLayer();
     window->toolbarSelected("UTN Teacher");
@@ -6760,7 +6807,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDuplicateAtThePageEdgeKeepsTheCopyOnTh
 // With the vertical scrollbar on the left the canvas starts a scrollbar width to the right of the scrolled window;
 // the toolbar is placed against the canvas itself.
 TEST_F(ClassroomWorkflow, selectionToolbarIsPlacedAgainstTheCanvasWhenTheScrollbarIsOnTheLeft) {
-    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
     GtkWidget* canvas = window->getXournal()->getWidget();
     GtkWidget* scroller = gtk_widget_get_ancestor(canvas, GTK_TYPE_SCROLLED_WINDOW);
     ASSERT_NE(scroller, nullptr);
@@ -6843,4 +6890,98 @@ TEST_F(ClassroomWorkflow, selectionToolbarLiesBelowTheInkDockAndTheBannerInTheOv
     ASSERT_GE(bannerAt, 0);
     EXPECT_LT(toolbarAt, dockAt) << "drawn first, so the dock is on top";
     EXPECT_LT(toolbarAt, bannerAt) << "drawn first, so the banner is on top";
+}
+
+// The test guard leaves the in-memory settings as it found them: a missing setting is missing again afterwards, a
+// saved one keeps its value, and the toolbar is on or off as before.
+TEST_F(ClassroomWorkflow, selectionToolbarTestGuardPutsTheSettingBackOrRemovesItAgain) {
+    auto* settings = control->getSettings();
+    auto* toolbar = window->getSelectionToolbar();
+    SelectionToolbarOn outer(window.get(), settings);  // puts back whatever the suite had before this test
+    auto& attributes = settings->getCustomElement("utn").attributes();
+
+    toolbar->setEnabled(false);
+    attributes.erase(SelectionToolbar::SETTING);
+    {
+        SelectionToolbarOn on(window.get(), settings);
+        EXPECT_TRUE(toolbar->isEnabled());
+        EXPECT_EQ(attributes.count(SelectionToolbar::SETTING), 1U);
+    }
+    EXPECT_EQ(attributes.count(SelectionToolbar::SETTING), 0U) << "absent before, absent again";
+    EXPECT_FALSE(toolbar->isEnabled()) << "off before, off again";
+
+    settings->getCustomElement("utn").setBool(SelectionToolbar::SETTING, false);
+    {
+        SelectionToolbarOn on(window.get(), settings);
+        bool value = false;
+        ASSERT_TRUE(settings->getCustomElement("utn").getBool(SelectionToolbar::SETTING, value));
+        EXPECT_TRUE(value);
+    }
+    bool value = true;
+    ASSERT_TRUE(settings->getCustomElement("utn").getBool(SelectionToolbar::SETTING, value));
+    EXPECT_FALSE(value) << "a saved value comes back unchanged";
+}
+
+// Choosing Present hides the toolbar and choosing Teach again shows it, in the same call: no redraw, no tool change
+// and no manual update in between.
+TEST_F(ClassroomWorkflow, selectionToolbarFollowsTheSwitchToAndFromPresentAtOnce) {
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
+    auto page = control->getCurrentPage();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+
+    window->toolbarSelected("UTN Present");
+    ASSERT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    EXPECT_FALSE(gtk_widget_get_visible(toolbar)) << "Present keeps it out of sight from the switch on";
+    settle();
+    if (!window->getXournal()->getSelection()) {
+        control->selectTool(TOOL_SELECT_RECT);
+        control->selectAllOnPage();
+        settle();
+    }
+    ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+    ASSERT_FALSE(gtk_widget_get_visible(toolbar));
+
+    window->toolbarSelected("UTN Teacher");
+    ASSERT_EQ(window->getSelectedToolbar()->getId(), "UTN Teacher");
+    if (window->getXournal()->getSelection()) {
+        EXPECT_TRUE(gtk_widget_get_visible(toolbar)) << "Teach shows it again from the switch on";
+    }
+    settle();
+    control->clearSelection();
+    settle();
+}
+
+// A selection as large as the page leaves no room for the copy on either side: it is still moved, never laid exactly
+// over the original where nobody could tell there are two.
+TEST_F(ClassroomWorkflow, selectionToolbarDuplicateOfAPageSizedSelectionStillMovesTheCopy) {
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
+    auto page = control->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    auto ink = std::make_unique<Stroke>();
+    ink->setWidth(12);
+    ink->setColor(Color(0U));
+    ink->addPoint(Point(6, 6));
+    ink->addPoint(Point(page->getWidth() - 6, page->getHeight() - 6));
+    const Element* original = ink.get();
+    layer->addElement(std::move(ink));
+    const auto originalBox = original->getBoundingBox();
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(control->canDuplicateSelection());
+    control->duplicateSelection();
+    settle();
+    auto* selection = window->getXournal()->getSelection();
+    ASSERT_NE(selection, nullptr);
+    const Element* copy = selection->getElementsView().front();
+    control->clearSelection();
+    settle();
+    ASSERT_EQ(layer->getElements().size(), 2U);
+    const auto box = copy->getBoundingBox();
+    EXPECT_NE(box.x, originalBox.x) << "moved across, although the page is full width";
+    EXPECT_NE(box.y, originalBox.y) << "moved down, although the page is full height";
 }
