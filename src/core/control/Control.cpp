@@ -39,7 +39,7 @@
 #include "control/settings/Settings.h"                           // for Sett...
 #include "control/settings/SettingsEnums.h"                      // for Button
 #include "control/settings/ViewModes.h"                          // for ViewM..
-#include "control/tools/FeedbackTypography.h"                     // for feedbackFont
+#include "control/tools/FeedbackTypography.h"                    // for feedbackFont
 #include "control/tools/TextEditor.h"                            // for Text...
 #include "control/xojfile/LoadHandler.h"                         // for Load...
 #include "control/zoom/ZoomControl.h"                            // for Zoom...
@@ -2579,8 +2579,9 @@ const Element* Control::insertAnnotation(const utn::Annotation& annotation) {
     page->fireElementChanged(inserted);
     auto insertStep = std::make_unique<InsertUndoAction>(page, layer, inserted);
     if (newLayerStep) {
-        // Taken out of the layer before the layer goes, put back into it before it returns: the group undoes and
-        // redoes in its own order, insert first
+        // The group undoes and redoes in the order added. Undo: the element leaves the layer, then the layer goes.
+        // Redo: the element goes back into the layer while it is still detached, then the layer returns; that works
+        // because InsertLayerUndoAction keeps the detached Layer alive while undone.
         auto group = std::make_unique<GroupUndoAction>();
         group->addAction(std::move(insertStep));
         group->addAction(std::move(newLayerStep));

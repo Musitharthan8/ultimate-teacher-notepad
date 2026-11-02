@@ -172,6 +172,9 @@ void XournalppCursor::setCursorBusy(bool busy) {
 
     if (busy) {
         GdkWindow* window = gtk_widget_get_window(win->getWindow());
+        if (!window) {
+            return;  // UTN: a job can block before the window is realised; there is no cursor to change yet
+        }
         xoj::util::GObjectSPtr<GdkCursor> cursor(
                 gdk_cursor_new_from_name(gdk_window_get_display(window), cssCursors[CRSR_BUSY].cssName),
                 xoj::util::adopt);

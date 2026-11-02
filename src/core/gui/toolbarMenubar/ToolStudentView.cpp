@@ -59,10 +59,17 @@ void closeMenu(GtkWidget* entry) {
 const char* quickFreezeName(bool frozen) { return frozen ? _("Resume live view for students") : _("Freeze students' screen"); }
 const char* quickBlankName(bool blanked) { return blanked ? _("Show page to students again") : _("Blank students' screen"); }
 
-/// Text a screen reader reads after the name; nullptr goes back to the tooltip, which GTK offers by default
+/// Text a screen reader reads after the name; nullptr goes back to the tooltip, which GTK offers by default. ATK takes
+/// no NULL (a CRITICAL) and cannot be unset, so "back to the tooltip" is the tooltip's text, or empty without one.
 void setAccessibleDescription(GtkWidget* widget, const char* description) {
     if (AtkObject* accessible = gtk_widget_get_accessible(widget)) {
-        atk_object_set_description(accessible, description);
+        if (description) {
+            atk_object_set_description(accessible, description);
+            return;
+        }
+        gchar* tooltip = gtk_widget_get_tooltip_text(widget);
+        atk_object_set_description(accessible, tooltip ? tooltip : "");
+        g_free(tooltip);
     }
 }
 
@@ -958,6 +965,18 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
             contentWasSensitive = gtk_widget_get_sensitive(contentBehindCover);
             gtk_widget_set_sensitive(contentBehindCover, false);
         }
+        // The overlay's other children sit beside that content, not in it: a floating toolbox put away in its revealer
+        // is still mapped and would take Tab away from the cover
+        GList* children = gtk_container_get_children(GTK_CONTAINER(win->get("mainOverlay")));
+        for (GList* c = children; c; c = c->next) {
+            auto* child = GTK_WIDGET(c->data);
+            if (child == contentBehindCover || child == teacherCover) {
+                continue;
+            }
+            overlaysBehindCover.emplace_back(GTK_WIDGET(g_object_ref(child)), gtk_widget_get_sensitive(child));
+            gtk_widget_set_sensitive(child, false);
+        }
+        g_list_free(children);
     }
     const bool lowering = !show && isTeacherCoverShown();
     if (!teacherCover && show) {
@@ -1007,6 +1026,12 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
         if (contentBehindCover) {
             gtk_widget_set_sensitive(contentBehindCover, contentWasSensitive);
         }
+        // Before the keyboard target is checked: it may be in one of them (the ink dock)
+        for (auto& [child, wasSensitive]: overlaysBehindCover) {
+            gtk_widget_set_sensitive(child, wasSensitive);
+            g_object_unref(child);
+        }
+        overlaysBehindCover.clear();
         GtkWidget* target = focusBeforeCover;
         if (!target || !gtk_widget_get_mapped(target) || !gtk_widget_is_sensitive(target)) {
             auto* xournal = win->getXournal();
@@ -1022,6 +1047,12 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
 }
 
 void ToolStudentView::forgetWidgetsBehindCover() {
+    // The overlay's other children wake up as they were; they were made insensitive only for the cover
+    for (auto& [child, wasSensitive]: overlaysBehindCover) {
+        gtk_widget_set_sensitive(child, wasSensitive);
+        g_object_unref(child);
+    }
+    overlaysBehindCover.clear();
     for (GtkWidget** widget: {&focusBeforeCover, &contentBehindCover}) {
         if (*widget) {
             g_object_remove_weak_pointer(G_OBJECT(*widget), reinterpret_cast<gpointer*>(widget));

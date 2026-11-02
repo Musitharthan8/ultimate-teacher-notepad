@@ -6,7 +6,7 @@ Handoff reference between Nitro5, the home PC, Claude and Codex. Facts only; upd
 
 - Branch `feature/utn-teacher-ux-program`, worktree `C:\Users\musit\Documents\utn-teacher-ux`, build dir `C:\Users\musit\Documents\utn-teacher-ux-build` (outside the repo).
 - Baseline: `aafdea359` (`design/utn-teacher-first-2026-10-30` as pushed). Its tree is identical to the verified `8b69e3e1b`.
-- Phase 3 work was pushed to `origin/feature/utn-teacher-ux-program` at `216f22134` (verified at the start of Phase 4). The Phase 4 commits below are local only. Nothing is merged.
+- Phase 3 work was pushed to `origin/feature/utn-teacher-ux-program` at `216f22134`. Phases 4 and 5 were pushed later, up to `1f47c342c`; the final fix commit after it is pushed by the orchestrator. Nothing is merged.
 - Also usable: `GIT_DIR=C:/Users/musit/Documents/ultimate-teacher-notepad/.git/worktrees/utn-teacher-ux GIT_WORK_TREE=C:/Users/musit/Documents/utn-teacher-ux git ...` from Git Bash (the worktree is listed "prunable" because of the MSYS path; do not prune it).
 - The worktree's `.git` file uses an MSYS-style path: run git there with the MSYS git (`C:\msys64\usr\bin\git.exe`, or `. /c/Users/musit/utn-nitro5-env.sh` first). Git for Windows cannot read it.
 
@@ -32,7 +32,7 @@ test-gtk-integration.exe --gtest_filter='-*Soak*:*Stress*:*heavySession*'
 | 2 | 1, 2, 4, 10 | 4, 10, 1 implemented, partially verified (no native interaction checks); 2 already existed, audited |
 | 3 | 3, 6, 8 | implemented on existing systems, automated tests and independent reviews done; native checks limited (see Phase 3) |
 | 4 | 7, 11 | implemented on existing systems, automated tests and one independent review done; native checks NOT done (see Phase 4) |
-| 5 | 9, 5 | implemented on existing systems; own tests only, full suites and native checks NOT done (see Phase 5) |
+| 5 | 9, 5 (+ Phase 4 stabilisation) | implemented on existing systems; full automated verification at `1f47c342c` (see Phase 5); native checks NOT done |
 | 6 | 12, integration | not started |
 
 ## Phase 1
@@ -123,13 +123,13 @@ Start `216f22134` (Phase 3 plus the project report; `09321b85b` is its parent co
 - Commands run the existing code: tools = `Action::SELECT_TOOL`; pages = the `GOTO_*`, `NEW_PAGE_*`, `DELETE_PAGE` etc. actions; workspaces = `MainWindow::toolbarSelected/leavePresent/setPresentToolsRevealed` (same as Ctrl+Shift+1,2,3,P,T); classroom = `ToolPresentationKit::runClassroomAction`, new `ToolPresentationKit::backToNormal` (the popover button's own function) and the same `ToolStudentView` methods the buttons call. Freeze is unavailable until Student View is open, exactly like the popover.
 - Focus returns to the widget that held it. Page labels are never listed or searchable (they may be on screen while the class watches).
 
-### Verification (final code `e6017b5c5`)
+### Verification (as of Phase 4 close, code `e6017b5c5`; later numbers in Phase 5)
 
 - Build exit 0 (`-j2`). Units 500 passed, 1 skipped (was 483). GTK 119/119 at 120 DPI and 119/119 at 96 DPI (was 109). Real `%LOCALAPPDATA%\utn\settings.xml` SHA-256 `6c73cda17090...cdb44` and mtime `2026-10-30 11:40:33` unchanged before and after.
 - Phase 3 verification closed by automated tests only: `ClassroomWorkflow` (Escape, Present enter/exit, Ctrl+Shift+1/2/3/P/T, dock reveal, workspace restore, Student View privacy, no shortcuts while typing) passed 80/80 at the start of Phase 4 on the unchanged code.
 - New GTK tests (all in `ClassroomWorkflowTest.cpp`): typed page + tool/zoom kept + no undo entry; bookmark + undo/redo + teacher label protected; recent pages through insert, move, delete + current page marked; save/reopen keeps the bookmark; thumbnails open the sidebar tab; 300-page rapid navigation (50 jumps, slowest 155 ms incl. a 60 ms settle); Ctrl+K open/Up/Down/Enter/Escape/focus return; unavailable commands; workspace + classroom commands; typed page, bookmark, labels never listed; Enter before the search entry reports (found by review, red before fix).
 - Mutation checks turned tests red for: Ctrl+K modifier check loosened; focus restore removed; Enter-before-search (before the fix).
-- Independent review: `ecc:cpp-reviewer` (read-only). 4 findings, none critical: Enter on a stale list (fixed, tested), focus restore during window destruction (fixed), `describeCommands` under an open list (fixed), raw `MainWindow*` in the deferred call of the Workspace menu button (NOT fixed, narrow: the window must be destroyed between click and idle). No privacy finding.
+- Independent review: `ecc:cpp-reviewer` (read-only). 4 findings, none critical: Enter on a stale list (fixed, tested), focus restore during window destruction (fixed), `describeCommands` under an open list (fixed), raw `MainWindow*` in the deferred call of the Workspace menu button (fixed in Phase 5 Task 1: the call now holds a weak `alive` token). No privacy finding.
 - Skills/agents actually used: `superpowers:using-git-worktrees` (worked in place; the branch is already a linked worktree), `superpowers:test-driven-development` (models and navigator: red first; palette window was written before its GTK tests, then tests added and mutation-checked, a departure from strict TDD), `ecc:cpp-reviewer`. NOT used, although listed in the brief: `ecc:dev-team`, `product-lens`, `codebase-onboarding`, `iterative-retrieval`, `inherit-legacy-style`, `contract-first`, `design-system`, `frontend-a11y`, `click-path-audit`, `windows-desktop-e2e`, `i18n-sync`, the awesome-* and remaining caveman/superpowers skills, accessibility and security agents. Codebase reading was done directly.
 
 ### Native GUI verification: NOT DONE
@@ -150,7 +150,6 @@ No real mouse/keyboard run of the navigator or the palette (Ctrl+K on a real key
 - Palette: no fuzzy typo matching; commands are English keywords with translated titles; no recent-commands memory; shortcut labels read from GTK accelerators ("Ctrl+Shift+..." for workspaces is fixed text); no pen-preset or dock commands yet; "Delete page" is offered (undoable, same as the menu).
 - Palette and navigator strings are not in the translation files (`i18n-sync` not run).
 - Accessibility not audited by an agent: the palette status line is a plain label (no live-region announcement of the result count), the palette is undecorated (accessible name set), row Up/Down is custom key handling over a `GtkListBox`.
-- Raw `MainWindow*` captured by the Workspace menu button's deferred call (review finding 3).
 
 ### Recommendations for Phase 5
 
@@ -169,7 +168,33 @@ Run the native pass first (real keyboard: Ctrl+K, Go to page, bookmark, thumbnai
 
 ## Phase 5
 
-Feature 9 (floating selection toolbar, `gui/SelectionToolbar`, `model/SelectionToolbarPlacement`) is recorded in the Task 3 report; its review follow-ups (test setting guards, direct update on a layout switch, duplicate offset with no room, shared overlay names) are in the Step 0 commit.
+Start `308e6bd18`. Commits, oldest first: `d4d850818` + `d876e07ce` Task 1, `e743280f4` + `82e42c8e4` Task 2, `e10354ef6` + `d7e9f9b9f` + `146a4673d` Feature 9, `22b7d0b60` + `1f47c342c` Feature 5, then the final verification fix commit.
+
+### Verification at `1f47c342c` (before the final fix commit)
+
+- Units 527 passed, 1 skipped (`CrashChild.run`, the crash-handler child helper, skips by design), 0 failed (528 tests).
+- GTK 155/155 at the default 120 DPI and 155/155 with `__COMPAT_LAYER=DPIUNAWARE` (96 DPI). The tests print no DPI, so the shim's effect is not proven by the tests themselves. Excluded: `longSession*`, `heavySession*` (no test is named soak/stress).
+- New tests of Phase 5, each run alone: 63/64. Shuffled (seeds 777 and 31337): GTK 36/37 each, units 27/27 each. The two order problems found are fixed in the final commit (below).
+- Real `%LOCALAPPDATA%\utn\settings.xml` unchanged (SHA-256 `6c73cda17090...cdb44`, mtime `2026-10-30 11:40:33`). The GTK tests write their settings into the throw-away profile of `HermeticProfileEnvironment.cpp`: `Util::getConfigFile("settings.xml")` resolves to `%TEMP%\utn-gtk-test-XXXXXX\XDG_CONFIG_HOME\utn\settings.xml` in the test process (checked with a one-off probe).
+
+### Task 1: Phase 4 stabilisation
+
+- `Control::block/unblock` count a depth (`blockDepth`), so nested jobs keep the application busy until the last one lets go; `Control::isBlocked()`.
+- Command palette: never opens over the Blank cover and closes when the cover goes up (the palette is its own window, which the cover does not hide); refuses every command while busy (reason "Busy saving or exporting"); the Workspace menu's deferred call holds a weak `alive` token; Lesson Navigator labels follow bookmarks from the palette and their undo/redo.
+- Test hygiene: the fixture closes left-over message dialogs, unblocks, clears undo state and lowers the cover between tests.
+
+### Task 2: accessibility and usability
+
+- Focus after a workspace switch, the Present dock hiding or leaving Present lands on a visible control (`MainWindow::keepFocusUseful`).
+- Unavailable palette rows can be reached with Up/Down and say why (status line and ATK description); Enter on one runs nothing.
+- Blank cover focus trap: while the cover is up, its Show page button is the only Tab stop (the content behind it is insensitive); on lowering, sensitivity and the earlier keyboard focus come back (the page when that widget is gone).
+- Lesson map and Recent list follow a page clicked inside the open popover; Freeze/Blank buttons keep names that contain their visible label.
+
+### Feature 9: floating selection toolbar
+
+- `gui/SelectionToolbar`, `model/SelectionToolbarPlacement` (7 unit tests). Delete, Duplicate, Colour, Bring to front, Send to back beside the current selection, running the same Control functions as the properties panel. A child of the main overlay, never a window of its own. Shown only in teacher layouts (hidden in UTN Present until its tools are revealed), with a selection tool, the setting on (Workspace menu, key `selectionToolbar`), not busy, Blank cover down, and the selection on the current page and on screen. Escape puts it away for that selection; it never takes the keyboard when it appears.
+- Duplicate copies into the source layer (never the clipboard). Undo: `duplicateSelection` first finalises the selection, which can push its own Move step when the selection had been moved or resized, so up to two Undos bring the page back; the copy itself is one `InsertsUndoAction`.
+- Known gaps: placement does not avoid the handles beyond a 14 px gap; on a canvas narrower than the row the buttons stack in a column (final commit); no shortcut to jump into it; strings not in the translation files; colour-hidden case tested with a stroke selection as for a picture, not a real image.
 
 ### Feature 5: Annotation Bank
 
@@ -178,4 +203,20 @@ Feature 9 (floating selection toolbar, `gui/SelectionToolbar`, `model/SelectionT
 - Insert: an ordinary `Text` element (plain Feedback typography, entry colour). `LayerController::ensureVisibleInkLayer(false)` first (also when hidden answers show faintly), refused if the layer is still hidden or hidden answers; `Layer::addElement` under the document lock + one `InsertUndoAction`; then `utn::notifyStudentVisibilityChanged(true)`. When the page has only hidden answers, `ensureVisibleInkLayer` makes a new layer; its `InsertLayerUndoAction` is taken back out (`UndoRedoHandler::takeLastUndoAction`) and grouped with the insert in one `GroupUndoAction` (insert first, so Undo empties the layer before removing it), so one Undo removes both. Refused while `Control::isBlocked()`, while the teacher Blank cover is up, in UTN Present while its tools are put away, and on a page without layers (`annotationUnavailableReason`).
 - UI: an "Annotation Bank" page in the existing Feedback popover (`gui/toolbarMenubar/AnnotationBankPanel.{h,cpp}`, in `ToolTeacherStamp`; the notebook tabs scroll), so it is in Teach, Teach Tablet and Mark and absent from Present. One button per entry (accessible name = its visible label, tooltip "<label>: <what it does>"), a "Remove" button per entry (name "Remove <label>", set apart; removal is not undoable and is reported as "Removed: <label>"), a comment box (name starts with its placeholder) with "Add to bank" (Enter adds; "shortened to fit" when cut to 120 bytes) and "Restore defaults" (asks in place: "Confirm restore", then "Defaults restored."). The status line has the ATK status-bar role and is re-set on every message. Rebuilt when the popover opens. While unavailable, the entry buttons stay focusable with the reason as accessible description, tooltip and status line; activating one only says why. The keyboard stays in the panel after Remove (next row's Remove, else the one before, else the comment box) and after a refused insert (the same entry). The popover closes after an insert. Star colour `#9A5B00` (about 5:1 on white).
 - Unsupported: picture or sticker stamps (no image entries: they would need a new stored asset), per-entry size or font, reordering entries, editing an entry in place (remove and add again), choosing a colour for a new comment (it takes the Feedback colour), placing at the pointer (the existing Feedback comments still place with a tap). No new document format: the page holds plain text elements.
-- Not done: command palette entries, translation files, native check (keyboard Tab order inside the notebook page, the glyphs ✓ ✗ ★ in the Windows fonts, dark mode, High Contrast, 96 DPI).
+- Not done: Annotation Bank entries in the command palette, translation files, native check (see below).
+
+### Final verification fixes
+
+- Blank cover: forward Tab could leave the cover for the hidden PDF floating toolbox (a sibling of `mainBox` in the main overlay, still mapped inside its revealer); the other overlay children are now insensitive while the cover is up and come back as they were. The test failed when run alone and passed in the full suite only by the order.
+- The command palette stays shut in UTN Present while its tools are put away, and closes when Present is entered or its tools are hidden again.
+- Selection toolbar: a column instead of a row when the canvas is narrower than the row; a dismissal is forgotten whenever a selection goes; the setting is saved at once.
+- No ATK description is set to NULL any more (`ToolStudentView`, `ToolPresentationKit`); the rail scroller's maximum width is lifted before its minimum is raised; the busy cursor is not set on a window that is not realised yet.
+
+### Native checks for a person (not done by the automated tests)
+
+- Blank cover: Tab and Shift+Tab stay on Show page; focus comes back to where it was after Show page.
+- Screen reader (NVDA): greyed palette rows read their reason; Freeze/Blank names and states; the Annotation Bank status line is announced.
+- Switch workspace (Ctrl+Shift+1/2/3, Present and back) and press Tab: the keyboard is on a visible control.
+- Lesson Navigator popover: clicking a page moves the marker and keeps the keyboard in the popover.
+- Selection toolbar: placement above/below the selection, scrolled and zoomed, with the scrollbar on the left, in a narrow window (column), over the ink dock and the Spotlight banner.
+- Annotation Bank: Tab order inside the Feedback popover page; the glyphs ✓ ✗ ★ in the Windows fonts; an insert lands in the middle of what is on screen; popover width with six tabs; Student View shows the mark at once (single display, not fullscreen); Confirm restore; dark mode and High Contrast looks.

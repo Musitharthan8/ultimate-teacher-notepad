@@ -140,7 +140,7 @@ TEST(AnnotationBank, AnEmptiedBankStaysEmpty) {
 }
 
 TEST(AnnotationBank, UnreadableSavedFormsGiveTheDefaults) {
-    for (const std::string saved: {std::string(), std::string("garbage"), std::string("v9;comment|000000|A|A"),
+    for (const std::string& saved: {std::string(), std::string("garbage"), std::string("v9;comment|000000|A|A"),
                                    std::string("v1"), std::string("v1;"), std::string("v1;comment|000000|A"),
                                    std::string(20000, 'x')}) {
         const AnnotationBank read = AnnotationBank::parse(saved);

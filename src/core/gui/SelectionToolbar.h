@@ -49,8 +49,12 @@ public:
 
     /// Escape in the toolbar: put it away for this selection and give the keyboard back to the page
     void dismiss();
+    /// The selection went (XournalView::clearSelection): the next one may get its address, and must not stay dismissed
+    void forgetDismissal() { dismissedFor = nullptr; }
 
     GtkWidget* getWidget() const { return widget; }
+    /// The row of buttons; a column while the canvas is narrower than the row
+    GtkWidget* getButtonBox() const { return box; }
 
     // DocumentListener
     void pageSelected(size_t page) override;
@@ -60,6 +64,8 @@ private:
     /// Where the toolbar goes for @p selection, relative to the visible canvas, or nothing if it is off screen
     std::optional<utn::ToolbarPosition> placeFor(const EditSelection* selection) const;
     void syncButtons();
+    /// A row while it fits in @p width pixels of canvas, otherwise a column
+    void fitTo(double width);
     void scheduleUpdate();
     void giveKeyboardToPage();
 
@@ -70,6 +76,8 @@ private:
     GtkOverlay* overlay;
     GtkWidget* canvas = nullptr;
     GtkWidget* widget = nullptr;  ///< event box that takes Escape
+    GtkWidget* box = nullptr;
+    int rowFrame = 0;  ///< what the row adds round its buttons (padding, border), measured while it is a row
     GtkWidget* deleteButton = nullptr;
     GtkWidget* duplicateButton = nullptr;
     GtkWidget* colourButton = nullptr;
@@ -77,7 +85,7 @@ private:
     GtkWidget* backButton = nullptr;
 
     bool enabled = true;
-    /// The selection Escape put the toolbar away for. Compared by address only, forgotten when no selection is left.
+    /// The selection Escape put the toolbar away for. Compared by address only, so forgotten whenever a selection goes.
     const EditSelection* dismissedFor = nullptr;
     std::optional<utn::ToolbarPosition> position;
     guint pendingUpdate = 0;

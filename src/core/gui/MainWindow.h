@@ -117,12 +117,16 @@ public:
     /// UTN: Present hides the tool dock to give the page the room; this brings it back until Present is left
     bool isPresentToolsRevealed() const { return presentToolsRevealed; }
     void setPresentToolsRevealed(bool revealed);
+    /// UTN: in Present with its tools put away (the command palette stays shut then)
+    bool presentKeepsToolsAway() const;
     /**
      * UTN: after a layout change (or a command that may have hidden the control that held the keyboard) make sure the
      * keyboard is on something a person can see: the page, or the first control that takes it. A focus that is still
      * good is left alone. Done once the change has settled.
      */
     void keepFocusUseful();
+    /// UTN: closes an open command palette once Present keeps its tools away
+    void closePaletteInQuietPresent();
     /// Expires when this window is destroyed
     std::weak_ptr<bool> getAliveToken() const { return alive; }
     /**

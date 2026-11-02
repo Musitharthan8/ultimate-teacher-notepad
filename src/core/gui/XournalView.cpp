@@ -23,6 +23,7 @@
 #include "control/zoom/ZoomControl.h"            // for ZoomControl
 #include "gui/MainWindow.h"                      // for MainWindow
 #include "gui/PdfFloatingToolbox.h"              // for PdfFloatingToolbox
+#include "gui/SelectionToolbar.h"                // for SelectionToolbar
 #include "gui/inputdevices/GeometryToolInputHandler.h"  // for GeometryToolInputHandler
 #include "gui/inputdevices/HandRecognition.h"    // for HandRecognition
 #include "gui/inputdevices/InputContext.h"       // for InputContext
@@ -641,6 +642,10 @@ void XournalView::clearSelection() {
     EditSelection* sel = GTK_XOURNAL(widget)->selection;
     GTK_XOURNAL(widget)->selection = nullptr;
     delete sel;
+    // UTN: a later selection may get the same address; Escape put the toolbar away for this one only
+    if (MainWindow* win = control->getWindow(); win && win->getSelectionToolbar()) {
+        win->getSelectionToolbar()->forgetDismissal();
+    }
 
     control->setClipboardHandlerSelection(getSelection());
 

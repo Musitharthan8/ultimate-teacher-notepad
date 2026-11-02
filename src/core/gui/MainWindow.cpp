@@ -1,9 +1,9 @@
 #include "MainWindow.h"
 
-#include "control/UtnLayout.h"  // for isTeacherLayout
-#include "gui/CommandPalette.h"  // for CommandPalette
-#include "gui/SelectionToolbar.h"  // for SelectionToolbar
-#include "gui/UtnToast.h"        // for UtnToast
+#include "control/UtnLayout.h"      // for isTeacherLayout
+#include "gui/CommandPalette.h"     // for CommandPalette
+#include "gui/SelectionToolbar.h"   // for SelectionToolbar
+#include "gui/UtnToast.h"           // for UtnToast
 #include <regex>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
@@ -876,6 +876,7 @@ void MainWindow::toolbarSelected(ToolbarData* d) {
     // Present keeps the selection toolbar out of sight and other layouts may show it: decided here, not left to
     // whichever tool listener happens to run
     updateSelectionToolbar();
+    closePaletteInQuietPresent();  // a palette left open while Present is entered would show the class its commands
     keepFocusUseful();  // the control that held the keyboard went with the old layout
 }
 
@@ -1740,7 +1741,18 @@ void MainWindow::setPresentToolsRevealed(bool revealed) {
     presentToolsRevealed = revealed;
     updateTeacherWorkspace();
     updateSelectionToolbar();  // one of the tools Present keeps hidden
+    closePaletteInQuietPresent();
     keepFocusUseful();
+}
+
+bool MainWindow::presentKeepsToolsAway() const {
+    return selectedToolbar && selectedToolbar->getId() == "UTN Present" && !presentToolsRevealed;
+}
+
+void MainWindow::closePaletteInQuietPresent() {
+    if (presentKeepsToolsAway() && commandPalette && commandPalette->isOpen()) {
+        commandPalette->close();
+    }
 }
 
 void MainWindow::keepFocusUseful() {
@@ -1778,6 +1790,11 @@ void MainWindow::openCommandPalette() {
         return;
     }
     if (auto* students = toolbar ? toolbar->getStudentView() : nullptr; students && students->isTeacherCoverShown()) {
+        return;
+    }
+    // Present keeps its tools out of the class's sight until the teacher reveals them; the command list (Delete page
+    // among it) is one of them. Ctrl+K may still close one that is open.
+    if (presentKeepsToolsAway() && !(commandPalette && commandPalette->isOpen())) {
         return;
     }
     if (!commandPalette) {
@@ -2273,6 +2290,8 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
         const int railWidth = paperInkRail ? utn::layout::TEACHER_RAIL_WIDTH : (this->compactLayout ? 72 : -1);
         gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller),
                                                        !paperInkRail && !this->compactLayout);
+        // Lift the old maximum first: a minimum above it (72 to the teacher rail width) is refused with a CRITICAL
+        gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(railScroller), -1);
         gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(railScroller), railWidth);
         gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(railScroller), railWidth);
         gtk_widget_set_size_request(railScroller, railWidth, -1);

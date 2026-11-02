@@ -181,6 +181,9 @@ private:
     GtkWidget* focusBeforeCover = nullptr;
     GtkWidget* contentBehindCover = nullptr;  ///< the main window's toolbars and canvas
     bool contentWasSensitive = true;
+    /// The other children of the main overlay (floating toolboxes, ink dock, toast, banner, selection toolbar), held
+    /// with a reference while the cover is up, and whether each was awake. Hidden ones can still take Tab.
+    std::vector<std::pair<GtkWidget*, bool>> overlaysBehindCover;
     void forgetWidgetsBehindCover();
     /// Coloured frame round the teacher's canvas while students see a frozen or blank screen
     GtkWidget* teacherOutline = nullptr;

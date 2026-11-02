@@ -5273,7 +5273,11 @@ TEST_F(ClassroomWorkflow, lessonNavigatorBookmarksSurviveSaveAndReopenAndThumbna
     gtk_button_clicked(GTK_BUTTON(thumbnails));
     settle();
     EXPECT_TRUE(control->getSettings()->isSidebarVisible());
+    // Sidebar has no other way to read the open tab: getSelectedTab is deprecated upstream with no replacement
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     EXPECT_EQ(control->getSidebar()->getSelectedTab(), SIDEBAR_PAGES_TAB) << "the page thumbnails tab";
+#pragma GCC diagnostic pop
 }
 
 namespace {
@@ -6117,7 +6121,12 @@ TEST_F(ClassroomWorkflow, theBlankCoverHoldsTheKeyboardWhileUpAndFocusAndSensiti
     for (int i = 0; i < 6; ++i) {
         gtk_widget_child_focus(top, i % 2 ? GTK_DIR_TAB_BACKWARD : GTK_DIR_TAB_FORWARD);
         settle();
-        EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(top)), show) << "Tab " << i << " left the cover";
+        GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(top));
+        std::string where = "(none)";
+        for (GtkWidget* w = focus; w; w = gtk_widget_get_parent(w)) {
+            where += std::string(" < ") + G_OBJECT_TYPE_NAME(w) + "#" + gtk_widget_get_name(w);
+        }
+        EXPECT_EQ(focus, show) << "Tab " << i << " left the cover for " << where;
     }
 
     students->showTeacherBlankCover(false);
@@ -6358,6 +6367,28 @@ private:
     UtnSettingGuard setting;
 };
 
+/// The main window at a known size for one test, and back to the size it had afterwards. The suite's window starts
+/// at whatever size the tests before left it, which decides how wide the canvas is.
+class MainWindowSize {
+public:
+    MainWindowSize(MainWindow* window, int width, int height): top(GTK_WINDOW(window->getWindow())) {
+        gtk_window_get_size(top, &oldWidth, &oldHeight);
+        gtk_window_resize(top, width, height);
+        settle();
+    }
+    ~MainWindowSize() {
+        gtk_window_resize(top, oldWidth, oldHeight);
+        settle();
+    }
+    MainWindowSize(const MainWindowSize&) = delete;
+    MainWindowSize& operator=(const MainWindowSize&) = delete;
+
+private:
+    GtkWindow* top;
+    int oldWidth = 0;
+    int oldHeight = 0;
+};
+
 /// The floating selection toolbar's button with this visible label, or nullptr
 GtkWidget* selectionToolbarButton(MainWindow* window, const char* label) {
     return buttonNamed(window->getSelectionToolbar()->getWidget(), label);
@@ -6383,6 +6414,7 @@ void selectOneStroke(Control* control, MainWindow* window, Layer* layer, double 
 // sits next to the selection, not on it.
 TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTakingTheKeyboard) {
     SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
+    MainWindowSize size(window.get(), 1280, 720);  // a canvas wide enough for the row of buttons
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     window->toolbarSelected("UTN Teacher");
@@ -7422,4 +7454,69 @@ TEST_F(ClassroomWorkflow, annotationBankLongLabelsAreWholeInTheTooltipAndThePopo
     gtk_widget_get_preferred_size(gtk_bin_get_child(GTK_BIN(popover)), &minimum, &natural);
     RecordProperty("feedback_popover_natural_width", natural.width);
     EXPECT_LE(natural.width, 560) << "natural width " << natural.width;
+}
+
+// In a small window with the side panels open the canvas can be narrower than the row of buttons: the toolbar turns
+// into a column and stays on the canvas instead of spilling over the panels beside it.
+TEST_F(ClassroomWorkflow, selectionToolbarStaysOnANarrowCanvas) {
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
+    MainWindowSize size(window.get(), 560, 720);  // as narrow as the window allows
+    auto page = control->getCurrentPage();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    const int canvasWidth = gtk_widget_get_allocated_width(canvas);
+    const bool column = gtk_orientable_get_orientation(GTK_ORIENTABLE(window->getSelectionToolbar()->getButtonBox())) ==
+                        GTK_ORIENTATION_VERTICAL;
+    RecordProperty("canvas_width", canvasWidth);
+    RecordProperty("toolbar_column", column ? 1 : 0);
+    int tx = 0, ty = 0;
+    ASSERT_TRUE(gtk_widget_translate_coordinates(toolbar, canvas, 0, 0, &tx, &ty));
+    const int tw = gtk_widget_get_allocated_width(toolbar);
+    EXPECT_GE(tx, 0);
+    EXPECT_LE(tx + tw, canvasWidth) << "toolbar " << tx << "+" << tw << ", canvas " << canvasWidth
+                                    << (column ? " (column)" : " (row)");
+    control->clearSelection();
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(toolbar));
+}
+
+// Present keeps its tools out of the class's sight until the teacher reveals them. The palette is a window of its own
+// that lists every command (Delete page among them): it must not open in quiet Present, and must close when Present is
+// entered or its tools are put away again.
+TEST_F(ClassroomWorkflow, paletteStaysShutInPresentUntilTheToolsAreRevealed) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* top = GTK_WIDGET(window->getWindow());
+    const auto paletteOpen = [&] { return window->getCommandPalette() && window->getCommandPalette()->isOpen(); };
+
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    ASSERT_TRUE(paletteOpen()) << "Teach opens it";
+    window->toolbarSelected("UTN Present");
+    settle();
+    ASSERT_TRUE(window->presentKeepsToolsAway());
+    EXPECT_FALSE(paletteOpen()) << "an open palette was left on show when Present was entered";
+
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    EXPECT_FALSE(paletteOpen()) << "Ctrl+K opened the palette in quiet Present";
+    window->openCommandPalette();  // what the Workspace menu button calls
+    settle();
+    EXPECT_FALSE(paletteOpen()) << "the Workspace menu opened the palette in quiet Present";
+
+    window->setPresentToolsRevealed(true);
+    settle();
+    sendKey(top, GDK_KEY_k, GDK_CONTROL_MASK);
+    ASSERT_TRUE(paletteOpen()) << "with the tools shown Ctrl+K opens it";
+    window->setPresentToolsRevealed(false);
+    settle();
+    EXPECT_FALSE(paletteOpen()) << "an open palette was left on show when the tools were put away";
+
+    window->toolbarSelected("UTN Teacher");
+    settle();
+    if (paletteOpen()) {
+        window->getCommandPalette()->close();
+        settle();
+    }
 }

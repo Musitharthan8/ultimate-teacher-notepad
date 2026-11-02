@@ -115,9 +115,13 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
             utn::setMenuButtonLabel(ui.freeze, frozen ? _("Resume live view") : _("Freeze students' screen"));
             gtk_widget_set_sensitive(ui.freeze, students->isWindowOpen());
             // Why it is greyed out, for a screen reader (the tooltip is not read to everyone)
+            // While usable, the tooltip as GTK would offer it: ATK takes no NULL (a CRITICAL)
             if (AtkObject* accessible = gtk_widget_get_accessible(ui.freeze)) {
-                atk_object_set_description(accessible,
-                                           students->isWindowOpen() ? nullptr : _("Open Student View on the projector first"));
+                gchar* tooltip = gtk_widget_get_tooltip_text(ui.freeze);
+                atk_object_set_description(accessible, !students->isWindowOpen() ?
+                                                               _("Open Student View on the projector first") :
+                                                               (tooltip ? tooltip : ""));
+                g_free(tooltip);
             }
         }
         if (ui.blank) {

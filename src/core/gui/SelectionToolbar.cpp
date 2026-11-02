@@ -1,5 +1,6 @@
 #include "SelectionToolbar.h"
 
+#include <algorithm>    // for max
 #include <cmath>        // for lround
 #include <string_view>  // for string_view
 #include <vector>       // for vector
@@ -46,7 +47,7 @@ SelectionToolbar::SelectionToolbar(MainWindow* win, Control* control, GtkOverlay
     gtk_widget_set_name(widget, "utnSelectionToolbar");
     gtk_widget_set_halign(widget, GTK_ALIGN_START);
     gtk_widget_set_valign(widget, GTK_ALIGN_START);
-    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(box, "utn-selection-toolbar");
     gtk_container_add(GTK_CONTAINER(widget), box);
     utn::setAccessibleName(box, _("Selection actions"));
@@ -237,6 +238,9 @@ void SelectionToolbar::update() {
     std::optional<utn::ToolbarPosition> target;
     if (selection && wanted(selection)) {
         syncButtons();  // first: the buttons shown decide the toolbar's size
+        if (xournal->getLayout()) {
+            fitTo(xournal->getLayout()->getVisibleRect().width);
+        }
         target = placeFor(selection);
     }
     if (!target) {
@@ -256,9 +260,41 @@ void SelectionToolbar::update() {
     }
 }
 
+void SelectionToolbar::fitTo(double width) {
+    // The row's natural width without turning it round to measure (that would resize it on every redraw): the buttons
+    // shown, the spacing, and the frame measured while it is a row
+    int buttons = 0;
+    int shown = 0;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(box));
+    for (GList* c = children; c; c = c->next) {
+        if (gtk_widget_get_visible(GTK_WIDGET(c->data))) {
+            int natural = 0;
+            gtk_widget_get_preferred_width(GTK_WIDGET(c->data), nullptr, &natural);
+            buttons += natural;
+            ++shown;
+        }
+    }
+    g_list_free(children);
+    const int spaced = buttons + gtk_box_get_spacing(GTK_BOX(box)) * std::max(0, shown - 1);
+    GtkOrientable* row = GTK_ORIENTABLE(box);
+    if (gtk_orientable_get_orientation(row) == GTK_ORIENTATION_HORIZONTAL) {
+        GtkRequisition natural{};
+        gtk_widget_get_preferred_size(box, nullptr, &natural);
+        rowFrame = std::max(0, natural.width - spaced);
+    }
+    // A canvas narrower than the row (a small window with the side panels open): a column, so it stays on the canvas
+    const GtkOrientation wantedOrientation =
+            spaced + rowFrame > width ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
+    if (gtk_orientable_get_orientation(row) != wantedOrientation) {
+        gtk_orientable_set_orientation(row, wantedOrientation);
+        gtk_widget_queue_resize(widget);
+    }
+}
+
 void SelectionToolbar::setEnabled(bool on) {
     enabled = on;
     control->getSettings()->getCustomElement("utn").setBool(SETTING, on);
+    control->getSettings()->customSettingsChanged();  // saved at once, like the other teacher settings
     update();
 }
 
