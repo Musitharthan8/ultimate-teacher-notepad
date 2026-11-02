@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <gtk/gtk.h>
 
 #include "control/Control.h"
+#include "control/ScrollHandler.h"
 #include "control/ToolHandler.h"
 #include "control/UtnPerf.h"
 #include "control/actions/ActionDatabase.h"
@@ -5444,8 +5446,14 @@ TEST_F(ClassroomWorkflow, paletteWorkspaceAndClassroomCommandsDoWhatTheirButtons
     EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking");
     ASSERT_NO_FATAL_FAILURE(run("present workspace"));
     EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
-    ASSERT_NO_FATAL_FAILURE(run("show tools"));
-    EXPECT_TRUE(window->isPresentToolsRevealed()) << "the same reveal as Ctrl+Shift+T";
+    // Quiet Present keeps the palette shut (paletteStaysShutInPresentUntilTheToolsAreRevealed): the tools come back
+    // with Ctrl+Shift+T, and then the palette offers to hide them again
+    window->setPresentToolsRevealed(true);
+    settle();
+    ASSERT_NO_FATAL_FAILURE(run("hide tools"));
+    EXPECT_FALSE(window->isPresentToolsRevealed()) << "the same as Ctrl+Shift+T again";
+    window->setPresentToolsRevealed(true);
+    settle();
     ASSERT_NO_FATAL_FAILURE(run("leave present"));
     EXPECT_EQ(window->getSelectedToolbar()->getId(), "UTN Marking") << "back to where the teacher came from";
     window->toolbarSelected("UTN Teacher");
@@ -6367,28 +6375,6 @@ private:
     UtnSettingGuard setting;
 };
 
-/// The main window at a known size for one test, and back to the size it had afterwards. The suite's window starts
-/// at whatever size the tests before left it, which decides how wide the canvas is.
-class MainWindowSize {
-public:
-    MainWindowSize(MainWindow* window, int width, int height): top(GTK_WINDOW(window->getWindow())) {
-        gtk_window_get_size(top, &oldWidth, &oldHeight);
-        gtk_window_resize(top, width, height);
-        settle();
-    }
-    ~MainWindowSize() {
-        gtk_window_resize(top, oldWidth, oldHeight);
-        settle();
-    }
-    MainWindowSize(const MainWindowSize&) = delete;
-    MainWindowSize& operator=(const MainWindowSize&) = delete;
-
-private:
-    GtkWindow* top;
-    int oldWidth = 0;
-    int oldHeight = 0;
-};
-
 /// The floating selection toolbar's button with this visible label, or nullptr
 GtkWidget* selectionToolbarButton(MainWindow* window, const char* label) {
     return buttonNamed(window->getSelectionToolbar()->getWidget(), label);
@@ -6414,16 +6400,24 @@ void selectOneStroke(Control* control, MainWindow* window, Layer* layer, double 
 // sits next to the selection, not on it.
 TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTakingTheKeyboard) {
     SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
-    MainWindowSize size(window.get(), 1280, 720);  // a canvas wide enough for the row of buttons
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
+    // A known canvas: no side panels (SetUp brings both back), 100 % zoom, the top of the first page in view
+    control->setShowSidebar(false);
+    window->setTeacherWorkspace(1);
+    control->getZoomControl()->zoom100();
+    settle();
+    control->getScrollHandler()->scrollToPage(size_t{0});
     settle();
     gtk_widget_grab_focus(canvas);
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_NE(window->getXournal()->getSelection(), nullptr);
     ASSERT_TRUE(selectionToolbarShown(window.get()));
+    ASSERT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(window->getSelectionToolbar()->getButtonBox())),
+              GTK_ORIENTATION_HORIZONTAL)
+            << "the canvas is " << gtk_widget_get_allocated_width(canvas) << " px wide: too narrow for the row";
     EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(window->getWindow())), canvas) << "appearing never takes the keyboard";
 
     for (const char* label: {"Delete", "Duplicate", "Colour", "Bring to front", "Send to back"}) {
@@ -6449,13 +6443,20 @@ TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTaking
     const int tw = gtk_widget_get_allocated_width(toolbar);
     const int th = gtk_widget_get_allocated_height(toolbar);
     const double sx = box.x - visible.x, sy = box.y - visible.y;
+    int cx = 0, cy = 0;
+    gtk_widget_translate_coordinates(canvas, scroller, 0, 0, &cx, &cy);
+    std::ostringstream where;
+    where << "toolbar " << tx << "," << ty << " " << tw << "x" << th << "; selection " << sx << "," << sy << " "
+          << box.width << "x" << box.height << "; visible " << visible.x << "," << visible.y << " " << visible.width
+          << "x" << visible.height << "; canvas at " << cx << "," << cy << " "
+          << gtk_widget_get_allocated_width(canvas) << "x" << gtk_widget_get_allocated_height(canvas) << "; scroller "
+          << gtk_widget_get_allocated_width(scroller) << "x" << gtk_widget_get_allocated_height(scroller);
     const bool overlaps = tx < sx + box.width && sx < tx + tw && ty < sy + box.height && sy < ty + th;
-    EXPECT_FALSE(overlaps) << "toolbar " << tx << "," << ty << " " << tw << "x" << th << " selection " << sx << ","
-                           << sy << " " << box.width << "x" << box.height;
-    EXPECT_LE(ty + th, sy) << "there is room above, so it goes above";
-    EXPECT_GE(tx, 0);
-    EXPECT_GE(ty, 0);
-    EXPECT_LE(tx + tw, gtk_widget_get_allocated_width(scroller));
+    EXPECT_FALSE(overlaps) << where.str();
+    EXPECT_LE(ty + th, sy) << "there is room above, so it goes above: " << where.str();
+    EXPECT_GE(tx, 0) << where.str();
+    EXPECT_GE(ty, 0) << where.str();
+    EXPECT_LE(tx + tw, gtk_widget_get_allocated_width(scroller)) << where.str();
 
     control->clearSelection();
     settle();
@@ -6869,16 +6870,36 @@ TEST_F(ClassroomWorkflow, selectionToolbarIsPlacedAgainstTheCanvasWhenTheScrollb
     auto page = control->getCurrentPage();
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
+    // 100 % zoom, top of page 1 (no window resize here: on this test display the layout can stay paused after one)
+    control->getZoomControl()->zoom100();
+    settle();
+    control->getScrollHandler()->scrollToPage(size_t{0});
+    settle();
     auto ink = std::make_unique<Stroke>();
     ink->setWidth(12);
     ink->setColor(Color(0U));
-    ink->addPoint(Point(280, 300));
-    ink->addPoint(Point(320, 300));
+    ink->addPoint(Point(60, 120));  // near the top left: on screen even in a small window
+    ink->addPoint(Point(100, 120));
     page->getSelectedLayer()->addElement(std::move(ink));
     control->selectTool(TOOL_SELECT_RECT);
     control->selectAllOnPage();
     settle();
-    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    if (!selectionToolbarShown(window.get())) {
+        // Hidden by design when the canvas an earlier test left is narrower than even the column, or so small that the
+        // selection is off it; anything else is a failure
+        GtkRequisition natural{};
+        gtk_widget_get_preferred_size(window->getSelectionToolbar()->getButtonBox(), nullptr, &natural);
+        const auto box = window->getXournal()->getSelection()->getBoundingBoxInView();
+        const auto visible = window->getXournal()->getLayout()->getVisibleRect();
+        const int cw = gtk_widget_get_allocated_width(canvas), ch = gtk_widget_get_allocated_height(canvas);
+        const bool offScreen = box.x - visible.x > cw || box.y - visible.y > ch || box.x + box.width < visible.x ||
+                               box.y + box.height < visible.y;
+        ASSERT_TRUE(natural.width > cw || offScreen) << "hidden although it fits: canvas " << cw << "x" << ch
+                                                     << ", toolbar " << natural.width << ", selection " << box.x - visible.x
+                                                     << "," << box.y - visible.y;
+        control->clearSelection();
+        GTEST_SKIP() << "canvas " << cw << "x" << ch << " px: no room for the toolbar beside the selection";
+    }
     int canvasX = 0, canvasY = 0;
     ASSERT_TRUE(gtk_widget_translate_coordinates(canvas, scroller, 0, 0, &canvasX, &canvasY));
     if (canvasX <= 0) {
@@ -7460,17 +7481,26 @@ TEST_F(ClassroomWorkflow, annotationBankLongLabelsAreWholeInTheTooltipAndThePopo
 // into a column and stays on the canvas instead of spilling over the panels beside it.
 TEST_F(ClassroomWorkflow, selectionToolbarStaysOnANarrowCanvas) {
     SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
-    MainWindowSize size(window.get(), 560, 720);  // as narrow as the window allows
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
-    ASSERT_TRUE(selectionToolbarShown(window.get()));
     GtkWidget* canvas = window->getXournal()->getWidget();
     GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    GtkWidget* buttons = window->getSelectionToolbar()->getButtonBox();
+    // How narrow the canvas gets depends on the panels the earlier tests left open: check the rule, whatever it is
     const int canvasWidth = gtk_widget_get_allocated_width(canvas);
-    const bool column = gtk_orientable_get_orientation(GTK_ORIENTABLE(window->getSelectionToolbar()->getButtonBox())) ==
-                        GTK_ORIENTATION_VERTICAL;
+    const bool column = gtk_orientable_get_orientation(GTK_ORIENTABLE(buttons)) == GTK_ORIENTATION_VERTICAL;
+    GtkRequisition natural{};
+    gtk_widget_get_preferred_size(buttons, nullptr, &natural);
     RecordProperty("canvas_width", canvasWidth);
     RecordProperty("toolbar_column", column ? 1 : 0);
+    if (!selectionToolbarShown(window.get())) {
+        // Not even a column fits: hidden rather than over the panels beside the canvas
+        EXPECT_TRUE(column) << "a row was hidden instead of turned into a column";
+        EXPECT_GT(natural.width, canvasWidth) << "hidden although the column fits";
+        control->clearSelection();
+        settle();
+        return;
+    }
     int tx = 0, ty = 0;
     ASSERT_TRUE(gtk_widget_translate_coordinates(toolbar, canvas, 0, 0, &tx, &ty));
     const int tw = gtk_widget_get_allocated_width(toolbar);

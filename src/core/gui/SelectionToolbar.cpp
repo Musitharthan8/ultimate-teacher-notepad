@@ -145,6 +145,15 @@ SelectionToolbar::SelectionToolbar(MainWindow* win, Control* control, GtkOverlay
                          return false;
                      }),
                      this);
+    // A window resize or a side panel opening moves or narrows the canvas, which need not redraw it: follow that too
+    g_signal_connect(canvas, "size-allocate", G_CALLBACK(+[](GtkWidget*, GdkRectangle*, gpointer data) {
+                         auto* self = static_cast<SelectionToolbar*>(data);
+                         auto* xournal = self->win->getXournal();
+                         if ((xournal && xournal->getSelection()) || gtk_widget_get_visible(self->widget)) {
+                             self->scheduleUpdate();
+                         }
+                     }),
+                     this);
 
     registerListener(control);
 }
@@ -193,9 +202,20 @@ std::optional<utn::ToolbarPosition> SelectionToolbar::placeFor(const EditSelecti
     if (!xournal || !xournal->getLayout() || !gtk_widget_get_ancestor(canvas, GTK_TYPE_SCROLLED_WINDOW)) {
         return std::nullopt;
     }
+    // The buttons themselves: measured the same while the toolbar is hidden, unlike the event box around them
     GtkRequisition natural{};
-    gtk_widget_get_preferred_size(widget, nullptr, &natural);
-    const auto visible = xournal->getLayout()->getVisibleRect();
+    gtk_widget_get_preferred_size(this->box, nullptr, &natural);
+    auto visible = xournal->getLayout()->getVisibleRect();
+    // Kept inside the canvas widget as it is on screen; the layout's idea of its size can lag behind a resize
+    if (const int w = gtk_widget_get_allocated_width(canvas); w > 1) {
+        visible.width = w;
+    }
+    if (const int h = gtk_widget_get_allocated_height(canvas); h > 1) {
+        visible.height = h;
+    }
+    if (natural.width > visible.width) {
+        return std::nullopt;  // not even a column fits: it would cover the panels beside the canvas
+    }
     const auto box = selection->getBoundingBoxInView();
     // The ink dock and the Spotlight banner while they are up, relative to the visible canvas. Only these two: the
     // toolboxes and the toast stay mapped in their revealers while put away, so being mapped says nothing about them.
@@ -238,7 +258,10 @@ void SelectionToolbar::update() {
     std::optional<utn::ToolbarPosition> target;
     if (selection && wanted(selection)) {
         syncButtons();  // first: the buttons shown decide the toolbar's size
-        if (xournal->getLayout()) {
+        const int canvasWidth = gtk_widget_get_allocated_width(canvas);
+        if (canvasWidth > 1) {
+            fitTo(canvasWidth);
+        } else if (xournal->getLayout()) {
             fitTo(xournal->getLayout()->getVisibleRect().width);
         }
         target = placeFor(selection);
@@ -253,10 +276,14 @@ void SelectionToolbar::update() {
     }
     const bool moved = !position || position->x != target->x || position->y != target->y;
     position = target;
-    if (!gtk_widget_get_visible(widget)) {
+    const bool showing = !gtk_widget_get_visible(widget);
+    if (showing) {
         gtk_widget_show(widget);  // never grabs the keyboard: the page keeps it
-    } else if (moved) {
-        gtk_widget_queue_resize(widget);
+    }
+    if (showing || moved) {
+        // The overlay places its children only when it is allocated itself: a resize queued on the toolbar alone can
+        // leave it where an earlier allocation put it
+        gtk_widget_queue_resize(GTK_WIDGET(overlay));
     }
 }
 
@@ -333,19 +360,23 @@ void SelectionToolbar::giveKeyboardToPage() {
 gboolean SelectionToolbar::childPosition(GtkOverlay* overlay, GtkWidget* child, GdkRectangle* allocation,
                                          gpointer data) {
     auto* self = static_cast<SelectionToolbar*>(data);
-    if (child != self->widget || !self->position) {
+    if (child != self->widget) {
+        return false;
+    }
+    // Placed here, at the real size and with the canvas where it is now; the place found by update() is only kept
+    // when no place can be found now
+    if (auto* xournal = self->win->getXournal(); xournal && xournal->getSelection()) {
+        if (auto placed = self->placeFor(xournal->getSelection())) {
+            self->position = placed;
+        }
+    }
+    if (!self->position) {
         return false;
     }
     GtkRequisition natural{};
     gtk_widget_get_preferred_size(child, nullptr, &natural);
     allocation->width = natural.width;
     allocation->height = natural.height;
-    // A hidden toolbar measures 0 x 0, so the place found while it was hidden is redone at its real size
-    if (auto* xournal = self->win->getXournal(); xournal && xournal->getSelection()) {
-        if (auto placed = self->placeFor(xournal->getSelection())) {
-            self->position = placed;
-        }
-    }
     // The position is relative to the visible canvas. The page widget scrolls its own content, so its allocation is the
     // visible canvas; the scrolled window around it also holds the scrollbars, which may be on the left.
     const int x = static_cast<int>(std::lround(self->position->x));
