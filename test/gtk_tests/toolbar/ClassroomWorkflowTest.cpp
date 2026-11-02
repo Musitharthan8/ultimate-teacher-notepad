@@ -59,6 +59,7 @@
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
+#include "gui/toolbarMenubar/UndoHistoryPanel.h"
 #include "gui/toolbarMenubar/UtnWidgets.h"
 #include "model/Document.h"
 #include "model/DocumentLockAudit.h"
@@ -69,6 +70,7 @@
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "undo/InsertUndoAction.h"
+#include "undo/UndoAction.h"
 #include "undo/UndoRedoHandler.h"
 #include "model/eraser/MaskedStrokeCodec.h"
 #include "util/PathUtil.h"
@@ -5862,7 +5864,8 @@ bool isOwnRuleCommand(const std::string& id) {
             "page.bookmark",          "page.thumbnails",         "workspace.teach",          "workspace.mark",
             "workspace.present",      "workspace.leave-present", "workspace.present-tools",  "classroom.spotlight",
             "classroom.curtain",      "classroom.exit-overlay",  "classroom.freeze",         "classroom.blank",
-            "classroom.student-view", "classroom.back-to-normal", "view.sidebar"};
+            "classroom.student-view", "classroom.back-to-normal", "view.sidebar",
+            "edit.history"};
     return own.count(id) != 0;
 }
 }  // namespace
@@ -7549,4 +7552,533 @@ TEST_F(ClassroomWorkflow, paletteStaysShutInPresentUntilTheToolsAreRevealed) {
         window->getCommandPalette()->close();
         settle();
     }
+}
+
+namespace {
+/// The Classroom menu in the tool dock (Teach and Mark), or nullptr
+GtkWidget* classroomMenuButton(MainWindow* window) {
+    GtkWidget* menu = widgetNamed(GTK_WIDGET(window->getWindow()), utn::CLASSROOM_MENU_NAME);
+    return GTK_IS_MENU_BUTTON(menu) ? menu : nullptr;
+}
+
+GtkWidget* undoHistoryPopover(MainWindow* window) {
+    GtkWidget* menu = classroomMenuButton(window);
+    return menu ? GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))) : nullptr;
+}
+
+GtkWidget* undoHistoryPanel(MainWindow* window) {
+    GtkWidget* popover = undoHistoryPopover(window);
+    return popover ? widgetNamed(popover, utn::UNDO_HISTORY_NAME) : nullptr;
+}
+
+GtkWidget* historyList(GtkWidget* panel) { return widgetNamed(panel, "utnUndoHistoryList"); }
+
+/// The text each row of the list reads, top to bottom
+std::vector<std::string> historyRows(GtkWidget* panel) {
+    std::vector<std::string> out;
+    GList* rows = gtk_container_get_children(GTK_CONTAINER(historyList(panel)));
+    for (GList* r = rows; r; r = r->next) {
+        GtkWidget* label = gtk_bin_get_child(GTK_BIN(r->data));
+        out.emplace_back(GTK_IS_LABEL(label) ? gtk_label_get_text(GTK_LABEL(label)) : "");
+    }
+    g_list_free(rows);
+    return out;
+}
+
+GtkWidget* historyRow(GtkWidget* panel, int index) {
+    return GTK_WIDGET(gtk_list_box_get_row_at_index(GTK_LIST_BOX(historyList(panel)), index));
+}
+
+std::string historyStatus(GtkWidget* panel) {
+    return gtk_label_get_text(GTK_LABEL(widgetNamed(panel, "utnUndoHistoryStatus")));
+}
+
+std::string buttonText(GtkWidget* button) {
+    return gtk_label_get_text(GTK_LABEL(gtk_bin_get_child(GTK_BIN(button))));
+}
+
+/// One stroke on @p layer, with its undo step as a pen stroke makes it
+void drawStep(Control* control, Layer* layer, double y) {
+    addMarker(layer, y);
+    control->getUndoRedoHandler()->addUndoAction(
+            std::make_unique<InsertUndoAction>(control->getCurrentPage(), layer, layer->getElements().back().get()));
+}
+
+bool waitForJump(GtkWidget* panel, gint64 timeoutUs = 5 * G_USEC_PER_SEC) {
+    const gint64 deadline = g_get_monotonic_time() + timeoutUs;
+    while (utn::isUndoHistoryJumping(panel)) {
+        if (g_get_monotonic_time() > deadline) {
+            return false;
+        }
+        gtk_main_iteration_do(false);
+    }
+    settle();
+    return true;
+}
+
+GtkWidget* focusIn(MainWindow* window) { return gtk_window_get_focus(GTK_WINDOW(window->getWindow())); }
+
+/// Counts what the history tells its listeners
+struct CountingListener: UndoRedoListener {
+    explicit CountingListener(UndoRedoHandler* handler): handler(handler) { handler->addUndoRedoListener(this); }
+    ~CountingListener() override { handler->removeUndoRedoListener(this); }
+    void undoRedoChanged() override { ++changes; }
+    void undoRedoPageChanged(PageRef) override {}
+    UndoRedoHandler* handler;
+    int changes = 0;
+};
+
+/// A step that reports it could not be undone, as a broken one would
+class FailingUndoAction: public UndoAction {
+public:
+    FailingUndoAction(): UndoAction("FailingUndoAction") {}
+    bool undo(Control*) override { return false; }
+    bool redo(Control*) override { return true; }
+    std::string getText() override { return "Failing step"; }
+};
+
+/// A step with a long description
+class WordyUndoAction: public UndoAction {
+public:
+    explicit WordyUndoAction(std::string text): UndoAction("WordyUndoAction"), text(std::move(text)) {}
+    bool undo(Control*) override { return true; }
+    bool redo(Control*) override { return true; }
+    std::string getText() override { return text; }
+
+private:
+    std::string text;
+};
+
+/// Teach, shown, empty history; the History page of the Classroom popover, or nullptr
+GtkWidget* openHistoryInTeach(Control* control, MainWindow* window) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->getUndoRedoHandler()->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+    settle();
+    return undoHistoryPanel(window);
+}
+
+void closeHistory(MainWindow* window) {
+    if (GtkWidget* popover = undoHistoryPopover(window); popover && gtk_widget_get_visible(popover)) {
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        waitUntilHidden(popover);
+    }
+}
+
+/// A History panel in a window of its own, so its rows are mapped and take the keyboard on any display (the main
+/// window's popovers are not mapped on every test display, see the Lesson Navigator tests). Same panel, same code.
+struct HostedHistory {
+    explicit HostedHistory(Control* control) {
+        popover = GTK_WIDGET(g_object_ref_sink(gtk_popover_new(nullptr)));
+        host = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        panel = utn::createUndoHistoryPanel(control, GTK_POPOVER(popover));
+        gtk_container_add(GTK_CONTAINER(host), panel);
+        gtk_window_set_default_size(GTK_WINDOW(host), 380, 600);
+        gtk_widget_show_all(host);
+        settle();
+    }
+    ~HostedHistory() {
+        gtk_widget_destroy(host);
+        gtk_widget_destroy(popover);
+        g_object_unref(popover);
+        settle();
+    }
+    HostedHistory(const HostedHistory&) = delete;
+    HostedHistory& operator=(const HostedHistory&) = delete;
+    GtkWidget* focus() const { return gtk_window_get_focus(GTK_WINDOW(host)); }
+    GtkWidget* host = nullptr;
+    GtkWidget* popover = nullptr;
+    GtkWidget* panel = nullptr;
+};
+}  // namespace
+
+// Real document actions (an Annotation Bank tick, a new page, the selection toolbar's Colour and Delete) are listed
+// newest first as the steps call themselves, the point Undo and Redo start from is marked, and the list follows every
+// change at once through the history's listener, without being asked.
+TEST_F(ClassroomWorkflow, undoHistoryListsRealStepsNewestFirstAndMarksWhatUndoAndRedoAffect) {
+    AnnotationBankGuard bankGuard(control.get());
+    control->updateAnnotationBank([](utn::AnnotationBank& bank) { bank.restoreDefaults(); });
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr) << "the Classroom popover has a History page";
+    EXPECT_EQ(historyRows(panel),
+              (std::vector<std::string>{"No steps yet. What you change on the pages is listed here."}));
+    GtkWidget* status = widgetNamed(panel, "utnUndoHistoryStatus");
+    EXPECT_EQ(atk_object_get_role(gtk_widget_get_accessible(status)), ATK_ROLE_STATUSBAR) << "read out when it changes";
+    EXPECT_EQ(historyStatus(panel), "Nothing to undo yet.");
+
+    auto* handler = control->getUndoRedoHandler();
+    ASSERT_NE(control->insertAnnotation(control->getAnnotationBank().all()[0]), nullptr);
+    settle();
+    EXPECT_EQ(historyRows(panel), (std::vector<std::string>{"You are here", "Write text (next Undo)"}))
+            << "followed without a refresh";
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    selectOneStroke(control.get(), window.get(), layer, 300);
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    GtkWidget* colour = selectionToolbarButton(window.get(), "Colour");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(colour));
+    GtkWidget* red = buttonAccessibleNamed(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(colour))), "Red");
+    ASSERT_NE(red, nullptr);
+    gtk_button_clicked(GTK_BUTTON(red));
+    settle();
+    gtk_button_clicked(GTK_BUTTON(selectionToolbarButton(window.get(), "Delete")));
+    settle();
+    control->selectTool(TOOL_PEN);
+    control->getActionDatabase()->fireActivateAction(Action::NEW_PAGE_AFTER);
+    settle();
+    ASSERT_EQ(handler->undoCount(), 4U);
+    const auto texts = handler->undoTexts(4);  // newest first, as the steps call themselves
+    EXPECT_EQ(texts[0], "Page inserted");
+    EXPECT_EQ(texts[2], "Change color");
+    EXPECT_EQ(texts[3], "Write text");
+
+    // Undo once with the panel's own button
+    GtkWidget* undo = widgetNamed(panel, "utnUndoHistoryUndo");
+    GtkWidget* redo = widgetNamed(panel, "utnUndoHistoryRedo");
+    EXPECT_EQ(buttonText(undo), handler->undoDescription());
+    EXPECT_EQ(buttonText(undo), "Undo: Page inserted");
+    gtk_button_clicked(GTK_BUTTON(undo));
+    settle();
+    EXPECT_EQ(handler->undoCount(), 3U);
+    EXPECT_EQ(historyRows(panel),
+              (std::vector<std::string>{"Page inserted (next Redo, undone)", "You are here", texts[1] + " (next Undo)",
+                                        "Change color", "Write text"}));
+    EXPECT_EQ(buttonText(undo), "Undo: " + texts[1]);
+    EXPECT_EQ(buttonText(redo), "Redo: Page inserted");
+    EXPECT_EQ(historyStatus(panel).rfind("Undid: Page inserted.", 0), 0U) << historyStatus(panel);
+    EXPECT_NE(historyStatus(panel).find("Undo takes away: " + texts[1] + ". Redo brings back: Page inserted."),
+              std::string::npos)
+            << historyStatus(panel);
+
+    // Every row and button names itself as it reads (label in name), and says what activating it does
+    for (GtkWidget* button: {undo, redo}) {
+        EXPECT_EQ(accessibleName(button), buttonText(button));
+        EXPECT_TRUE(gtk_widget_get_can_focus(button));
+    }
+    const auto rows = historyRows(panel);
+    for (int i = 0; i < int(rows.size()); ++i) {
+        GtkWidget* row = historyRow(panel, i);
+        const std::string name = accessibleName(row);
+        EXPECT_EQ(name.rfind(rows[size_t(i)], 0), 0U) << name;
+        EXPECT_TRUE(gtk_widget_get_can_focus(row)) << name;
+        gchar* tip = gtk_widget_get_tooltip_text(row);
+        ASSERT_NE(tip, nullptr);
+        EXPECT_EQ(std::string(tip), name) << "the whole description, also when the row is cut short";
+        g_free(tip);
+    }
+
+    // A new step drops what Redo could bring back, and the list says so at once
+    drawStep(control.get(), layer, 500);
+    settle();
+    EXPECT_EQ(historyRows(panel), (std::vector<std::string>{"You are here", "Draw stroke (next Undo)", texts[1],
+                                                            "Change color", "Write text"}));
+    EXPECT_EQ(buttonText(redo), "Redo");
+    const char* redoWhy = atk_object_get_description(gtk_widget_get_accessible(redo));
+    ASSERT_NE(redoWhy, nullptr);
+    EXPECT_STREQ(redoWhy, "Nothing to redo.") << "greyed in words, still reachable";
+    gtk_button_clicked(GTK_BUTTON(redo));
+    settle();
+    EXPECT_EQ(historyStatus(panel), "Nothing to redo.");
+    EXPECT_EQ(handler->undoCount(), 4U);
+    handler->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+}
+
+// The Annotation Bank's grouped step (a layer made for the mark, and the mark) is one row, and one Undo from the panel
+// takes both away.
+TEST_F(ClassroomWorkflow, undoHistoryShowsTheAnnotationBankLayerAndMarkAsOneStep) {
+    AnnotationBankGuard bankGuard(control.get());
+    control->updateAnnotationBank([](utn::AnnotationBank& bank) { bank.restoreDefaults(); });
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto page = control->getCurrentPage();
+    Layer* answers = page->getSelectedLayer();
+    ASSERT_EQ(page->getLayerCount(), 1U);
+    answers->setAudience(LayerAudience::Answers);
+    answers->setVisible(false);
+    ASSERT_NE(control->insertAnnotation(control->getAnnotationBank().all()[0]), nullptr);
+    settle();
+    ASSERT_EQ(page->getLayerCount(), 2U);
+    EXPECT_EQ(historyRows(panel), (std::vector<std::string>{"You are here", "Write text (next Undo)"}))
+            << "one step, not two";
+    gtk_button_clicked(GTK_BUTTON(widgetNamed(panel, "utnUndoHistoryUndo")));
+    settle();
+    EXPECT_EQ(page->getLayerCount(), 1U) << "the layer went with the mark";
+    EXPECT_EQ(historyRows(panel), (std::vector<std::string>{"Write text (next Redo, undone)", "You are here"}));
+    answers->setAudience(LayerAudience::Everyone);
+    answers->setVisible(true);
+    control->getUndoRedoHandler()->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+}
+
+// Choosing a listed step goes back to before it by the ordinary Undo, one step per main loop turn, each step told to
+// the history's listeners like a key press; the saved point is kept, the keyboard stays on the chosen step, and an
+// undone step chosen the same way is redone up to it. A moved selection is one of the steps.
+TEST_F(ClassroomWorkflow, undoHistoryGoesToAStepOneOrdinaryUndoAtATimeAndKeepsTheSavedPoint) {
+    ASSERT_NE(openHistoryInTeach(control.get(), window.get()), nullptr);
+    HostedHistory hosted(control.get());
+    GtkWidget* panel = hosted.panel;
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    const size_t before = layer->getElements().size();
+    drawStep(control.get(), layer, 100);
+    handler->documentSaved();  // saved with one stroke
+    drawStep(control.get(), layer, 200);
+    drawStep(control.get(), layer, 300);
+    // Move everything on the page: a Move step
+    const Element* first = layer->getElements().front().get();
+    const double firstX = first->getBoundingBox().x;
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+    window->getXournal()->getSelection()->moveSelection(12, 8, true);
+    control->clearSelection();
+    control->selectTool(TOOL_PEN);
+    settle();
+    ASSERT_EQ(handler->undoCount(), 4U);
+    ASSERT_NEAR(first->getBoundingBox().x, firstX + 12, 0.01);
+    ASSERT_TRUE(handler->isChanged());
+    ASSERT_EQ(historyRows(panel).size(), 5U) << "four steps and You are here";
+
+    CountingListener counted(handler);
+    GtkWidget* third = historyRow(panel, 3);  // the stroke at 200: back to before it
+    gtk_widget_grab_focus(third);
+    sendKey(third, GDK_KEY_Return, 0);
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(layer->getElements().size(), before + 1);
+    EXPECT_NEAR(first->getBoundingBox().x, firstX, 0.01) << "the move was undone too";
+    EXPECT_EQ(handler->undoCount(), 1U);
+    EXPECT_EQ(handler->redoCount(), 3U);
+    EXPECT_EQ(counted.changes, 3) << "three ordinary Undo steps, each told like a key press";
+    EXPECT_FALSE(handler->isChanged()) << "back at the saved point: the document is not changed";
+    EXPECT_EQ(historyStatus(panel).rfind("Undid 3 steps.", 0), 0U) << historyStatus(panel);
+    const auto rows = historyRows(panel);
+    ASSERT_EQ(rows.size(), 5U);
+    EXPECT_EQ(rows[2], "Draw stroke (next Redo, undone)");
+    EXPECT_EQ(rows[3], "You are here");
+    EXPECT_EQ(rows[4], "Draw stroke (next Undo)");
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 2)) << "the keyboard stays on the chosen step";
+
+    // And forward again: the top row is the last undone step, the move
+    sendKey(historyRow(panel, 2), GDK_KEY_Home, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 0)) << "Home goes to the newest row";
+    sendKey(historyRow(panel, 0), GDK_KEY_Return, 0);
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(layer->getElements().size(), before + 3);
+    EXPECT_NEAR(first->getBoundingBox().x, firstX + 12, 0.01) << "the move was redone";
+    EXPECT_EQ(handler->undoCount(), 4U);
+    EXPECT_EQ(handler->redoCount(), 0U);
+    EXPECT_TRUE(handler->isChanged());
+    EXPECT_EQ(historyStatus(panel).rfind("Redid 3 steps.", 0), 0U) << historyStatus(panel);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 1)) << "on the step that was chosen, now the next Undo";
+    handler->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+}
+
+// Going to a step stops where it is when a step reports failure, when the history is changed between two steps, and
+// when a save starts; it never carries on past what it could not do.
+TEST_F(ClassroomWorkflow, undoHistoryJumpStopsAtAFailedStepAChangedHistoryAndWhileBusy) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    const size_t before = layer->getElements().size();
+    drawStep(control.get(), layer, 100);
+    handler->addUndoAction(std::make_unique<FailingUndoAction>());
+    drawStep(control.get(), layer, 300);
+    settle();
+    ASSERT_EQ(historyRows(panel).size(), 4U);
+
+    // A failing step
+    g_signal_emit_by_name(historyList(panel), "row-activated", historyRow(panel, 3));  // back to before the first stroke: 3 steps
+    ASSERT_TRUE(waitForJump(panel));
+    closeMessageDialogs();  // the history's own "Could not undo" message
+    EXPECT_EQ(historyStatus(panel).rfind("Stopped after 1 of 3 steps: a step could not be completed", 0), 0U)
+            << historyStatus(panel);
+    EXPECT_EQ(layer->getElements().size(), before + 1) << "the first stroke was not undone past the failure";
+    EXPECT_EQ(handler->undoCount(), 1U) << "the failed step moved to Redo, as Ctrl+Z leaves it";
+
+    // A changed history between two steps
+    handler->clearContents();
+    drawStep(control.get(), layer, 500);
+    drawStep(control.get(), layer, 600);
+    settle();
+    const size_t two = layer->getElements().size();
+    g_signal_emit_by_name(historyList(panel), "row-activated", historyRow(panel, 2));
+    drawStep(control.get(), layer, 700);  // before the first step runs
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(historyStatus(panel).rfind("Stopped after 0 of 2 steps: the history changed", 0), 0U)
+            << historyStatus(panel);
+    EXPECT_EQ(layer->getElements().size(), two + 1) << "the new stroke was not undone";
+
+    // Busy
+    g_signal_emit_by_name(historyList(panel), "row-activated", historyRow(panel, 2));
+    control->block("test");
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(historyStatus(panel).rfind("Unavailable while UTN is busy", 0), 0U)
+            << "busy: the list is readable, the reason is on the status line: " << historyStatus(panel);
+    EXPECT_EQ(layer->getElements().size(), two + 1);
+    EXPECT_EQ(historyRows(panel).size(), 4U) << "busy is not private: the list stays";
+    GtkWidget* undo = widgetNamed(panel, "utnUndoHistoryUndo");
+    EXPECT_TRUE(gtk_widget_get_sensitive(undo)) << "reachable, to say why";
+    EXPECT_EQ(std::string(atk_object_get_description(gtk_widget_get_accessible(undo))).rfind("Unavailable", 0), 0U);
+    gtk_button_clicked(GTK_BUTTON(undo));
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Unavailable while UTN is busy", 0), 0U) << historyStatus(panel);
+    EXPECT_EQ(layer->getElements().size(), two + 1) << "nothing ran";
+    control->unblock();
+    handler->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+}
+
+// Under the Blank cover and in Present while its tools are put away no step is listed: an open panel puts its list
+// away and its popover closes, the palette cannot open it, and Present has no Classroom popover at all.
+TEST_F(ClassroomWorkflow, undoHistoryIsNeverShownUnderTheBlankCoverOrInQuietPresent) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    drawStep(control.get(), control->getCurrentPage()->getSelectedLayer(), 100);
+    ASSERT_TRUE(utn::openUndoHistory(control.get()));
+    settle();
+    GtkWidget* popover = undoHistoryPopover(window.get());
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    ASSERT_EQ(historyRows(panel).size(), 2U);
+
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    students->showTeacherBlankCover(true);
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    EXPECT_TRUE(waitUntilHidden(popover)) << "the open History closes when the cover goes up";
+    EXPECT_TRUE(historyRows(panel).empty()) << "no step is left in the list";
+    EXPECT_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(historyList(panel)))))
+            << "the list is put away";
+    EXPECT_EQ(historyStatus(panel), "Unavailable while Blank covers your screen");
+    EXPECT_FALSE(utn::openUndoHistory(control.get()));
+    EXPECT_EQ(utn::undoHistoryOpenReason(control.get()), "Unavailable while Blank covers your screen");
+    gtk_popover_popup(GTK_POPOVER(popover));  // even if something opens it
+    settle();
+    EXPECT_TRUE(waitUntilHidden(popover));
+    EXPECT_TRUE(historyRows(panel).empty());
+    students->showTeacherBlankCover(false);
+    settle();
+    EXPECT_TRUE(utn::undoHistoryOpenReason(control.get()).empty());
+
+    window->toolbarSelected("UTN Present");
+    settle();
+    ASSERT_TRUE(window->presentKeepsToolsAway());
+    EXPECT_EQ(undoHistoryPanel(window.get()), nullptr) << "Present has no Classroom popover";
+    EXPECT_EQ(utn::undoHistoryOpenReason(control.get()), "Unavailable in Present until the tools are shown");
+    EXPECT_FALSE(utn::openUndoHistory(control.get()));
+    window->setPresentToolsRevealed(true);
+    settle();
+    EXPECT_EQ(utn::undoHistoryOpenReason(control.get()).rfind("Unavailable: show the tool dock", 0), 0U)
+            << utn::undoHistoryOpenReason(control.get());
+    window->setPresentToolsRevealed(false);
+    window->toolbarSelected("UTN Teacher");
+    settle();
+    control->getUndoRedoHandler()->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
+}
+
+// The palette's "Undo history" opens the History page with the keyboard on the next Undo; arrows, Home and End move
+// through the rows, the keyboard stays in place when the list is rebuilt, long descriptions are cut short with the whole
+// text in the tooltip, the list holds at most 50 steps and says how many more there are, and the popover stays narrow.
+TEST_F(ClassroomWorkflow, undoHistoryOpensFromThePaletteIsKeyboardNavigableBoundedAndNarrow) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    for (int i = 0; i < 59; ++i) {
+        drawStep(control.get(), layer, 100 + i * 10);
+    }
+    const std::string wordy = "Rearrange every answer box on the worksheet so that the second column lines up";
+    handler->addUndoAction(std::make_unique<WordyUndoAction>(wordy));
+    handler->undo();  // one undone step above the current point
+    settle();
+
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+    typeInPalette(palette, "Undo history");
+    ASSERT_TRUE(startsWith(selectedRow(palette), "Undo history, ")) << selectedRow(palette);
+    sendKey(palette->getWidget(), GDK_KEY_Return, 0);
+    settle();
+    EXPECT_FALSE(palette->isOpen());
+    GtkWidget* popover = undoHistoryPopover(window.get());
+    ASSERT_TRUE(gtk_widget_get_visible(popover)) << "the palette opened the History page";
+    GtkWidget* tabs = gtk_bin_get_child(GTK_BIN(popover));
+    EXPECT_EQ(gtk_notebook_get_nth_page(GTK_NOTEBOOK(tabs), gtk_notebook_get_current_page(GTK_NOTEBOOK(tabs))), panel);
+    const auto rows = historyRows(panel);
+    ASSERT_EQ(rows.size(), 51U) << "50 steps and the You are here row";
+    EXPECT_EQ(rows[1], "You are here");
+    // Only where the display maps the main window's popovers (see the Lesson Navigator tests); the keys are checked
+    // on a hosted panel below
+    RecordProperty("history_popover_mapped", gtk_widget_get_mapped(popover) ? 1 : 0);
+    if (gtk_widget_get_mapped(popover)) {
+        EXPECT_EQ(focusIn(window.get()), historyRow(panel, 2)) << "on what Undo would undo";
+    }
+    GtkWidget* hidden = nullptr;
+    {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(panel));
+        hidden = GTK_WIDGET(g_list_last(children)->data);
+        g_list_free(children);
+    }
+    EXPECT_TRUE(gtk_widget_get_visible(hidden));
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(hidden)), "10 earlier steps are not listed.");
+
+    // The long one, undone at the top: cut short on the row, whole in the tooltip
+    GtkWidget* top = historyRow(panel, 0);
+    GtkWidget* label = gtk_bin_get_child(GTK_BIN(top));
+    EXPECT_EQ(gtk_label_get_ellipsize(GTK_LABEL(label)), PANGO_ELLIPSIZE_END);
+    gchar* tip = gtk_widget_get_tooltip_text(top);
+    ASSERT_NE(tip, nullptr);
+    EXPECT_NE(std::string(tip).find(wordy), std::string::npos) << tip;
+    g_free(tip);
+
+    // No wider than the Classroom popover was without it: the page itself fits the other pages' 400 px
+    GtkRequisition minimum{}, natural{}, page{};
+    gtk_widget_get_preferred_size(tabs, &minimum, &natural);
+    gtk_widget_get_preferred_size(panel, nullptr, &page);
+    gtk_widget_hide(panel);  // its tab goes with it
+    GtkRequisition baseMinimum{}, baseNatural{};
+    gtk_widget_get_preferred_size(tabs, &baseMinimum, &baseNatural);
+    gtk_widget_show(panel);
+    RecordProperty("classroom_popover_natural_width", natural.width);
+    RecordProperty("classroom_popover_natural_width_without_history", baseNatural.width);
+    RecordProperty("history_page_natural_width", page.width);
+    EXPECT_LE(page.width, 400) << "the History page is no wider than the other pages";
+    EXPECT_LE(natural.width, baseNatural.width) << "the popover did not get wider";
+    closeHistory(window.get());
+
+    // Keys, on the same panel hosted in a window of its own
+    HostedHistory hosted(control.get());
+    panel = hosted.panel;
+    ASSERT_EQ(historyRows(panel).size(), 51U);
+    gtk_widget_grab_focus(historyRow(panel, 2));
+    sendKey(historyRow(panel, 2), GDK_KEY_Down, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 3)) << "Down";
+    sendKey(historyRow(panel, 3), GDK_KEY_Up, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 2)) << "Up";
+    sendKey(historyRow(panel, 2), GDK_KEY_End, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 50)) << "End goes to the oldest listed step";
+    sendKey(historyRow(panel, 50), GDK_KEY_Home, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 0)) << "Home goes to the newest";
+    sendKey(historyRow(panel, 0), GDK_KEY_Down, 0);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 1)) << "the You are here row is a stop of its own";
+    sendKey(historyRow(panel, 1), GDK_KEY_Return, 0);
+    EXPECT_EQ(handler->undoCount(), 59U) << "the You are here row runs nothing";
+    EXPECT_EQ(historyStatus(panel).rfind("This is where you are now.", 0), 0U) << historyStatus(panel);
+
+    // The keyboard stays at the same place when the list is rebuilt, also when the history changes
+    gtk_widget_grab_focus(historyRow(panel, 5));
+    utn::refreshUndoHistoryPanel(panel);
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 5));
+    drawStep(control.get(), layer, 700);  // through the listener: the undone step goes, the rows are new
+    settle();
+    EXPECT_EQ(historyRows(panel).front(), "You are here");
+    EXPECT_EQ(hosted.focus(), historyRow(panel, 5)) << "the same place in the new list";
+    handler->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
 }

@@ -14,6 +14,7 @@
 #include "gui/toolbarMenubar/ToolMenuHandler.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
+#include "gui/toolbarMenubar/UndoHistoryPanel.h"
 #include "gui/toolbarMenubar/UtnWidgets.h"
 #include "model/Document.h"
 #include "model/PageNavigation.h"
@@ -113,6 +114,19 @@ void CommandPalette::buildEntries() {
     tool("tool.laser", _("Laser pointer"), "point presentation pen", TOOL_LASER_POINTER_PEN);
     simple("edit.undo", _("Undo"), _("Edit"), "back step", PRIORITY_EDIT, Action::UNDO);
     simple("edit.redo", _("Redo"), _("Edit"), "forward again", PRIORITY_EDIT, Action::REDO);
+    {
+        // The History page of the Classroom popover: never over the Blank cover or in quiet Present
+        Entry history;
+        history.meta.id = "edit.history";
+        history.meta.title = _("Undo history");
+        history.meta.category = _("Edit");
+        history.meta.keywords = "steps changes list back redo undo";
+        history.meta.priority = PRIORITY_EDIT;
+        history.meta.unavailableReason = utn::undoHistoryOpenReason(control);
+        history.available = [this]() { return utn::undoHistoryOpenReason(control).empty(); };
+        history.run = [this]() { utn::openUndoHistory(control); };
+        add(std::move(history));
+    }
 
     // Pages: the same actions the Navigation and Journal menus use
     const std::string page = _("Page");

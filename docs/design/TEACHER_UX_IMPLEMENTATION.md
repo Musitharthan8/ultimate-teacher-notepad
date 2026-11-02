@@ -33,7 +33,7 @@ test-gtk-integration.exe --gtest_filter='-*Soak*:*Stress*:*heavySession*'
 | 3 | 3, 6, 8 | implemented on existing systems, automated tests and independent reviews done; native checks limited (see Phase 3) |
 | 4 | 7, 11 | implemented on existing systems, automated tests and one independent review done; native checks NOT done (see Phase 4) |
 | 5 | 9, 5 (+ Phase 4 stabilisation) | implemented on existing systems; full automated verification at `1f47c342c` (see Phase 5); native checks NOT done |
-| 6 | 12, integration | not started |
+| 6 | 12 (+ integration) | 12 implemented on the existing undo history, targeted automated tests only; native checks NOT done (see Phase 6) |
 
 ## Phase 1
 
@@ -220,3 +220,42 @@ Start `308e6bd18`. Commits, oldest first: `d4d850818` + `d876e07ce` Task 1, `e74
 - Lesson Navigator popover: clicking a page moves the marker and keeps the keyboard in the popover.
 - Selection toolbar: placement above/below the selection, scrolled and zoomed, with the scrollbar on the left, in a narrow window (column), over the ink dock and the Spotlight banner.
 - Annotation Bank: Tab order inside the Feedback popover page; the glyphs ✓ ✗ ★ in the Windows fonts; an insert lands in the middle of what is on screen; popover width with six tabs; Student View shows the mark at once (single display, not fullscreen); Confirm restore; dark mode and High Contrast looks.
+
+## Phase 6
+
+Start `7dc87932a`.
+
+### Feature 12: Undo History panel
+
+- Reuses the existing history: `UndoRedoHandler` (its two lists, `UndoAction::getText`, the `UndoRedoListener` callbacks). No second undo system, nothing stored. Small additions to the handler: `undoCount/redoCount`, `undoTexts/redoTexts(max)` (newest first), `lastStepSucceeded()` (the result `undo()`/`redo()` already computed), `removeUndoRedoListener` (safe while listeners are being told: the slot is blanked and dropped afterwards). `Control::closeDocument` now tells every listener, not only Control itself (found by the shuffled tests: the panel kept listing a closed document's steps).
+- `model/UndoHistory.{h,cpp}` (GTK-free, 8 unit tests): newest first, at most 50 steps (half each side of the current point; a short side leaves its room to the other), hidden counts, "Change" for a step without words (also GroupUndoAction's "!! NOTHING !!"), row texts ("Write text (next Undo)", "Change color (next Redo, undone)", "Delete"), accessible names that start with the visible text and say what choosing the row does, and the gate: covered (Blank) and quiet Present hide the list, busy only refuses (privacy wins over busy).
+- UI: a "History" page in the Classroom popover of the tool dock (`gui/toolbarMenubar/UndoHistoryPanel.{h,cpp}`, in `ToolClassroomWorkflow`, whose tabs now scroll), so it is in Teach, Teach Tablet and Mark and absent from Present; and "Undo history" in the command palette (Edit), which opens that page with the keyboard on what Undo would undo. Status line (ATK status bar, set anew each time) saying what Undo takes away and Redo brings back; Undo and Redo buttons labelled as the menu items are ("Undo: Write text"), still focusable when they cannot run, with the reason as description, tooltip and status; a hint line; the list with a "You are here" row between undone (above, dimmed) and done steps; a line saying how many steps are not listed. Rows are cut short at 40 characters with the whole text in the tooltip; the page asks for 323 px and the popover stays at 402 px (same as without the page). Up/Down, Home/End and Page Up/Down move between rows (handled by the panel: GtkListBox's own keys start from a cursor that a row given the keyboard by the panel does not get), Enter or Space chooses one. The list follows every change through its listener (coalesced to one idle), and the keyboard stays at the same place in the rebuilt list.
+- Privacy: never in the Student View frame (the panel is only in the teacher window's Classroom popover). Under the Blank cover and in Present with its tools put away the list is emptied and hidden, the popover closes (the cover makes the content insensitive, which the panel watches), the palette entry is unavailable with the reason, and a jump in progress stops. Step descriptions are the action names ("Write text"), never element contents.
+
+### Jump to a step: implemented, and why it is safe
+
+Choosing a done step undoes back to before it; choosing an undone step redoes up to and including it. It is nothing but the ordinary action, `Action::UNDO`/`Action::REDO` fired through the ActionDatabase (the same GAction as Ctrl+Z/Ctrl+Y, so a disabled action does not run and `UndoRedoController` clears and restores the selection as it does for a key press), one step per main loop turn (idle), so redraws and the window title run between steps as between key presses. Before each step: the gate must be open (not busy, no Blank cover, not quiet Present), the action enabled, and the history exactly as the previous step left it (counts compared). After each step: the history must have moved by exactly one step and `lastStepSucceeded()` must be true. Anything else stops the jump where it is and says so ("Stopped after 1 of 3 steps: a step could not be completed"). The saved and autosaved points are the handler's own pointers, so going back to the saved step shows the document as unchanged (tested). A failed step behaves as with Ctrl+Z: the handler shows its own error and the step moves to Redo; the jump does not go past it. At most 50 steps (the listed ones).
+
+### Tests
+
+- Units: `UndoHistory.*` 8/8 (red first: they crashed on the empty stub), also shuffled with seed 777.
+- GTK (`ClassroomWorkflow.undoHistory*`, 6 tests, each alone and shuffled with seed 777, 6/6 both): real steps (Annotation Bank tick, selection toolbar Colour and Delete, new page) listed newest first with the marker, label-in-name, tooltips, Undo/Redo buttons, Redo cleared by a new step, "Nothing to redo" reachable; the Annotation Bank grouped layer + mark is one row and one Undo; a jump of three (including a selection move) is three ordinary Undo notifications, keeps the saved point, keeps the keyboard on the chosen step, and redoes back; jumps stop at a failing step, at a history changed between steps, and while busy (list still readable, buttons say why); Blank cover closes the open popover and empties the list, the palette entry is refused, Present has no Classroom popover; palette opens the page, 50-step bound with "10 earlier steps are not listed.", long text ellipsized with the full tooltip, keys, focus kept across a rebuild and a listener refresh, popover no wider than before. Related filter `ClassroomWorkflow.*alette*`: 13/13 (the palette catalog test now knows `edit.history`).
+- The main window's popovers are not mapped on this test display (the Lesson Navigator tests skip for the same reason), so the keyboard and focus checks run on the same panel hosted in a window of its own; the "keyboard on the next Undo after the palette opens it" check only runs where the popover maps (recorded as `history_popover_mapped`).
+- Departure from strict TDD: the panel was written before its GTK tests; the first runs were red for real faults (popover 700 px wide, keys not moving, stale list after a cleared history) and were fixed in code.
+- Not run: the full unit and GTK suites, the app build target, 96 DPI.
+
+### Known gaps (Feature 12)
+
+- Only the listed 50 steps can be jumped to; older steps need repeated jumps.
+- Step names are Xournal++'s own `getText()` strings (some in English only, e.g. "Move selection to layer"); a group shows its first step's name. New strings are not in the translation files.
+- No confirmation before a long jump (it is undone by choosing the step again from the other side). A jump of many page steps runs as fast as the main loop allows.
+- Not reachable in Present even with its tools revealed (Present's dock has no Classroom button); the palette says so.
+- The palette's reason is computed when the palette opens.
+
+### Native checks for a person
+
+- Classroom popover: History tab position and look in Teach and Mark, light, dark and High Contrast; six tabs scroll at 800 and 1024 wide.
+- Ctrl+K, "Undo history", Enter: the popover opens on History with the keyboard on the next Undo row; Up/Down/Home/End/Page keys, Enter on a row, Tab to the Undo and Redo buttons, Escape closes.
+- Draw a few strokes, add an Annotation Bank tick, move and recolour a selection, add a page: the list follows at once; jump back three steps and forward again; the title's unsaved marker matches.
+- Open the History, then raise Blank (single display, not fullscreen): the popover closes and stays closed.
+- NVDA: row names, the status line announcement after a jump, the greyed Redo reason.

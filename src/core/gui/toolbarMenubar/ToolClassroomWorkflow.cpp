@@ -11,6 +11,7 @@
 
 #include "AnswerBoxStyles.h"  // for MARKING_COMMENT_STYLE
 #include "SignaturePad.h"
+#include "UndoHistoryPanel.h"  // for createUndoHistoryPanel
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "enums/Action.enum.h"
@@ -436,6 +437,8 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
     auto* popover = GTK_POPOVER(gtk_popover_new());
     gtk_widget_add_css_class(GTK_WIDGET(popover), "toolbar");
     auto* tabs = GTK_NOTEBOOK(gtk_notebook_new());
+    // Six tabs: they scroll rather than widen the popover past the window on a small screen
+    gtk_notebook_set_scrollable(tabs, true);
     gtk_popover_set_child(popover, GTK_WIDGET(tabs));
 
     auto* materials = makePanel(tabs, _("Materials"));
@@ -477,6 +480,9 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
               _("Choose which pages to save as a separate PDF"), Action::EXPORT_AS);
     addHint(pages,
               _("Use Save pages as PDF to split a worksheet into parts."));
+
+    // What Undo and Redo would change, newest first; beside Pages, whose steps it lists too
+    gtk_notebook_append_page(tabs, utn::createUndoHistoryPanel(control, popover), gtk_label_new(_("History")));
 
     auto* marking = makePanel(tabs, _("Marking"));
     addCommand(marking, popover, control, _("Switch to marking layout"),
@@ -661,6 +667,7 @@ auto ToolClassroomWorkflow::createItem(bool horizontal) -> xoj::util::WidgetSPtr
 
 
     auto* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
+    gtk_widget_set_name(GTK_WIDGET(menu), utn::CLASSROOM_MENU_NAME);  // the Command Palette opens the History page here
     gtk_widget_set_focus_on_click(GTK_WIDGET(menu), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menu), getToolDisplayName().c_str());
     auto* heading = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5));

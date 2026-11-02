@@ -2832,7 +2832,8 @@ void Control::closeDocument() {
         navHistory->reset();
     }
 
-    this->undoRedoChanged();
+    // Every listener, this one among them: the Undo History panel must not keep listing the closed document's steps
+    this->undoRedo->fireUpdateUndoRedoButtons({});
 }
 
 void Control::initButtonTool() {

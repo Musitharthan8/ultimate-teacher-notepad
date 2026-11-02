@@ -1,6 +1,6 @@
 #include "UndoRedoHandler.h"
 
-#include <algorithm>  // for find_if
+#include <algorithm>  // for find_if, remove
 #include <cinttypes>  // for PRIu64
 #include <cstdint>    // for uint64_t
 #include <iterator>   // for end, begin
@@ -109,6 +109,7 @@ void UndoRedoHandler::undo() {
     this->undoList.pop_back();
 
     bool undoResult = undoAction.undo(this->control);
+    this->lastStepOk = undoResult;
 
     if (!undoResult) {
         string msg = FS(_F("Could not undo \"{1}\"\n"
@@ -135,6 +136,7 @@ void UndoRedoHandler::redo() {
     this->redoList.pop_back();
 
     bool redoResult = redoAction.redo(this->control);
+    this->lastStepOk = redoResult;
 
     if (!redoResult) {
         string msg = FS(_F("Could not redo \"{1}\"\n"
@@ -201,18 +203,64 @@ auto UndoRedoHandler::redoDescription() -> string {
 }
 
 void UndoRedoHandler::fireUpdateUndoRedoButtons(const std::vector<PageRef>& pages) {
-    for (auto&& undoRedoListener: this->listener) { undoRedoListener->undoRedoChanged(); }
+    // By index, skipping blanked slots: a listener may be added or removed while the others are told
+    ++this->firing;
+    for (size_t i = 0; i < this->listener.size(); ++i) {
+        if (auto* l = this->listener[i]) {
+            l->undoRedoChanged();
+        }
+    }
 
     for (PageRef page: pages) {
         if (!page) {
             continue;
         }
 
-        for (auto&& undoRedoListener: this->listener) { undoRedoListener->undoRedoPageChanged(page); }
+        for (size_t i = 0; i < this->listener.size(); ++i) {
+            if (auto* l = this->listener[i]) {
+                l->undoRedoPageChanged(page);
+            }
+        }
+    }
+    if (--this->firing == 0) {
+        this->listener.erase(std::remove(this->listener.begin(), this->listener.end(), nullptr), this->listener.end());
     }
 }
 
 void UndoRedoHandler::addUndoRedoListener(UndoRedoListener* listener) { this->listener.emplace_back(listener); }
+
+void UndoRedoHandler::removeUndoRedoListener(UndoRedoListener* listener) {
+    for (auto& l: this->listener) {
+        if (l == listener) {
+            l = nullptr;
+        }
+    }
+    if (this->firing == 0) {
+        this->listener.erase(std::remove(this->listener.begin(), this->listener.end(), nullptr), this->listener.end());
+    }
+}
+
+auto UndoRedoHandler::undoCount() const -> size_t { return this->undoList.size(); }
+
+auto UndoRedoHandler::redoCount() const -> size_t { return this->redoList.size(); }
+
+auto UndoRedoHandler::undoTexts(size_t max) -> std::vector<std::string> {
+    std::vector<std::string> texts;
+    for (auto it = this->undoList.rbegin(); it != this->undoList.rend() && texts.size() < max; ++it) {
+        texts.push_back((*it)->getText());
+    }
+    return texts;
+}
+
+auto UndoRedoHandler::redoTexts(size_t max) -> std::vector<std::string> {
+    std::vector<std::string> texts;
+    for (auto it = this->redoList.rbegin(); it != this->redoList.rend() && texts.size() < max; ++it) {
+        texts.push_back((*it)->getText());
+    }
+    return texts;
+}
+
+auto UndoRedoHandler::lastStepSucceeded() const -> bool { return this->lastStepOk; }
 
 auto UndoRedoHandler::isChanged() -> bool {
     if (this->undoList.empty()) {

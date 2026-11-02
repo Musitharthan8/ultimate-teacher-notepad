@@ -47,10 +47,21 @@ public:
     std::string undoDescription();
     std::string redoDescription();
 
+    /// UTN Undo History: how many steps Undo (Redo) can take
+    size_t undoCount() const;
+    size_t redoCount() const;
+    /// UTN Undo History: the descriptions of at most @p max steps, what Undo (Redo) does first coming first
+    std::vector<std::string> undoTexts(size_t max);
+    std::vector<std::string> redoTexts(size_t max);
+    /// UTN Undo History: false when the last undo() or redo() reported that its step went wrong
+    bool lastStepSucceeded() const;
+
     void clearContents();
 
     void fireUpdateUndoRedoButtons(const std::vector<PageRef>& pages);
     void addUndoRedoListener(UndoRedoListener* listener);
+    /// UTN: for listeners that go before the handler (a panel); safe while the listeners are being told
+    void removeUndoRedoListener(UndoRedoListener* listener);
 
     bool isChanged();
     bool isChangedAutosave();
@@ -69,6 +80,9 @@ private:
     UndoAction* autosavedUndo = nullptr;
 
     std::vector<UndoRedoListener*> listener;
+    /// Depth of fireUpdateUndoRedoButtons: a listener removed meanwhile is blanked, and dropped afterwards
+    int firing = 0;
+    bool lastStepOk = true;
 
     Control* control = nullptr;
 };
