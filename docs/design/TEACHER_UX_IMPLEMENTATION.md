@@ -32,7 +32,7 @@ test-gtk-integration.exe --gtest_filter='-*Soak*:*Stress*:*heavySession*'
 | 2 | 1, 2, 4, 10 | 4, 10, 1 implemented, partially verified (no native interaction checks); 2 already existed, audited |
 | 3 | 3, 6, 8 | implemented on existing systems, automated tests and independent reviews done; native checks limited (see Phase 3) |
 | 4 | 7, 11 | implemented on existing systems, automated tests and one independent review done; native checks NOT done (see Phase 4) |
-| 5 | 9, 5 | not started |
+| 5 | 9, 5 | implemented on existing systems; own tests only, full suites and native checks NOT done (see Phase 5) |
 | 6 | 12, integration | not started |
 
 ## Phase 1
@@ -166,3 +166,16 @@ Run the native pass first (real keyboard: Ctrl+K, Go to page, bookmark, thumbnai
 - Export reporting covers "Export as PDF" only. `CustomExportJob` (image export, export dialog) does not report its result yet.
 - No actionable popover on the status (Save now / Retry); the tooltip carries the details.
 - Visual system: remaining non-High-Contrast literals and a written type/spacing/size scale are not done.
+
+## Phase 5
+
+Feature 9 (floating selection toolbar, `gui/SelectionToolbar`, `model/SelectionToolbarPlacement`) is recorded in the Task 3 report; its review follow-ups (test setting guards, direct update on a layout switch, duplicate offset with no room, shared overlay names) are in the Step 0 commit.
+
+### Feature 5: Annotation Bank
+
+- `model/AnnotationBank.{h,cpp}` (GTK-free, 15 unit tests): built-in entries tick, cross, star (symbols, written at twice the Feedback size, at least 24 pt), "See me", "Well done" (comments); comments of the teacher's own; restore defaults; versioned saved form `v1;style|rrggbb|label|text;...` (escaped), at most 24 entries, label 40 bytes, text 120 bytes; entries with an unknown style, a bad colour, blank or over-long fields, control characters, invalid UTF-8 or a repeated text are dropped; anything unreadable gives the defaults; an emptied bank stays empty. `placeAnnotation` centres in the visible part of the page and keeps it on the page.
+- Stored in the `utn` settings element, key `annotationBank` (absent = defaults). `Control::{getAnnotationBank,updateAnnotationBank,annotationUnavailableReason,insertAnnotation}`.
+- Insert: an ordinary `Text` element (plain Feedback typography, entry colour). `LayerController::ensureVisibleInkLayer(false)` first (also when hidden answers show faintly), refused if the layer is still hidden or hidden answers; `Layer::addElement` under the document lock + one `InsertUndoAction`; then `utn::notifyStudentVisibilityChanged(true)`. Refused while `Control::isBlocked()`, while the teacher Blank cover is up, and in UTN Present while its tools are put away.
+- UI: an "Annotation Bank" page in the existing Feedback popover (`gui/toolbarMenubar/AnnotationBankPanel.{h,cpp}`, in `ToolTeacherStamp`), so it is in Teach, Teach Tablet and Mark and absent from Present. One button per entry (accessible name = its visible label), a "Remove" button per entry (name "Remove <label>"), a comment box with "Add to bank" (Enter adds) and "Restore defaults". Rebuilt when the popover opens; unavailable buttons are greyed with "Unavailable ..." as tooltip and status line. The popover closes after an insert.
+- Unsupported: picture or sticker stamps (no image entries: they would need a new stored asset), per-entry size or font, reordering entries, editing an entry in place (remove and add again), choosing a colour for a new comment (it takes the Feedback colour), placing at the pointer (the existing Feedback comments still place with a tap). No new document format: the page holds plain text elements.
+- Not done: command palette entries, translation files, native check (keyboard Tab order inside the notebook page, the glyphs ✓ ✗ ★ in the Windows fonts, dark mode, High Contrast, 96 DPI).

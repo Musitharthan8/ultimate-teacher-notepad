@@ -39,6 +39,7 @@
 #include "control/settings/Settings.h"                           // for Sett...
 #include "control/settings/SettingsEnums.h"                      // for Button
 #include "control/settings/ViewModes.h"                          // for ViewM..
+#include "control/tools/FeedbackTypography.h"                     // for feedbackFont
 #include "control/tools/TextEditor.h"                            // for Text...
 #include "control/xojfile/LoadHandler.h"                         // for Load...
 #include "control/zoom/ZoomControl.h"                            // for Zoom...
@@ -67,6 +68,7 @@
 #include "gui/menus/menubar/Menubar.h"                           // for Menubar
 #include "gui/sidebar/Sidebar.h"                                 // for Sidebar
 #include "gui/toolbarMenubar/ToolMenuHandler.h"                  // for Tool...
+#include "gui/toolbarMenubar/ToolStudentView.h"                  // for isTeacherCoverShown
 #include "gui/toolbarMenubar/model/ToolbarData.h"                // for Tool...
 #include "gui/toolbarMenubar/model/ToolbarModel.h"               // for Tool...
 #include "model/BackgroundImage.h"                               // for Back...
@@ -143,6 +145,7 @@ Control::Control(GApplication* gtkApp, GladeSearchpath* gladeSearchPath, bool di
     this->loadPaletteFromSettings();
     this->loadPenPresets();
     this->loadDockLayout();
+    this->loadAnnotationBank();
 
     this->pageTypes = new PageTypeHandler(gladeSearchPath);
 
@@ -2464,6 +2467,102 @@ void Control::updateDockLayout(const std::function<void(utn::DockLayout&)>& chan
     if (this->win) {
         this->win->reloadToolbars();  // the rail is built from the layout
     }
+}
+
+namespace {
+constexpr const char* ANNOTATION_BANK_SETTING = "annotationBank";
+}  // namespace
+
+void Control::loadAnnotationBank() {
+    std::string saved;
+    settings->getCustomElement("utn").getString(ANNOTATION_BANK_SETTING, saved);  // stays empty when never changed
+    this->annotationBank = utn::AnnotationBank::parse(saved);
+}
+
+void Control::updateAnnotationBank(const std::function<void(utn::AnnotationBank&)>& change) {
+    change(this->annotationBank);
+    settings->getCustomElement("utn").setString(ANNOTATION_BANK_SETTING, this->annotationBank.serialise());
+    settings->customSettingsChanged();
+}
+
+std::string Control::annotationUnavailableReason() {
+    if (!this->win || !getCurrentPage()) {
+        return _("Unavailable: there is no page to put it on");
+    }
+    if (isBlocked()) {
+        return _("Unavailable while UTN is busy");
+    }
+    if (auto* menus = this->win->getToolMenuHandler()) {
+        if (auto* students = menus->getStudentView(); students && students->isTeacherCoverShown()) {
+            return _("Unavailable while Blank covers your screen");
+        }
+    }
+    // Present keeps its tools out of the class's sight until the teacher reveals them
+    if (const ToolbarData* layout = this->win->getSelectedToolbar();
+        layout && layout->getId() == "UTN Present" && !this->win->isPresentToolsRevealed()) {
+        return _("Unavailable in Present until the tools are shown");
+    }
+    return {};
+}
+
+const Element* Control::insertAnnotation(const utn::Annotation& annotation) {
+    if (annotation.text.empty() || !annotationUnavailableReason().empty()) {
+        return nullptr;
+    }
+    // A text being typed or a selection would otherwise take the new element in
+    clearSelectionEndText();
+    const PageRef page = getCurrentPage();
+    const size_t pageNr = getCurrentPageNo();
+
+    // Like a pen stroke: never onto a hidden layer, never into the hidden answers
+    if (this->layerController->ensureVisibleInkLayer(false)) {
+        this->win->showToast(FS(_F("The selected layer is hidden, so this goes on \"{1}\"") %
+                                this->layerController->getCurrentLayerName()));
+    }
+    Layer* layer = page->getSelectedLayer();
+    if (!layer || !layer->isVisible() || utn::isHiddenAnswers(*layer)) {
+        return nullptr;
+    }
+
+    auto text = std::make_unique<Text>();
+    XojFont font = utn::feedbackFont(settings->getFont());  // plain, like a Feedback comment
+    if (annotation.style == utn::AnnotationStyle::Symbol) {
+        font.setSize(std::max(2 * font.getSize(), 24.0));  // a mark is read from across the room
+    }
+    text->setFont(font);
+    text->setColor(Color(static_cast<uint8_t>(annotation.rgb >> 16U), static_cast<uint8_t>(annotation.rgb >> 8U),
+                         static_cast<uint8_t>(annotation.rgb)));
+    text->setText(annotation.text);
+
+    // The part of the page on screen, in page coordinates: what the scrolled window shows of the layout, cut to the
+    // page. Worked out here because XournalView::getVisibleRect is empty until the page has been drawn once.
+    std::optional<utn::AnnotationArea> visible;
+    XournalView* xournal = this->win->getXournal();
+    if (const XojPageView* view = xournal->getViewFor(pageNr); view && xournal->getLayout()) {
+        const auto shown = xournal->getLayout()->getVisibleRect();
+        const auto corner = view->getPixelPosition();
+        const double left = std::max(shown.x, double(corner.x));
+        const double top = std::max(shown.y, double(corner.y));
+        const double right = std::min(shown.x + shown.width, double(corner.x + view->getDisplayWidth()));
+        const double bottom = std::min(shown.y + shown.height, double(corner.y + view->getDisplayHeight()));
+        const double zoom = view->getZoom();
+        if (right > left && bottom > top && zoom > 0) {
+            visible = utn::AnnotationArea{(left - corner.x) / zoom, (top - corner.y) / zoom, (right - left) / zoom,
+                                          (bottom - top) / zoom};
+        }
+    }
+    const auto box = text->getBoundingBox();
+    const auto at = utn::placeAnnotation(visible, page->getWidth(), page->getHeight(), box.width, box.height);
+    text->move(at.x - box.x, at.y - box.y);
+
+    const Element* inserted = text.get();
+    this->doc->lock();
+    layer->addElement(std::move(text));
+    this->doc->unlock();
+    page->fireElementChanged(inserted);
+    this->undoRedo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, inserted));
+    utn::notifyStudentVisibilityChanged(true);
+    return inserted;
 }
 
 void Control::updatePenPresets(const std::function<void(utn::PenPresetStore&)>& change) {

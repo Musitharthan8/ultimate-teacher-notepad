@@ -31,6 +31,7 @@
 #include "control/tools/EditSelection.h"            // for OrderChange
 #include "enums/Action.enum.h"                      // for Action
 #include "gui/toolbarMenubar/model/ColorPalette.h"  // for ColorPalette
+#include "model/AnnotationBank.h"                   // for AnnotationBank
 #include "model/DocumentHandler.h"                  // for DocumentHandler
 #include "model/DocumentListener.h"                 // for DocumentListener
 #include "model/DockLayout.h"                       // for DockLayout
@@ -173,6 +174,23 @@ public:
      */
     const utn::DockLayout& getDockLayout() const { return dockLayout; }
     void updateDockLayout(const std::function<void(utn::DockLayout&)>& change);
+
+    /**
+     * The Annotation Bank (see model/AnnotationBank.h). Kept in the settings; every change goes through
+     * updateAnnotationBank(), which saves it.
+     */
+    const utn::AnnotationBank& getAnnotationBank() const { return annotationBank; }
+    void updateAnnotationBank(const std::function<void(utn::AnnotationBank&)>& change);
+    /// Why insertAnnotation() cannot run now, as "Unavailable ..." for a tooltip, or empty when it can
+    std::string annotationUnavailableReason();
+    /**
+     * Puts @p annotation onto the current page as an ordinary text element, centred in the part of the page on screen
+     * and kept on the page, as one undo step. Like a pen stroke it never goes onto a hidden layer or into the hidden
+     * answers (LayerController::ensureVisibleInkLayer). Refused while busy, while the Blank cover is up and in Present
+     * while its tools are put away.
+     * @return the new element (owned by its layer), or nullptr when nothing was inserted
+     */
+    const Element* insertAnnotation(const utn::Annotation& annotation);
 
     /**
      * Close the current document, prompting to save unsaved changes.
@@ -600,6 +618,8 @@ private:
     void loadPenPresets();
     utn::DockLayout dockLayout;
     void loadDockLayout();
+    utn::AnnotationBank annotationBank;
+    void loadAnnotationBank();
     std::unique_ptr<Palette> palette;
     MainWindow* win = nullptr;
 

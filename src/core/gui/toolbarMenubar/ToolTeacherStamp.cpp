@@ -16,6 +16,7 @@
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 
+#include "AnnotationBankPanel.h"
 #include "UtnWidgets.h"
 
 namespace {
@@ -165,6 +166,9 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     g_signal_connect_swapped(customEntry, "activate", G_CALLBACK(gtk_button_clicked), customButton);
     gtk_box_append(custom, customButton);
     gtk_notebook_append_page(notebook, GTK_WIDGET(custom), gtk_label_new(_("Custom")));
+    // Placed at once in the middle of the page, without the extra tap a Feedback comment waits for
+    gtk_notebook_append_page(notebook, utn::createAnnotationBankPanel(control, popover),
+                             gtk_label_new(_("Annotation Bank")));
 
     gtk_box_append(panel, GTK_WIDGET(notebook));
     gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
