@@ -96,6 +96,7 @@
 #include "settings/RecolorParameters.h"                          // for RecolorParameters
 #include "undo/AddUndoAction.h"                                  // for AddU...
 #include "undo/DeleteUndoAction.h"                               // for DeleteUndoAction
+#include "undo/GroupUndoAction.h"                                // for GroupUndoAction
 #include "undo/InsertDeletePageUndoAction.h"                     // for Inse...
 #include "undo/InsertUndoAction.h"                               // for Inse...
 #include "undo/MoveSelectionToLayerUndoAction.h"                 // for Move...
@@ -637,7 +638,9 @@ void Control::duplicateSelection() {
         if (room >= 1) {
             return after >= start ? room : -room;
         }
-        return offset;
+        // Here the selection reaches within 1 pt of both edges, so a step either way keeps part of the copy on the page;
+        // the step back is for a page narrower than the step itself, where a step on would leave the copy beside it
+        return start + offset < pageSize ? offset : -offset;
     };
     const double dx = shift(bounds.x, bounds.width, page->getWidth());
     const double dy = shift(bounds.y, bounds.height, page->getHeight());
@@ -2502,6 +2505,10 @@ std::string Control::annotationUnavailableReason() {
         layout && layout->getId() == "UTN Present" && !this->win->isPresentToolsRevealed()) {
         return _("Unavailable in Present until the tools are shown");
     }
+    // insertAnnotation finds or makes a visible layer that is not the hidden answers whenever the page has a layer
+    if (getCurrentPage()->getLayerCount() == 0) {
+        return _("Unavailable: this page has no layer to write on");
+    }
     return {};
 }
 
@@ -2515,12 +2522,22 @@ const Element* Control::insertAnnotation(const utn::Annotation& annotation) {
     const size_t pageNr = getCurrentPageNo();
 
     // Like a pen stroke: never onto a hidden layer, never into the hidden answers
+    const Layer::Index layersBefore = page->getLayerCount();
     if (this->layerController->ensureVisibleInkLayer(false)) {
         this->win->showToast(FS(_F("The selected layer is hidden, so this goes on \"{1}\"") %
                                 this->layerController->getCurrentLayerName()));
     }
+    // A layer made for it is part of the same step: one Undo takes both away
+    UndoActionPtr newLayerStep;
+    if (page->getLayerCount() > layersBefore) {
+        newLayerStep = this->undoRedo->takeLastUndoAction();
+        if (newLayerStep && newLayerStep->getClassName() != "InsertLayerUndoAction") {
+            this->undoRedo->addUndoAction(std::move(newLayerStep));  // not the new layer's: leave it alone
+        }
+    }
     Layer* layer = page->getSelectedLayer();
     if (!layer || !layer->isVisible() || utn::isHiddenAnswers(*layer)) {
+        this->undoRedo->addUndoAction(std::move(newLayerStep));  // nothing goes in: the layer stays its own step
         return nullptr;
     }
 
@@ -2560,7 +2577,17 @@ const Element* Control::insertAnnotation(const utn::Annotation& annotation) {
     layer->addElement(std::move(text));
     this->doc->unlock();
     page->fireElementChanged(inserted);
-    this->undoRedo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, inserted));
+    auto insertStep = std::make_unique<InsertUndoAction>(page, layer, inserted);
+    if (newLayerStep) {
+        // Taken out of the layer before the layer goes, put back into it before it returns: the group undoes and
+        // redoes in its own order, insert first
+        auto group = std::make_unique<GroupUndoAction>();
+        group->addAction(std::move(insertStep));
+        group->addAction(std::move(newLayerStep));
+        this->undoRedo->addUndoAction(std::move(group));
+    } else {
+        this->undoRedo->addUndoAction(std::move(insertStep));
+    }
     utn::notifyStudentVisibilityChanged(true);
     return inserted;
 }

@@ -149,11 +149,11 @@ bool sameText(const Annotation& a, const std::string& text) { return lowered(a.t
 }  // namespace
 
 std::vector<Annotation> AnnotationBank::defaults() {
-    // Colours of the shared ink swatches (UtnWidgets.h), except the star: a dark amber, readable on white paper
+    // Colours of the shared ink swatches (UtnWidgets.h), except the star: a dark amber, about 5:1 on white paper
     return {
             {std::string("✓ ") + _("Tick"), "✓", AnnotationStyle::Symbol, 0x2E7D32},
             {std::string("✗ ") + _("Cross"), "✗", AnnotationStyle::Symbol, 0xD32F2F},
-            {std::string("★ ") + _("Star"), "★", AnnotationStyle::Symbol, 0xB26A00},
+            {std::string("★ ") + _("Star"), "★", AnnotationStyle::Symbol, 0x9A5B00},
             {_("See me"), _("See me"), AnnotationStyle::Comment, 0xD32F2F},
             {_("Well done"), _("Well done"), AnnotationStyle::Comment, 0x2E7D32},
     };
@@ -169,7 +169,9 @@ AnnotationBank::AddResult AnnotationBank::addComment(const std::string& text, ui
     std::replace_if(flat.begin(), flat.end(), [](unsigned char c) { return c < 0x20 || c == 0x7F; }, ' ');
     // Runs of spaces left by line breaks and tabs become one
     flat.erase(std::unique(flat.begin(), flat.end(), [](char a, char b) { return a == ' ' && b == ' '; }), flat.end());
-    flat = limitedBytes(trimmed(flat), MAX_TEXT_BYTES);
+    flat = trimmed(flat);
+    const bool cut = flat.size() > MAX_TEXT_BYTES;
+    flat = limitedBytes(flat, MAX_TEXT_BYTES);
     if (flat.empty()) {
         return AddResult::Empty;
     }
@@ -180,7 +182,7 @@ AnnotationBank::AddResult AnnotationBank::addComment(const std::string& text, ui
         return AddResult::Duplicate;
     }
     entries.push_back({limitedBytes(flat, MAX_LABEL_BYTES), flat, AnnotationStyle::Comment, rgb & 0xFFFFFFU});
-    return AddResult::Added;
+    return cut ? AddResult::Shortened : AddResult::Added;
 }
 
 bool AnnotationBank::remove(std::size_t index) {

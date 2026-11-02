@@ -7143,15 +7143,29 @@ TEST_F(ClassroomWorkflow, annotationBankIsUnavailableWhileBusyUnderTheBlankCover
     ASSERT_NE(panel, nullptr);
     Layer* layer = control->getCurrentPage()->getSelectedLayer();
     const utn::Annotation tick = control->getAnnotationBank().all()[0];
+    GtkWidget* status = widgetNamed(panel, "utnAnnotationBankStatus");
+    ASSERT_TRUE(GTK_IS_LABEL(status));
+    EXPECT_EQ(atk_object_get_role(gtk_widget_get_accessible(status)), ATK_ROLE_STATUSBAR) << "read out when it changes";
+    const auto statusText = [&]() { return std::string(gtk_label_get_text(GTK_LABEL(status))); };
     const auto expectUnavailable = [&](const char* why) {
         utn::refreshAnnotationBankPanel(panel);
         GtkWidget* insert = buttonAccessibleNamed(panel, tick.label.c_str());
         ASSERT_NE(insert, nullptr) << why;
-        EXPECT_FALSE(gtk_widget_is_sensitive(insert)) << why;
+        // Still reachable, so the keyboard and screen readers find out why. The button itself, not its ancestors:
+        // while busy the application greys whole toolbars, the Feedback button among them.
+        EXPECT_TRUE(gtk_widget_get_sensitive(insert)) << why;
+        EXPECT_TRUE(gtk_widget_get_can_focus(insert)) << why;
+        const char* description = atk_object_get_description(gtk_widget_get_accessible(insert));
+        ASSERT_NE(description, nullptr) << why;
+        EXPECT_EQ(std::string(description).rfind("Unavailable", 0), 0U) << why << ": " << description;
         gchar* tip = gtk_widget_get_tooltip_text(insert);
         ASSERT_NE(tip, nullptr) << why;
-        EXPECT_EQ(std::string(tip).rfind("Unavailable", 0), 0U) << why << ": " << tip;
+        EXPECT_NE(std::string(tip).find("Unavailable"), std::string::npos) << why << ": " << tip;
         g_free(tip);
+        EXPECT_EQ(statusText().rfind("Unavailable", 0), 0U) << why << ": " << statusText();
+        gtk_button_clicked(GTK_BUTTON(insert));  // activating it only says why
+        settle();
+        EXPECT_EQ(statusText().rfind("Unavailable", 0), 0U) << why << ": " << statusText();
         EXPECT_EQ(control->insertAnnotation(tick), nullptr) << why;
         EXPECT_TRUE(textsOn(layer).empty()) << why;
     };
@@ -7172,7 +7186,10 @@ TEST_F(ClassroomWorkflow, annotationBankIsUnavailableWhileBusyUnderTheBlankCover
     utn::refreshAnnotationBankPanel(panel);
     GtkWidget* insert = buttonAccessibleNamed(panel, tick.label.c_str());
     ASSERT_NE(insert, nullptr);
-    EXPECT_TRUE(gtk_widget_is_sensitive(insert)) << "available again";
+    EXPECT_EQ(std::string(atk_object_get_description(gtk_widget_get_accessible(insert))).rfind("Unavailable", 0),
+              std::string::npos)
+            << "available again";
+    EXPECT_EQ(statusText().rfind("Unavailable", 0), std::string::npos) << statusText();
 
     window->toolbarSelected("UTN Present");
     settle();
@@ -7201,7 +7218,8 @@ TEST_F(ClassroomWorkflow, annotationBankAddsRemovesAndRestoresEntriesAndKeepsThe
     utn::refreshAnnotationBankPanel(panel);
     GtkWidget* entry = widgetNamed(panel, "utnAnnotationBankEntry");
     ASSERT_TRUE(GTK_IS_ENTRY(entry));
-    EXPECT_FALSE(accessibleName(entry).empty()) << "the comment box is named";
+    EXPECT_EQ(accessibleName(entry).rfind(gtk_entry_get_placeholder_text(GTK_ENTRY(entry)), 0), 0U)
+            << "the comment box's name starts with the words it shows: " << accessibleName(entry);
     GtkWidget* add = buttonNamed(panel, "Add to bank");
     ASSERT_NE(add, nullptr);
     const auto saved = [&]() {
@@ -7240,12 +7258,168 @@ TEST_F(ClassroomWorkflow, annotationBankAddsRemovesAndRestoresEntriesAndKeepsThe
     EXPECT_EQ(control->getAnnotationBank().all().size(), 6U);
     EXPECT_EQ(buttonAccessibleNamed(panel, "Show your working"), nullptr);
     EXPECT_EQ(saved().all().size(), 6U);
+    EXPECT_EQ(std::string(gtk_label_get_text(GTK_LABEL(status))), "Removed: Show your working");
 
+    // Restoring throws the teacher's own comments away: it asks first, in place
     GtkWidget* restore = buttonNamed(panel, "Restore defaults");
     ASSERT_NE(restore, nullptr);
+    gtk_button_clicked(GTK_BUTTON(restore));
+    settle();
+    EXPECT_EQ(control->getAnnotationBank().all().size(), 6U) << "nothing restored on the first click";
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(restore)), "Confirm restore");
+    EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(restore)), "Confirm restore");
+    EXPECT_NE(std::string(gtk_label_get_text(GTK_LABEL(status))).find("Confirm restore"), std::string::npos);
     gtk_button_clicked(GTK_BUTTON(restore));
     settle();
     EXPECT_EQ(control->getAnnotationBank().all().size(), 5U);
     EXPECT_EQ(saved().all().size(), 5U);
     EXPECT_EQ(buttonAccessibleNamed(panel, "Neat"), nullptr);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(restore)), "Restore defaults");
+    EXPECT_EQ(std::string(gtk_label_get_text(GTK_LABEL(status))), "Defaults restored.");
+
+    // Asking is forgotten when the popover opens again
+    gtk_button_clicked(GTK_BUTTON(restore));
+    utn::refreshAnnotationBankPanel(panel);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(restore)), "Restore defaults");
+}
+
+// The keyboard stays in the panel: after Remove it goes to the next row's Remove (the one before at the end), and an
+// insert that is refused keeps it on the same entry although the rows are rebuilt.
+TEST_F(ClassroomWorkflow, annotationBankKeepsTheKeyboardInThePanelAfterRemoveAndARefusedInsert) {
+    AnnotationBankGuard bankGuard(control.get());
+    control->updateAnnotationBank([](utn::AnnotationBank& bank) { bank.restoreDefaults(); });
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    // A panel of its own in a window of its own: popovers are not mapped on every test display, and the keyboard only
+    // goes to mapped widgets
+    GtkWidget* host = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget* popover = gtk_popover_new(nullptr);
+    g_object_ref_sink(popover);
+    GtkWidget* panel = utn::createAnnotationBankPanel(control.get(), GTK_POPOVER(popover));
+    gtk_container_add(GTK_CONTAINER(host), panel);
+    gtk_widget_show_all(host);
+    settle();
+    struct Close {
+        GtkWidget* host;
+        GtkWidget* popover;
+        ~Close() {
+            gtk_widget_destroy(host);
+            g_object_unref(popover);
+            settle();
+        }
+    } close{host, popover};
+    if (!gtk_widget_get_mapped(panel)) {
+        GTEST_SKIP() << "this display does not map the window";
+    }
+    GtkWindow* top = GTK_WINDOW(host);
+    const auto focusName = [&]() {
+        GtkWidget* focus = gtk_window_get_focus(top);
+        return focus ? accessibleName(focus) : std::string("(none)");
+    };
+
+    GtkWidget* removeCross = buttonAccessibleNamed(panel, "Remove ✗ Cross");
+    ASSERT_NE(removeCross, nullptr);
+    gtk_widget_grab_focus(removeCross);
+    gtk_button_clicked(GTK_BUTTON(removeCross));
+    settle();
+    EXPECT_EQ(focusName(), "Remove ★ Star") << "the next row";
+
+    GtkWidget* removeLast = buttonAccessibleNamed(panel, "Remove Well done");
+    ASSERT_NE(removeLast, nullptr);
+    gtk_widget_grab_focus(removeLast);
+    gtk_button_clicked(GTK_BUTTON(removeLast));
+    settle();
+    EXPECT_EQ(focusName(), "Remove See me") << "the last row went: the one before";
+
+    // Refused because the Blank cover is up (while busy the button's ancestors are greyed, so it cannot take focus)
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    students->showTeacherBlankCover(true);
+    settle();
+    utn::refreshAnnotationBankPanel(panel);
+    GtkWidget* tick = buttonAccessibleNamed(panel, "✓ Tick");
+    ASSERT_NE(tick, nullptr);
+    gtk_widget_grab_focus(tick);
+    ASSERT_EQ(gtk_window_get_focus(top), tick) << "sensitive with its ancestors: " << gtk_widget_is_sensitive(tick);
+    const size_t before = control->getCurrentPage()->getSelectedLayer()->getElements().size();
+    gtk_button_clicked(GTK_BUTTON(tick));
+    settle();
+    EXPECT_EQ(control->getCurrentPage()->getSelectedLayer()->getElements().size(), before) << "refused";
+    EXPECT_EQ(focusName(), "✓ Tick") << "a refused insert keeps the keyboard on its (rebuilt) entry";
+    students->showTeacherBlankCover(false);
+    settle();
+}
+
+// When the page has nothing but hidden answers, a layer is made for the annotation, and that layer and the
+// annotation are one undo step.
+TEST_F(ClassroomWorkflow, annotationBankLayerMadeForItIsPartOfTheSameUndoStep) {
+    AnnotationBankGuard bankGuard(control.get());
+    control->updateAnnotationBank([](utn::AnnotationBank& bank) { bank.restoreDefaults(); });
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto page = control->getCurrentPage();
+    Layer* answers = page->getSelectedLayer();
+    ASSERT_EQ(page->getLayerCount(), 1U);
+    answers->setAudience(LayerAudience::Answers);
+    answers->setVisible(false);
+    control->getUndoRedoHandler()->clearContents();
+
+    const Element* placed = control->insertAnnotation(control->getAnnotationBank().all()[0]);
+    settle();
+    ASSERT_NE(placed, nullptr);
+    ASSERT_EQ(page->getLayerCount(), 2U) << "a layer was made for it";
+    Layer* made = page->getSelectedLayer();
+    ASSERT_NE(made, answers);
+    EXPECT_NE(made->indexOf(placed), Element::InvalidIndex);
+    EXPECT_TRUE(answers->getElements().empty());
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    EXPECT_EQ(page->getLayerCount(), 1U) << "one Undo takes the layer away too";
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "it was one step";
+    control->getActionDatabase()->fireActivateAction(Action::REDO);
+    settle();
+    ASSERT_EQ(page->getLayerCount(), 2U) << "Redo brings the layer back";
+    Layer* back = page->getLayers()[1];
+    EXPECT_NE(back->indexOf(placed), Element::InvalidIndex) << "with the annotation on it";
+    // Leave the page as the next test expects it
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    answers->setAudience(LayerAudience::Everyone);
+    answers->setVisible(true);
+}
+
+// A long comment is cut short on its button, so its tooltip carries it whole; six tabs do not make the Feedback
+// popover wider than a small window.
+TEST_F(ClassroomWorkflow, annotationBankLongLabelsAreWholeInTheTooltipAndThePopoverStaysNarrow) {
+    AnnotationBankGuard bankGuard(control.get());
+    const std::string longComment = "Look again at the second paragraph and check your evidence";
+    control->updateAnnotationBank([&](utn::AnnotationBank& bank) {
+        bank.restoreDefaults();
+        bank.addComment(longComment, 0);
+    });
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* panel = annotationBankPanel(window.get());
+    ASSERT_NE(panel, nullptr);
+    utn::refreshAnnotationBankPanel(panel);
+    const std::string label = control->getAnnotationBank().all().back().label;
+    ASSERT_LT(label.size(), longComment.size()) << "the label is the cut form";
+    GtkWidget* insert = buttonAccessibleNamed(panel, label.c_str());
+    ASSERT_NE(insert, nullptr);
+    gchar* tip = gtk_widget_get_tooltip_text(insert);
+    ASSERT_NE(tip, nullptr);
+    EXPECT_EQ(std::string(tip).rfind(label + ": ", 0), 0U) << tip;
+    g_free(tip);
+
+    GtkWidget* menu = menuButtonAccessibleNamed(window->get("tbLeft1"), "Feedback");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(menu));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu)));
+    GtkRequisition minimum{}, natural{};
+    gtk_widget_get_preferred_size(gtk_bin_get_child(GTK_BIN(popover)), &minimum, &natural);
+    RecordProperty("feedback_popover_natural_width", natural.width);
+    EXPECT_LE(natural.width, 560) << "natural width " << natural.width;
 }

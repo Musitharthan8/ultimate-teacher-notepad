@@ -42,7 +42,8 @@ public:
     static std::vector<Annotation> defaults();
     const std::vector<Annotation>& all() const { return entries; }
 
-    enum class AddResult { Added, Empty, Full, Duplicate };
+    /// Shortened: added, but cut to MAX_TEXT_BYTES first
+    enum class AddResult { Added, Shortened, Empty, Full, Duplicate };
     /**
      * Adds a comment of the teacher's own. Line breaks and other control characters become spaces, the text is trimmed
      * and cut to MAX_TEXT_BYTES (never inside a UTF-8 sequence); the label is the text, cut to MAX_LABEL_BYTES.

@@ -63,12 +63,36 @@ TEST(AnnotationBank, CutsLongCommentsWithoutSplittingACharacter) {
     for (int i = 0; i < 100; ++i) {
         longText += "é";  // two bytes each
     }
-    ASSERT_EQ(bank.addComment(longText, 0), AnnotationBank::AddResult::Added);
+    ASSERT_EQ(bank.addComment(longText, 0), AnnotationBank::AddResult::Shortened) << "says it was cut";
     const Annotation& added = bank.all().back();
     EXPECT_LE(added.text.size(), AnnotationBank::MAX_TEXT_BYTES);
     EXPECT_LE(added.label.size(), AnnotationBank::MAX_LABEL_BYTES);
     EXPECT_EQ(added.text.size() % 2, 0U) << "a whole number of two-byte characters";
     EXPECT_EQ(added.label.size() % 2, 0U);
+    // Exactly at the limit is not cut
+    EXPECT_EQ(bank.addComment(std::string(AnnotationBank::MAX_TEXT_BYTES, 'x'), 0), AnnotationBank::AddResult::Added);
+}
+
+TEST(AnnotationBank, SavedFieldsOfMultiByteCharactersAreKeptUpToTheByteLimitAndNotCut) {
+    std::string label;
+    for (std::size_t i = 0; i < AnnotationBank::MAX_LABEL_BYTES / 2; ++i) {
+        label += "é";  // exactly MAX_LABEL_BYTES bytes
+    }
+    const AnnotationBank atLimit = AnnotationBank::parse("v1;comment|000000|" + label + "|x");
+    ASSERT_EQ(atLimit.all().size(), 1U);
+    EXPECT_EQ(atLimit.all()[0].label, label);
+    // One more character: dropped whole, never cut inside a character
+    const AnnotationBank over = AnnotationBank::parse("v1;comment|000000|" + label + "é|x;comment|000000|ok|ok");
+    ASSERT_EQ(over.all().size(), 1U);
+    EXPECT_EQ(over.all()[0].text, "ok");
+}
+
+TEST(AnnotationBank, TheSameTextAsSymbolAndAsCommentIsOneEntry) {
+    const AnnotationBank read = AnnotationBank::parse("v1;symbol|2e7d32|✓ Tick|✓;comment|000000|Tick again|✓");
+    ASSERT_EQ(read.all().size(), 1U) << "the first one stays";
+    EXPECT_EQ(read.all()[0].style, AnnotationStyle::Symbol);
+    AnnotationBank bank;
+    EXPECT_EQ(bank.addComment("✓", 0), AnnotationBank::AddResult::Duplicate) << "the tick symbol is already there";
 }
 
 TEST(AnnotationBank, HoldsAtMostTheMaximumNumberOfEntries) {

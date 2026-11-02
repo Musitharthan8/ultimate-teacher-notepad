@@ -122,6 +122,8 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     GtkNotebook* notebook = GTK_NOTEBOOK(gtk_notebook_new());
     gtk_widget_set_size_request(GTK_WIDGET(notebook), 360, 210);
+    // Six tabs: they scroll rather than widen the popover past the window on a small screen
+    gtk_notebook_set_scrollable(notebook, true);
 
     gtk_notebook_append_page(notebook, createStampGrid(control, popover, QUICK_STAMPS), gtk_label_new(_("Quick")));
     gtk_notebook_append_page(notebook, createStampGrid(control, popover, WRITING_STAMPS), gtk_label_new(_("Writing")));

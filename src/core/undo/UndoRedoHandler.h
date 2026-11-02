@@ -41,6 +41,8 @@ public:
     bool canRedo();
 
     void addUndoAction(UndoActionPtr action);
+    /// UTN: takes the newest undo step back out, to fold it into one step with what follows; nullptr when there is none
+    UndoActionPtr takeLastUndoAction();
 
     std::string undoDescription();
     std::string redoDescription();

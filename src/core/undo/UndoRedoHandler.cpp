@@ -167,6 +167,15 @@ void UndoRedoHandler::addUndoAction(UndoActionPtr action) {
     printContents();
 }
 
+auto UndoRedoHandler::takeLastUndoAction() -> UndoActionPtr {
+    if (this->undoList.empty()) {
+        return nullptr;
+    }
+    UndoActionPtr last = std::move(this->undoList.back());
+    this->undoList.pop_back();
+    return last;
+}
+
 auto UndoRedoHandler::undoDescription() -> string {
     if (!this->undoList.empty()) {
         UndoAction& a = *this->undoList.back();

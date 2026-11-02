@@ -19,7 +19,10 @@ constexpr const char* POPOVER_KEY = "utn-popover";
 constexpr const char* ENTRIES_KEY = "utn-entries";
 constexpr const char* STATUS_KEY = "utn-status";
 constexpr const char* ENTRY_KEY = "utn-entry";
+constexpr const char* RESTORE_KEY = "utn-restore";
+constexpr const char* CONFIRMING_KEY = "utn-confirming";
 constexpr const char* INDEX_KEY = "utn-index";
+constexpr const char* KIND_KEY = "utn-kind";  ///< "insert" or "remove" on the entry buttons
 
 Control* controlOf(GtkWidget* panel) { return static_cast<Control*>(g_object_get_data(G_OBJECT(panel), CONTROL_KEY)); }
 
@@ -27,8 +30,12 @@ GtkWidget* partOf(GtkWidget* panel, const char* key) {
     return GTK_WIDGET(g_object_get_data(G_OBJECT(panel), key));
 }
 
+/// The status line is a status bar for screen readers: every message is set anew, so it is read even when the same
+/// message comes twice in a row
 void setStatus(GtkWidget* panel, const std::string& text) {
-    gtk_label_set_text(GTK_LABEL(partOf(panel, STATUS_KEY)), text.c_str());
+    GtkLabel* status = GTK_LABEL(partOf(panel, STATUS_KEY));
+    gtk_label_set_text(status, "");
+    gtk_label_set_text(status, text.c_str());
 }
 
 /// The status line when nothing else has to be said
@@ -51,6 +58,28 @@ std::size_t indexOf(GtkWidget* button) {
     return GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(button), INDEX_KEY));
 }
 
+/// The Insert or Remove button of row @p index after a rebuild, or nullptr
+GtkWidget* rowButton(GtkWidget* panel, std::size_t index, const char* kind) {
+    GtkWidget* found = nullptr;
+    GList* rows = gtk_container_get_children(GTK_CONTAINER(partOf(panel, ENTRIES_KEY)));
+    for (GList* row = rows; row && !found; row = row->next) {
+        if (!GTK_IS_CONTAINER(row->data)) {
+            continue;
+        }
+        GList* buttons = gtk_container_get_children(GTK_CONTAINER(row->data));
+        for (GList* b = buttons; b && !found; b = b->next) {
+            auto* button = GTK_WIDGET(b->data);
+            if (g_strcmp0(static_cast<const char*>(g_object_get_data(G_OBJECT(button), KIND_KEY)), kind) == 0 &&
+                indexOf(button) == index) {
+                found = button;
+            }
+        }
+        g_list_free(buttons);
+    }
+    g_list_free(rows);
+    return found;
+}
+
 void insertClicked(GtkButton* button, gpointer) {
     GtkWidget* panel = panelOf(GTK_WIDGET(button));
     if (!panel) {
@@ -64,7 +93,13 @@ void insertClicked(GtkButton* button, gpointer) {
     }
     const Annotation chosen = entries[index];  // a copy: inserting may rebuild what the bank hands out
     if (!control->insertAnnotation(chosen)) {
-        refreshAnnotationBankPanel(panel);  // the reason it could not, on the buttons and the status line
+        // Say why, and keep the keyboard on the same entry although the rows are rebuilt
+        refreshAnnotationBankPanel(panel);
+        if (GtkWidget* same = rowButton(panel, index, "insert")) {
+            gtk_widget_grab_focus(same);
+        }
+        const std::string reason = control->annotationUnavailableReason();
+        setStatus(panel, reason.empty() ? std::string(_("Nothing was put on the page.")) : reason);
         return;
     }
     // The teacher sees it land; the popover would cover the middle of the page
@@ -76,11 +111,21 @@ void removeClicked(GtkButton* button, gpointer) {
     if (!panel) {
         return;
     }
+    Control* control = controlOf(panel);
     const std::size_t index = indexOf(GTK_WIDGET(button));
-    controlOf(panel)->updateAnnotationBank([index](AnnotationBank& bank) { bank.remove(index); });
+    if (index >= control->getAnnotationBank().all().size()) {
+        return;
+    }
+    const std::string label = control->getAnnotationBank().all()[index].label;
+    control->updateAnnotationBank([index](AnnotationBank& bank) { bank.remove(index); });
     refreshAnnotationBankPanel(panel);
-    // The removed row took the keyboard with it: keep it in the panel
-    gtk_widget_grab_focus(partOf(panel, ENTRY_KEY));
+    // The removed row took the keyboard with it: the next row's Remove, else the one before, else the comment box
+    GtkWidget* next = rowButton(panel, index, "remove");
+    if (!next && index > 0) {
+        next = rowButton(panel, index - 1, "remove");
+    }
+    gtk_widget_grab_focus(next ? next : partOf(panel, ENTRY_KEY));
+    setStatus(panel, FS(_F("Removed: {1}") % label));
 }
 
 void addClicked(GtkWidget* panel) {
@@ -97,6 +142,10 @@ void addClicked(GtkWidget* panel) {
             gtk_entry_set_text(GTK_ENTRY(entry), "");
             setStatus(panel, _("Added to the bank."));
             break;
+        case AnnotationBank::AddResult::Shortened:
+            gtk_entry_set_text(GTK_ENTRY(entry), "");
+            setStatus(panel, _("Added to the bank, shortened to fit."));
+            break;
         case AnnotationBank::AddResult::Empty:
             setStatus(panel, _("Type a comment first."));
             break;
@@ -107,6 +156,28 @@ void addClicked(GtkWidget* panel) {
             setStatus(panel, _("That comment is already in the bank."));
             break;
     }
+}
+
+void setRestoreConfirming(GtkWidget* panel, bool confirming) {
+    GtkWidget* restore = partOf(panel, RESTORE_KEY);
+    g_object_set_data(G_OBJECT(restore), CONFIRMING_KEY, GINT_TO_POINTER(confirming ? 1 : 0));
+    const char* label = confirming ? _("Confirm restore") : _("Restore defaults");
+    gtk_button_set_label(GTK_BUTTON(restore), label);
+    utn::setAccessibleName(restore, label);
+}
+
+/// Two steps, without a dialog: the first click asks, the second replaces the bank
+void restoreClicked(GtkWidget* panel) {
+    GtkWidget* restore = partOf(panel, RESTORE_KEY);
+    if (!GPOINTER_TO_INT(g_object_get_data(G_OBJECT(restore), CONFIRMING_KEY))) {
+        setRestoreConfirming(panel, true);
+        setStatus(panel, _("Click Confirm restore to go back to the built-in entries. Your own comments will go."));
+        return;
+    }
+    controlOf(panel)->updateAnnotationBank([](AnnotationBank& bank) { bank.restoreDefaults(); });
+    refreshAnnotationBankPanel(panel);  // also puts the button back to Restore defaults
+    gtk_widget_grab_focus(restore);
+    setStatus(panel, _("Defaults restored."));
 }
 }  // namespace
 
@@ -124,6 +195,8 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     gtk_widget_set_name(status, "utnAnnotationBankStatus");
     gtk_label_set_line_wrap(GTK_LABEL(status), true);
     gtk_label_set_xalign(GTK_LABEL(status), 0);
+    // Read out when it changes, like a status bar
+    atk_object_set_role(gtk_widget_get_accessible(status), ATK_ROLE_STATUSBAR);
     gtk_box_append(GTK_BOX(panel), status);
     g_object_set_data(G_OBJECT(panel), STATUS_KEY, status);
 
@@ -135,6 +208,9 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     gtk_widget_set_name(entries, "utnAnnotationBankEntries");
     utn::setAccessibleName(entries, _("Annotation Bank entries"));
     gtk_container_add(GTK_CONTAINER(scroller), entries);
+    // Tab into a row below the fold scrolls it into view
+    gtk_container_set_focus_vadjustment(GTK_CONTAINER(entries),
+                                        gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroller)));
     gtk_box_append(GTK_BOX(panel), scroller);
     g_object_set_data(G_OBJECT(panel), ENTRIES_KEY, entries);
 
@@ -144,7 +220,8 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     gtk_widget_set_hexpand(entry, true);
     gtk_entry_set_max_length(GTK_ENTRY(entry), static_cast<gint>(AnnotationBank::MAX_TEXT_BYTES));
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), _("Your own comment"));
-    utn::setAccessibleName(entry, _("New comment for the bank"));
+    // Starts with the placeholder, the only words shown in the empty box
+    utn::setAccessibleName(entry, _("Your own comment for the bank"));
     gtk_box_append(GTK_BOX(addRow), entry);
     g_object_set_data(G_OBJECT(panel), ENTRY_KEY, entry);
     GtkWidget* add = gtk_button_new_with_label(_("Add to bank"));
@@ -156,15 +233,12 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     g_signal_connect_swapped(entry, "activate", G_CALLBACK(addClicked), panel);
 
     GtkWidget* restore = gtk_button_new_with_label(_("Restore defaults"));
-    gtk_widget_set_tooltip_text(restore, _("Bring back tick, cross, star, \"See me\" and \"Well done\"; your own comments go"));
+    gtk_widget_set_tooltip_text(restore,
+                                _("Bring back tick, cross, star, \"See me\" and \"Well done\"; your own comments go"));
     gtk_widget_set_halign(restore, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(panel), restore);
-    g_signal_connect_swapped(restore, "clicked", G_CALLBACK(+[](GtkWidget* panel) {
-                                 controlOf(panel)->updateAnnotationBank(
-                                         [](AnnotationBank& bank) { bank.restoreDefaults(); });
-                                 refreshAnnotationBankPanel(panel);
-                             }),
-                             panel);
+    g_object_set_data(G_OBJECT(panel), RESTORE_KEY, restore);
+    g_signal_connect_swapped(restore, "clicked", G_CALLBACK(restoreClicked), panel);
 
     // Rebuilt whenever the popover opens: the bank may have changed, and inserting may have become (un)available
     g_signal_connect_object(popover, "show", G_CALLBACK(+[](GtkWidget*, gpointer panel) {
@@ -183,25 +257,33 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
         gtk_widget_destroy(GTK_WIDGET(row->data));
     }
     g_list_free(rows);
+    setRestoreConfirming(panel, false);
 
+    // Unavailable entries stay focusable, so the keyboard and screen readers still reach them and hear why; clicking
+    // one says why on the status line and Control refuses the insert
     const std::string reason = control->annotationUnavailableReason();
+    const std::string hint = reason.empty() ? std::string(_("Puts it in the middle of the page; Undo takes it away")) :
+                                              reason;
     const auto& bank = control->getAnnotationBank().all();
     for (std::size_t i = 0; i < bank.size(); ++i) {
         const Annotation& a = bank[i];
-        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);  // apart: Remove cannot be undone
         GtkWidget* insert = gtk_button_new_with_label(a.label.c_str());
         gtk_widget_set_hexpand(insert, true);
         gtk_widget_set_focus_on_click(insert, false);  // keyboard users can still Tab to it
         if (GtkWidget* label = gtk_bin_get_child(GTK_BIN(insert)); GTK_IS_LABEL(label)) {
             gtk_label_set_xalign(GTK_LABEL(label), 0);
             gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            if (!reason.empty()) {
+                gtk_widget_add_css_class(label, "dim-label");
+            }
         }
         utn::setAccessibleName(insert, a.label.c_str());  // exactly what it reads
-        gtk_widget_set_sensitive(insert, reason.empty());
-        gtk_widget_set_tooltip_text(insert,
-                                    reason.empty() ? _("Put it in the middle of the page (Undo takes it away)") :
-                                                     reason.c_str());
+        atk_object_set_description(gtk_widget_get_accessible(insert), hint.c_str());
+        // The whole label too: a long one is cut short on the button
+        gtk_widget_set_tooltip_text(insert, (a.label + ": " + hint).c_str());
         g_object_set_data(G_OBJECT(insert), INDEX_KEY, GSIZE_TO_POINTER(i));
+        g_object_set_data(G_OBJECT(insert), KIND_KEY, const_cast<char*>("insert"));
         g_signal_connect(insert, "clicked", G_CALLBACK(insertClicked), nullptr);
         gtk_box_append(GTK_BOX(row), insert);
 
@@ -211,6 +293,7 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
         utn::setAccessibleName(remove, removeName.c_str());
         gtk_widget_set_tooltip_text(remove, _("Take this entry out of the bank (nothing on the page changes)"));
         g_object_set_data(G_OBJECT(remove), INDEX_KEY, GSIZE_TO_POINTER(i));
+        g_object_set_data(G_OBJECT(remove), KIND_KEY, const_cast<char*>("remove"));
         g_signal_connect(remove, "clicked", G_CALLBACK(removeClicked), nullptr);
         gtk_box_append(GTK_BOX(row), remove);
         gtk_box_append(GTK_BOX(entries), row);
