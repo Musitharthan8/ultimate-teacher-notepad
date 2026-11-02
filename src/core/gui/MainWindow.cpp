@@ -1736,6 +1736,7 @@ void MainWindow::setPresentToolsRevealed(bool revealed) {
     }
     presentToolsRevealed = revealed;
     updateTeacherWorkspace();
+    updateSelectionToolbar();  // one of the tools Present keeps hidden
     keepFocusUseful();
 }
 

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
 namespace utn {
 
@@ -34,8 +35,11 @@ struct ToolbarPosition {
  * Centred over the selection and @p gap above it; below it when there is no room above; at the top of the visible
  * canvas when neither fits (a selection taller than the window). Never outside the visible canvas, except that a
  * toolbar larger than it starts at its top-left corner. std::nullopt when no part of the selection is visible.
+ * @param avoid other widgets over the canvas (ink dock, banner), in the same coordinates as the result: when one
+ * covers the preferred side, the other side of the selection is taken if it fits and is free
  */
 std::optional<ToolbarPosition> placeSelectionToolbar(const ToolbarBox& selection, double width, double height,
-                                                     const ToolbarBox& visible, double gap);
+                                                     const ToolbarBox& visible, double gap,
+                                                     const std::vector<ToolbarBox>& avoid = {});
 
 }  // namespace utn

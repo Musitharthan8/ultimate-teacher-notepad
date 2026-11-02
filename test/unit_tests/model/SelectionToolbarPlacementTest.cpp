@@ -79,3 +79,35 @@ TEST(SelectionToolbarPlacement, aToolbarWiderThanTheWindowStartsAtItsLeftEdge) {
     ASSERT_TRUE(at);
     EXPECT_DOUBLE_EQ(at->x, 0);
 }
+
+TEST(SelectionToolbarPlacement, aSelectionPartlyAboveTheTopEdgeGetsTheToolbarBelowIt) {
+    const auto at = placeSelectionToolbar({100, -20, 50, 60}, WIDTH, HEIGHT, VIEW, GAP);
+    ASSERT_TRUE(at);
+    EXPECT_DOUBLE_EQ(at->y, -20 + 60 + GAP);
+}
+
+// Other overlay widgets (the ink dock, the Spotlight banner) are avoided by taking the other side of the selection
+TEST(SelectionToolbarPlacement, takesTheOtherSideWhenAnOverlayWidgetIsWhereItWouldGo) {
+    const ToolbarBox banner{0, 150, 800, 30};  // across the place above the selection
+    const auto at = placeSelectionToolbar({100, 200, 50, 40}, WIDTH, HEIGHT, VIEW, GAP, {banner});
+    ASSERT_TRUE(at);
+    EXPECT_DOUBLE_EQ(at->y, 200 + 40 + GAP);
+    EXPECT_DOUBLE_EQ(at->x, 125 - WIDTH / 2) << "only the side changes";
+
+    const ToolbarBox dock{300, 500, 200, 60};  // elsewhere: no reason to move
+    const auto free = placeSelectionToolbar({100, 200, 50, 40}, WIDTH, HEIGHT, VIEW, GAP, {dock});
+    ASSERT_TRUE(free);
+    EXPECT_DOUBLE_EQ(free->y, 200 - GAP - HEIGHT);
+}
+
+TEST(SelectionToolbarPlacement, keepsItsFirstChoiceWhenEverySideIsCoveredByAnOverlayWidget) {
+    const ToolbarBox above{0, 150, 800, 30};
+    const ToolbarBox below{0, 240, 800, 40};
+    const auto at = placeSelectionToolbar({100, 200, 50, 40}, WIDTH, HEIGHT, VIEW, GAP, {above, below});
+    ASSERT_TRUE(at);
+    EXPECT_DOUBLE_EQ(at->y, 200 - GAP - HEIGHT);
+    // Near the top edge only below fits: it stays there even when covered, never on top of the selection
+    const auto top = placeSelectionToolbar({100, 20, 50, 40}, WIDTH, HEIGHT, VIEW, GAP, {ToolbarBox{0, 60, 800, 40}});
+    ASSERT_TRUE(top);
+    EXPECT_DOUBLE_EQ(top->y, 20 + 40 + GAP);
+}

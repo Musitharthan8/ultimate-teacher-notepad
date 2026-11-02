@@ -1,6 +1,8 @@
 #include "SelectionToolbar.h"
 
-#include <cmath>  // for lround
+#include <cmath>        // for lround
+#include <string_view>  // for string_view
+#include <vector>       // for vector
 
 #include <gdk/gdkkeysyms.h>  // for GDK_KEY_Escape
 
@@ -118,19 +120,22 @@ SelectionToolbar::SelectionToolbar(MainWindow* win, Control* control, GtkOverlay
     gtk_widget_set_no_show_all(widget, true);
     gtk_widget_hide(widget);
     gtk_overlay_add_overlay(overlay, widget);
+    // Lowest of the overlay widgets: the ink dock and the Spotlight banner (with its Exit button) stay on top of it
+    gtk_overlay_reorder_overlay(overlay, widget, 0);
     gtk_overlay_set_overlay_pass_through(overlay, widget, false);
     g_object_ref(widget);
     g_object_ref(overlay);
     g_signal_connect(overlay, "get-child-position", G_CALLBACK(childPosition), this);
 
-    // Scrolling, zooming and moving the selection all redraw the page: follow them from there
+    // Scrolling, zooming and moving the selection all redraw the page: follow them from there. Before the page's own
+    // handler, which returns true and so stops the emission before any handler connected after it.
     canvas = win->getXournal()->getWidget();
     g_object_ref(canvas);
-    g_signal_connect_after(canvas, "draw", G_CALLBACK(+[](GtkWidget*, cairo_t*, gpointer data) -> gboolean {
-                               static_cast<SelectionToolbar*>(data)->scheduleUpdate();
-                               return false;
-                           }),
-                           this);
+    g_signal_connect(canvas, "draw", G_CALLBACK(+[](GtkWidget*, cairo_t*, gpointer data) -> gboolean {
+                         static_cast<SelectionToolbar*>(data)->scheduleUpdate();
+                         return false;
+                     }),
+                     this);
 
     registerListener(control);
 }
@@ -156,6 +161,10 @@ bool SelectionToolbar::wanted(const EditSelection* selection) const {
     if (!layout || !utn::isTeacherLayout(layout->getId())) {
         return false;
     }
+    // Present keeps its tools out of the class's sight until the teacher reveals them; this toolbar is one of them
+    if (layout->getId() == "UTN Present" && !win->isPresentToolsRevealed()) {
+        return false;
+    }
     if (!isSelectToolType(control->getToolHandler()->getToolType())) {
         return false;
     }
@@ -179,8 +188,26 @@ std::optional<utn::ToolbarPosition> SelectionToolbar::placeFor(const EditSelecti
     gtk_widget_get_preferred_size(widget, nullptr, &natural);
     const auto visible = xournal->getLayout()->getVisibleRect();
     const auto box = selection->getBoundingBoxInView();
+    // The ink dock and the Spotlight banner while they are up, relative to the visible canvas. Only these two: the
+    // toolboxes and the toast stay mapped in their revealers while put away, so being mapped says nothing about them.
+    std::vector<utn::ToolbarBox> avoid;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(overlay));
+    for (GList* c = children; c; c = c->next) {
+        auto* child = GTK_WIDGET(c->data);
+        const bool dockOrBanner =
+                std::string_view(gtk_widget_get_name(child)) == "utnInkDock" ||
+                gtk_style_context_has_class(gtk_widget_get_style_context(child), "utn-presentation-banner");
+        int x = 0, y = 0;
+        if (!dockOrBanner || !gtk_widget_get_mapped(child) ||
+            !gtk_widget_translate_coordinates(child, canvas, 0, 0, &x, &y)) {
+            continue;
+        }
+        avoid.push_back({double(x), double(y), double(gtk_widget_get_allocated_width(child)),
+                         double(gtk_widget_get_allocated_height(child))});
+    }
+    g_list_free(children);
     return utn::placeSelectionToolbar({box.x, box.y, box.width, box.height}, natural.width, natural.height,
-                                      {visible.x, visible.y, visible.width, visible.height}, GAP);
+                                      {visible.x, visible.y, visible.width, visible.height}, GAP, avoid);
 }
 
 void SelectionToolbar::syncButtons() {
@@ -275,12 +302,11 @@ gboolean SelectionToolbar::childPosition(GtkOverlay* overlay, GtkWidget* child, 
             self->position = placed;
         }
     }
-    // The position is relative to the visible canvas, which is the scrolled window around the page widget
-    GtkWidget* scroller = gtk_widget_get_ancestor(self->canvas, GTK_TYPE_SCROLLED_WINDOW);
+    // The position is relative to the visible canvas. The page widget scrolls its own content, so its allocation is the
+    // visible canvas; the scrolled window around it also holds the scrollbars, which may be on the left.
     const int x = static_cast<int>(std::lround(self->position->x));
     const int y = static_cast<int>(std::lround(self->position->y));
-    if (!scroller || !gtk_widget_translate_coordinates(scroller, GTK_WIDGET(overlay), x, y, &allocation->x,
-                                                      &allocation->y)) {
+    if (!gtk_widget_translate_coordinates(self->canvas, GTK_WIDGET(overlay), x, y, &allocation->x, &allocation->y)) {
         allocation->x = x;
         allocation->y = y;
     }

@@ -6328,6 +6328,7 @@ void selectOneStroke(Control* control, MainWindow* window, Layer* layer, double 
 // The toolbar appears beside a fresh selection, leaves the keyboard on the page, names every button as it reads, and
 // sits next to the selection, not on it.
 TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTakingTheKeyboard) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     window->toolbarSelected("UTN Teacher");
@@ -6378,6 +6379,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarAppearsBesideTheSelectionWithoutTaking
 // Escape in the toolbar puts it away for this selection and gives the keyboard back to the page; changing the tool, the
 // page or the workspace hides it too.
 TEST_F(ClassroomWorkflow, selectionToolbarHidesOnEscapeToolChangePageChangeAndOutsideTheTeacherWorkspace) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     GtkWidget* canvas = window->getXournal()->getWidget();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
@@ -6427,6 +6429,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarHidesOnEscapeToolChangePageChangeAndOu
 
 // Never over the Blank cover that hides the teacher's canvas, and never while a job holds the application.
 TEST_F(ClassroomWorkflow, selectionToolbarNeverShowsOverTheBlankCoverOrWhileTheApplicationIsBusy) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_TRUE(selectionToolbarShown(window.get()));
@@ -6456,6 +6459,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarNeverShowsOverTheBlankCoverOrWhileTheA
 
 // Delete runs the real delete: the stroke goes, Undo brings it back, Redo removes it again.
 TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     Layer* layer = page->getSelectedLayer();
     selectOneStroke(control.get(), window.get(), layer);
@@ -6480,6 +6484,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) 
 // Duplicate copies into the layer the objects came from, here a teacher-only layer below the top one, never the
 // clipboard; the copy is offset, selected, and one Undo removes it.
 TEST_F(ClassroomWorkflow, selectionToolbarDuplicateCopiesIntoTheSourceLayerAsOneUndoStep) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     auto* layers = control->getLayerController();
     Layer* open = page->getSelectedLayer();
@@ -6526,6 +6531,7 @@ TEST_F(ClassroomWorkflow, selectionToolbarDuplicateCopiesIntoTheSourceLayerAsOne
 // A Duplicate that cannot keep the copy in its source layer is greyed with the reason and does nothing when activated;
 // Colour is offered only while the selection has a colour, and recolouring is undoable.
 TEST_F(ClassroomWorkflow, selectionToolbarButtonsOnlyRunWhatTheSelectionAllowsAndColourIsUndoable) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
     auto page = control->getCurrentPage();
     auto* layers = control->getLayerController();
     Layer* first = page->getSelectedLayer();
@@ -6588,6 +6594,14 @@ TEST_F(ClassroomWorkflow, selectionToolbarButtonsOnlyRunWhatTheSelectionAllowsAn
 
 // The Workspace menu turns the toolbar off and on again, and remembers the choice in the (test) settings.
 TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
+    // Control loads the real settings, where the teacher may have turned it off: start from on and put back whatever
+    // was there, even when an assertion ends the test early
+    struct RestoreSetting {
+        SelectionToolbar* toolbar;
+        bool enabled;
+        ~RestoreSetting() { toolbar->setEnabled(enabled); }
+    } restore{window->getSelectionToolbar(), window->getSelectionToolbar()->isEnabled()};
+    window->getSelectionToolbar()->setEnabled(true);
     auto page = control->getCurrentPage();
     selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
     ASSERT_TRUE(selectionToolbarShown(window.get()));
@@ -6598,7 +6612,10 @@ TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
     GtkWidget* toggle = buttonNamed(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))),
                                     "Show selection toolbar");
     ASSERT_TRUE(GTK_IS_CHECK_BUTTON(toggle));
-    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle))) << "on by default";
+    // The menu was built from the setting as it was then; bring the check box in step with the forced start
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), true);
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
 
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), false);
     settle();
@@ -6607,11 +6624,223 @@ TEST_F(ClassroomWorkflow, selectionToolbarSettingOffHidesItAndOnBringsItBack) {
     EXPECT_TRUE(utnSettings.getBool(SelectionToolbar::SETTING, saved));
     EXPECT_FALSE(saved);
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), true);  // also the state the next test expects
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), true);
     settle();
     EXPECT_TRUE(selectionToolbarShown(window.get()));
     EXPECT_TRUE(utnSettings.getBool(SelectionToolbar::SETTING, saved));
     EXPECT_TRUE(saved);
     control->clearSelection();
     settle();
+}
+
+// Present is the quiet projector layout: its tools stay out of the class's sight until the teacher reveals them, and
+// the selection toolbar (a red Delete among them) is one of those tools.
+TEST_F(ClassroomWorkflow, selectionToolbarStaysHiddenInPresentUntilTheToolsAreRevealed) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    auto page = control->getCurrentPage();
+    selectOneStroke(control.get(), window.get(), page->getSelectedLayer());
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+
+    window->toolbarSelected("UTN Present");
+    settle();
+    ASSERT_EQ(window->getSelectedToolbar()->getId(), "UTN Present");
+    ASSERT_FALSE(window->isPresentToolsRevealed());
+    if (!window->getXournal()->getSelection()) {
+        control->selectTool(TOOL_SELECT_RECT);
+        control->selectAllOnPage();
+        settle();
+    }
+    ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "Present keeps its tools hidden";
+    window->updateSelectionToolbar();
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "and stays hidden";
+
+    window->setPresentToolsRevealed(true);
+    settle();
+    EXPECT_TRUE(selectionToolbarShown(window.get())) << "the teacher asked for the tools";
+    window->setPresentToolsRevealed(false);
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(window->getSelectionToolbar()->getWidget())) << "tools put away again";
+
+    window->toolbarSelected("UTN Teacher");
+    settle();
+    if (!window->getXournal()->getSelection()) {
+        control->selectTool(TOOL_SELECT_RECT);
+        control->selectAllOnPage();
+        settle();
+    }
+    EXPECT_TRUE(selectionToolbarShown(window.get())) << "Teach shows it as before";
+    control->clearSelection();
+    settle();
+}
+
+// Undo straight after Duplicate, while the copy is still selected: the copy goes, the original stays where it was
+// (the same object), and Redo brings back the very same copy.
+TEST_F(ClassroomWorkflow, selectionToolbarDuplicateThenImmediateUndoRemovesOnlyTheCopyAndRedoRestoresIt) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    auto page = control->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
+    selectOneStroke(control.get(), window.get(), layer);
+    control->getUndoRedoHandler()->clearContents();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    const Element* original = window->getXournal()->getSelection()->getElementsView().front();
+    const auto originalBox = original->getBoundingBox();
+
+    gtk_button_clicked(GTK_BUTTON(selectionToolbarButton(window.get(), "Duplicate")));
+    settle();
+    auto* selection = window->getXournal()->getSelection();
+    ASSERT_NE(selection, nullptr);
+    ASSERT_EQ(selection->getElementsView().size(), 1U);
+    const Element* copy = selection->getElementsView().front();
+    ASSERT_NE(copy, original) << "a new object, not the original moved";
+    ASSERT_EQ(layer->getElements().size(), 1U) << "the selected copy is out of the layer while selected";
+    EXPECT_EQ(layer->getElements().front().get(), original);
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);  // no clearSelection first
+    settle();
+    control->clearSelection();
+    settle();
+    ASSERT_EQ(layer->getElements().size(), 1U) << "Undo removes the copy";
+    EXPECT_EQ(layer->getElements().front().get(), original) << "the original is untouched";
+    const auto box = original->getBoundingBox();
+    EXPECT_DOUBLE_EQ(box.x, originalBox.x);
+    EXPECT_DOUBLE_EQ(box.y, originalBox.y);
+    EXPECT_FALSE(control->getUndoRedoHandler()->canUndo()) << "Duplicate was one step";
+
+    control->getActionDatabase()->fireActivateAction(Action::REDO);
+    settle();
+    control->clearSelection();
+    settle();
+    ASSERT_EQ(layer->getElements().size(), 2U) << "Redo brings the copy back";
+    EXPECT_EQ(layer->getElements()[0].get(), original);
+    EXPECT_EQ(layer->getElements()[1].get(), copy) << "the same copy, not a new one";
+}
+
+// A copy of something at the right or bottom edge of the page is offset the other way, so it stays on the page.
+TEST_F(ClassroomWorkflow, selectionToolbarDuplicateAtThePageEdgeKeepsTheCopyOnThePage) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    auto page = control->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    auto ink = std::make_unique<Stroke>();
+    ink->setWidth(12);
+    ink->setColor(Color(0U));
+    ink->addPoint(Point(page->getWidth() - 40, page->getHeight() - 10));
+    ink->addPoint(Point(page->getWidth() - 10, page->getHeight() - 10));
+    const Element* original = ink.get();
+    layer->addElement(std::move(ink));
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+    ASSERT_NE(window->getXournal()->getSelection(), nullptr);
+    const auto originalBox = original->getBoundingBox();
+    ASSERT_LE(originalBox.x + originalBox.width, page->getWidth());
+    ASSERT_LE(originalBox.y + originalBox.height, page->getHeight());
+
+    // The bottom of the page may be scrolled out of the window, and the toolbar with it: run what its button runs
+    ASSERT_TRUE(control->canDuplicateSelection());
+    control->duplicateSelection();
+    settle();
+    auto* selection = window->getXournal()->getSelection();
+    ASSERT_NE(selection, nullptr);
+    const Element* copy = selection->getElementsView().front();
+    control->clearSelection();
+    settle();
+    ASSERT_EQ(layer->getElements().size(), 2U);
+    const auto box = copy->getBoundingBox();
+    EXPECT_GE(box.x, 0);
+    EXPECT_GE(box.y, 0);
+    EXPECT_LE(box.x + box.width, page->getWidth()) << "the copy stays inside the page";
+    EXPECT_LE(box.y + box.height, page->getHeight()) << "the copy stays inside the page";
+    EXPECT_TRUE(box.x != originalBox.x || box.y != originalBox.y) << "still offset, so both can be seen";
+}
+
+// With the vertical scrollbar on the left the canvas starts a scrollbar width to the right of the scrolled window;
+// the toolbar is placed against the canvas itself.
+TEST_F(ClassroomWorkflow, selectionToolbarIsPlacedAgainstTheCanvasWhenTheScrollbarIsOnTheLeft) {
+    window->getSelectionToolbar()->setEnabled(true);  // Control loads the real settings, where it may be off
+    GtkWidget* canvas = window->getXournal()->getWidget();
+    GtkWidget* scroller = gtk_widget_get_ancestor(canvas, GTK_TYPE_SCROLLED_WINDOW);
+    ASSERT_NE(scroller, nullptr);
+    auto* scrolled = GTK_SCROLLED_WINDOW(scroller);
+    GtkPolicyType hPolicy{}, vPolicy{};
+    gtk_scrolled_window_get_policy(scrolled, &hPolicy, &vPolicy);
+    struct RestoreScroller {
+        GtkScrolledWindow* scrolled;
+        GtkCornerType placement;
+        bool overlay;
+        GtkPolicyType h, v;
+        ~RestoreScroller() {
+            gtk_scrolled_window_set_placement(scrolled, placement);
+            gtk_scrolled_window_set_overlay_scrolling(scrolled, overlay);
+            gtk_scrolled_window_set_policy(scrolled, h, v);
+            settle();
+        }
+    } restore{scrolled, gtk_scrolled_window_get_placement(scrolled),
+              static_cast<bool>(gtk_scrolled_window_get_overlay_scrolling(scrolled)), hPolicy, vPolicy};
+    // Contents to the right of the scrollbar: a classic, always-shown scrollbar on the left
+    gtk_scrolled_window_set_placement(scrolled, GTK_CORNER_TOP_RIGHT);
+    gtk_scrolled_window_set_overlay_scrolling(scrolled, false);
+    gtk_scrolled_window_set_policy(scrolled, hPolicy, GTK_POLICY_ALWAYS);
+
+    auto page = control->getCurrentPage();
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    auto ink = std::make_unique<Stroke>();
+    ink->setWidth(12);
+    ink->setColor(Color(0U));
+    ink->addPoint(Point(280, 300));
+    ink->addPoint(Point(320, 300));
+    page->getSelectedLayer()->addElement(std::move(ink));
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    int canvasX = 0, canvasY = 0;
+    ASSERT_TRUE(gtk_widget_translate_coordinates(canvas, scroller, 0, 0, &canvasX, &canvasY));
+    if (canvasX <= 0) {
+        control->clearSelection();
+        GTEST_SKIP() << "this theme draws no scrollbar beside the canvas";
+    }
+
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    int tx = 0, ty = 0;
+    ASSERT_TRUE(gtk_widget_translate_coordinates(toolbar, canvas, 0, 0, &tx, &ty));
+    const int tw = gtk_widget_get_allocated_width(toolbar);
+    const auto box = window->getXournal()->getSelection()->getBoundingBoxInView();
+    const auto visible = window->getXournal()->getLayout()->getVisibleRect();
+    const double centred = box.x - visible.x + box.width / 2.0 - tw / 2.0;
+    const double maxX = std::max(0.0, static_cast<double>(gtk_widget_get_allocated_width(canvas) - tw));
+    EXPECT_NEAR(tx, std::clamp(centred, 0.0, maxX), 1.0) << "scrollbar width " << canvasX;
+    EXPECT_GE(tx, 0) << "never over the scrollbar";
+    control->clearSelection();
+    settle();
+}
+
+// The ink dock and the Spotlight banner (with its Exit button) stay above the selection toolbar in the overlay, so the
+// toolbar can never cover them.
+TEST_F(ClassroomWorkflow, selectionToolbarLiesBelowTheInkDockAndTheBannerInTheOverlay) {
+    GtkWidget* toolbar = window->getSelectionToolbar()->getWidget();
+    GtkWidget* overlay = gtk_widget_get_parent(toolbar);
+    ASSERT_TRUE(GTK_IS_OVERLAY(overlay));
+    GList* children = gtk_container_get_children(GTK_CONTAINER(overlay));
+    int toolbarAt = -1, dockAt = -1, bannerAt = -1, index = 0;
+    for (GList* c = children; c; c = c->next, ++index) {
+        auto* child = GTK_WIDGET(c->data);
+        if (child == toolbar) {
+            toolbarAt = index;
+        } else if (std::string(gtk_widget_get_name(child)) == "utnInkDock") {
+            dockAt = index;
+        } else if (gtk_style_context_has_class(gtk_widget_get_style_context(child), "utn-presentation-banner")) {
+            bannerAt = index;
+        }
+    }
+    g_list_free(children);
+    ASSERT_GE(toolbarAt, 0);
+    ASSERT_GE(dockAt, 0);
+    ASSERT_GE(bannerAt, 0);
+    EXPECT_LT(toolbarAt, dockAt) << "drawn first, so the dock is on top";
+    EXPECT_LT(toolbarAt, bannerAt) << "drawn first, so the banner is on top";
 }

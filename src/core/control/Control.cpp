@@ -86,7 +86,7 @@
 #include "model/Stroke.h"                                        // for Stroke
 #include "model/StrokeStyle.h"                                   // for Stro...
 #include "model/StudentVisibility.h"                             // for notifyStudentVisibilityChanged
-#include "model/TexImage.h"                                    // for TexI...
+#include "model/TexImage.h"                                      // for TexI...
 #include "model/Text.h"                                          // for Text
 #include "model/XojPage.h"                                       // for XojPage
 #include "pdf/base/XojPdfPage.h"                                 // for XojP...
@@ -592,26 +592,53 @@ void Control::duplicateSelection() {
     Layer* layer = sel->getSourceLayer();
     XojPageView* view = sel->getView();
     const auto originals = sel->getElementsView().clone();
+    if (originals.empty()) {
+        return;
+    }
 
     // The originals go back where they came from, with any pending move or resize applied, so the copy matches them
     clearSelection();
 
     // Never through the clipboard: a paste lands in whatever layer is active, while a copy of teacher-only or hidden
     // content must stay in that layer
-    constexpr double offset = 12;  // enough to see that there are two
     std::vector<const Element*> copies;
     copies.reserve(originals.size());
     InsertionOrderRef positions;
     positions.reserve(originals.size());
     this->doc->lock();
+    // Finalising puts the originals onto the page under the grab point, which may not be the source page: then there
+    // is no source layer to copy beside them, and nothing is copied
+    if (layer->indexOf(originals.front()) == Element::InvalidIndex) {
+        this->doc->unlock();
+        return;
+    }
+
+    // Down and to the right, enough to see that there are two; the other way along an axis where that would leave
+    // the page, so the copy is never cut off at the right or bottom edge
+    constexpr double offset = 12;
+    xoj::util::Rectangle<double> bounds = originals.front()->getBoundingBox();
+    for (const Element* e: originals) {
+        bounds.unite(e->getBoundingBox());
+    }
+    const auto shift = [](double start, double size, double pageSize) {
+        if (start + size + offset <= pageSize) {
+            return offset;
+        }
+        return start - offset >= 0 ? -offset : 0.0;
+    };
+    const double dx = shift(bounds.x, bounds.width, page->getWidth());
+    const double dy = shift(bounds.y, bounds.height, page->getHeight());
+
+    // Appended in order after the elements already there, so the positions are known without searching the layer
+    const auto base = static_cast<Element::Index>(layer->getElements().size());
     for (const Element* e: originals) {
         auto copy = e->clone();
-        copy->move(offset, offset);
+        copy->move(dx, dy);
         copies.push_back(copy.get());
         layer->addElement(std::move(copy));
     }
-    for (const Element* e: copies) {
-        positions.emplace_back(e, layer->indexOf(e));
+    for (size_t i = 0; i < copies.size(); ++i) {
+        positions.emplace_back(copies[i], base + static_cast<Element::Index>(i));
     }
     this->doc->unlock();
     this->undoRedo->addUndoAction(std::make_unique<InsertsUndoAction>(page, layer, copies));
