@@ -8082,3 +8082,33 @@ TEST_F(ClassroomWorkflow, undoHistoryOpensFromThePaletteIsKeyboardNavigableBound
     handler->clearContents();
     control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
 }
+
+// --- Phase 6: Teacher Annotation Palette and the one colour-changed path ---------------------------------------------
+
+namespace {
+/// The colour the rail's Colours button shows, 0xRRGGBB
+uint32_t railColour(GtkWidget* rail) {
+    return GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(rail), "utn-rail-colour")) & 0xFFFFFFU;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, colourRailIndicatorFollowsAPresetThatChangesThePenColour) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getTool(TOOL_PEN).getColor();
+    control->selectTool(TOOL_PEN);
+    tools->setColor(Color{0x00U, 0x00U, 0x00U}, false);
+    settle();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    EXPECT_EQ(railColour(rail), 0x000000U) << "the rail shows the pen's black";
+
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    settle();
+    EXPECT_EQ(railColour(rail), 0xD93025U) << "the rail must show the colour the preset gave the pen";
+
+    tools->setColor(previous, false);
+}

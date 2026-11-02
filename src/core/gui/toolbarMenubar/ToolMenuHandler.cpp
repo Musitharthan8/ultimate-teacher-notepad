@@ -127,13 +127,19 @@ void teacherApplyColour(Control* ctrl, Color selected) {
     }
 }
 
+/// The rail's colour dot. The colour it shows is also kept on the button ("utn-rail-colour", 0xAARRGGBB) for tests.
+void showRailColour(GtkWidget* menu, Color current) {
+    gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(current, 22, true));
+    g_object_set_data(G_OBJECT(menu), "utn-rail-colour", GUINT_TO_POINTER(static_cast<uint32_t>(current)));
+}
+
 void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     auto* grid = GTK_GRID(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
     auto* custom = GTK_COLOR_BUTTON(g_object_get_data(G_OBJECT(popover), "utn-custom-colour"));
     const Color current = teacherCurrentColour(ctrl);
     // Colour preview in the left rail follows the tool selected when the palette is opened.
     if (GtkWidget* owner = gtk_popover_get_relative_to(popover); GTK_IS_MENU_BUTTON(owner)) {
-        gtk_button_set_child(GTK_BUTTON(owner), ColorIcon::newGtkImage(current, 22, false));
+        showRailColour(owner, current);
     }
     // The palette has no meaning for Eraser/Hand; avoid silently modifying their tool state.
     const bool available = ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR);
@@ -212,7 +218,7 @@ public:
                          }), control);
 
         GtkMenuButton* menu = GTK_MENU_BUTTON(gtk_menu_button_new());
-        gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(teacherCurrentColour(control), 22, true));
+        showRailColour(GTK_WIDGET(menu), teacherCurrentColour(control));
         gtk_widget_set_tooltip_text(GTK_WIDGET(menu), _("Quick colours and custom colour picker"));
         utn::setAccessibleName(GTK_WIDGET(menu), _("Colours"));
         gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
