@@ -435,6 +435,9 @@ public:
                 gtk_box_append(GTK_BOX(cell), caption);
                 g_object_set_data(G_OBJECT(cell), "utn-swatch", button);
                 g_object_set_data(G_OBJECT(cell), "utn-palette-kind", GINT_TO_POINTER(static_cast<int>(kind)));
+                // The cell is shown or hidden as a whole by the refresh; its parts must already be shown, because
+                // no_show_all also stops the panel's show_all from reaching them
+                gtk_widget_show_all(cell);
                 gtk_widget_set_no_show_all(cell, true);
                 gtk_grid_attach(grid, cell, static_cast<int>(i % 3), static_cast<int>(i / 3), 1, 1);
             }

@@ -8542,6 +8542,113 @@ TEST_F(ClassroomWorkflow, theAnnotationPaletteTabsFollowTheToolAndChoosingATabCh
     control->selectTool(TOOL_PEN);
 }
 
+namespace {
+/// True when @p widget and every ancestor up to @p stop is set visible, so that it has to be on the screen
+bool shownThrough(GtkWidget* widget, GtkWidget* stop) {
+    for (GtkWidget* w = widget; w; w = gtk_widget_get_parent(w)) {
+        if (!gtk_widget_get_visible(w) || !gtk_widget_get_child_visible(w)) {
+            return false;
+        }
+        if (w == stop) {
+            return true;
+        }
+    }
+    return true;
+}
+
+/// Every widget under @p root that is set visible all the way up, and is not on the screen with a size
+void collectUnseen(GtkWidget* root, GtkWidget* popover, std::vector<std::string>& unseen) {
+    if (shownThrough(root, popover)) {
+        GtkAllocation a{};
+        gtk_widget_get_allocation(root, &a);
+        if (!gtk_widget_get_mapped(root) || a.width <= 0 || a.height <= 0) {
+            unseen.push_back(std::string(G_OBJECT_TYPE_NAME(root)) + " " + std::to_string(a.width) + "x" +
+                             std::to_string(a.height) + (gtk_widget_get_mapped(root) ? "" : " unmapped"));
+        }
+    }
+    if (GTK_IS_CONTAINER(root)) {
+        GList* kids = gtk_container_get_children(GTK_CONTAINER(root));
+        for (GList* k = kids; k; k = k->next) {
+            collectUnseen(GTK_WIDGET(k->data), popover, unseen);
+        }
+        g_list_free(kids);
+    }
+}
+
+/// A swatch the teacher can see: its cell, the swatch and the colour's name under it are mapped and have a size
+void expectSwatchSeen(GtkWidget* popover, const char* name) {
+    GtkWidget* swatch = buttonAccessibleNamed(popover, name);
+    ASSERT_NE(swatch, nullptr) << name;
+    for (GtkWidget* w: {swatch, gtk_widget_get_parent(swatch)}) {
+        GtkAllocation a{};
+        gtk_widget_get_allocation(w, &a);
+        EXPECT_TRUE(gtk_widget_get_visible(w)) << name;
+        EXPECT_TRUE(gtk_widget_get_mapped(w)) << name << " is set visible but is not on the screen";
+        EXPECT_GT(a.width, 0) << name;
+        EXPECT_GT(a.height, 0) << name;
+    }
+    GtkWidget* caption = nullptr;
+    GList* siblings = gtk_container_get_children(GTK_CONTAINER(gtk_widget_get_parent(swatch)));
+    for (GList* s = siblings; s; s = s->next) {
+        if (GTK_IS_LABEL(s->data)) {
+            caption = GTK_WIDGET(s->data);
+        }
+    }
+    g_list_free(siblings);
+    ASSERT_NE(caption, nullptr) << name << " has its name written under it";
+    EXPECT_TRUE(gtk_widget_get_mapped(caption)) << name << " caption is not on the screen";
+}
+}  // namespace
+
+// A real screen showed the palette without its colour swatches: the cells were no-show-all, so the refresh showed the
+// cell only and its swatch and name stayed hidden. Widget state said "visible"; the screen did not.
+TEST_F(ClassroomWorkflow, theOpenedAnnotationPaletteReallyShowsItsSwatchesAndRowsOnEveryTab) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(rail)));
+
+    struct Tab {
+        int index;
+        const char* swatch;
+        const char* row;  // a control the tab adds, found by its accessible name
+    };
+    const Tab tabs[] = {{0, "Orange", nullptr}, {1, "Cyan", "Opacity"}, {2, "Orange", nullptr}, {3, "Orange", "Text size"}};
+    for (const Tab& tab: tabs) {
+        SCOPED_TRACE(tab.index);
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        settle();
+        control->selectTool(TOOL_PEN);
+        control->setToolDrawingType(DRAWING_TYPE_DEFAULT);
+        if (tab.index == 1) {
+            control->selectTool(TOOL_HIGHLIGHTER);
+        } else if (tab.index == 2) {
+            control->setToolDrawingType(DRAWING_TYPE_RECTANGLE);
+        } else if (tab.index == 3) {
+            control->selectTool(TOOL_TEXT);
+        }
+        gtk_popover_popup(GTK_POPOVER(popover));
+        settle();
+        ASSERT_TRUE(gtk_widget_get_mapped(popover));
+        expectSwatchSeen(popover, tab.swatch);
+        if (tab.row) {
+            GtkWidget* row = accessibleNamed(popover, tab.row);
+            ASSERT_NE(row, nullptr) << tab.row;
+            EXPECT_TRUE(gtk_widget_get_mapped(row)) << tab.row;
+        }
+        std::vector<std::string> unseen;
+        collectUnseen(popover, popover, unseen);
+        for (const auto& u: unseen) {
+            ADD_FAILURE() << "set visible but not on the screen with a size: " << u;
+        }
+        gtk_popover_popdown(GTK_POPOVER(popover));
+        settle();
+    }
+    control->selectTool(TOOL_PEN);
+}
+
 TEST_F(ClassroomWorkflow, shapesAndTextColoursStayInStepWithTheRailAndThePalette) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
