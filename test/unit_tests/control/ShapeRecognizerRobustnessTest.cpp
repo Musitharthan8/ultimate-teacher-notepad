@@ -192,10 +192,14 @@ TEST(ShapeRecognizerRobustness, LegacyCircleRejectsNonFinitePoints) {
                           std::numeric_limits<double>::infinity()}) {
         SCOPED_TRACE(invalid);
         for (int badIndex: {0, 17, 90}) {
+            Stroke reference;
+            ellipse(reference, 50.0, 50.0, 12.0, 12.0, 0.0);
             Stroke input;
-            ellipse(input, 50.0, 50.0, 12.0, 12.0, 0.0);
-            auto& points = input.getPointVector();
-            points[badIndex].x = invalid;
+            const auto& points = reference.getPointVector();
+            for (size_t i = 0; i < points.size(); ++i) {
+                const auto& p = points[i];
+                input.addPoint({static_cast<int>(i) == badIndex ? invalid : p.x, p.y});
+            }
             EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
         }
     }
