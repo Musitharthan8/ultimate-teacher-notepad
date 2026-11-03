@@ -134,7 +134,7 @@ auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
 namespace {
 // Ordinary page units, not a user-specific recognition sensitivity setting.
 constexpr double MIN_LOOP_DIAGONAL = 8.0;
-constexpr double MAX_GAP_FRACTION = 0.18;
+constexpr double MAX_GAP_FRACTION = 0.14;  // round loops need tighter closure than sharp-corner polygons
 constexpr double CIRCLE_RELATIVE_RMS = 0.09;
 constexpr double ELLIPSE_RELATIVE_RMS = 0.095;
 
