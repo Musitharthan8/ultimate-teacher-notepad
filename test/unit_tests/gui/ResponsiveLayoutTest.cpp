@@ -215,3 +215,10 @@ TEST(ResponsiveLayout, TheSavedModeRoundTripsAndAnythingElseIsCustom) {
         EXPECT_EQ(parseInterfaceMode(unknown), InterfaceMode::Custom) << "'" << unknown << "'";
     }
 }
+
+// The labelled rail needs room for its longest caption ("Highlight"); the icon-only rail keeps its slim width
+TEST(ResponsiveLayout, theLabelledRailIsWiderThanTheIconOnlyRail) {
+    EXPECT_EQ(teacherRailWidth(false), TEACHER_RAIL_WIDTH);
+    EXPECT_GT(teacherRailWidth(true), TEACHER_RAIL_WIDTH);
+    EXPECT_GE(teacherRailWidth(true), 72);
+}

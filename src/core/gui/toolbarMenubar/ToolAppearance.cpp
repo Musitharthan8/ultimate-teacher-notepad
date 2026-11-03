@@ -102,6 +102,19 @@ auto ToolAppearance::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     gtk_box_append(panel, density);
 
+    // Back to the standard layout, for a profile that kept an old arrangement (labelled rail, docked settings panel)
+    gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget* reset = utn::appendMenuButton(panel, popover, _("Reset layout"),
+                                             _("Icons-only tool rail, standard interface, settings panel folded. Your theme, "
+                                               "colours and tools stay as they are."));
+    utn::setAccessibleName(reset, _("Reset layout"));
+    g_signal_connect(reset, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         if (MainWindow* window = static_cast<Control*>(data)->getWindow()) {
+                             window->resetLayout();
+                         }
+                     }),
+                     control);
+
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());

@@ -2238,6 +2238,13 @@ void MainWindow::setToolLabelMode(int mode) {
     updateCompactLayout(this->layoutWidth);
 }
 
+void MainWindow::resetLayout() {
+    // The same setters the menus use, so the saved choices and the buttons that show them stay in step
+    setToolLabelMode(utn::layout::LABELS_HIDE);
+    setInterfaceMode(utn::layout::InterfaceMode::Custom);
+    setTeacherWorkspace(1);
+}
+
 void MainWindow::setInterfaceMode(utn::layout::InterfaceMode mode) {
     this->interfaceMode = mode;
     this->control->getSettings()->getCustomElement("utn").setString("interfaceMode", utn::layout::interfaceModeName(mode));
@@ -2311,7 +2318,8 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
     if (railScroller) {
         // The native toolbar's natural width is driven by its largest child (often a tool label or popover target).
         // The Paper & Ink scroller stays at the concept width; classic toolbars retain the existing compact policy.
-        const int railWidth = paperInkRail ? utn::layout::TEACHER_RAIL_WIDTH : (this->compactLayout ? 72 : -1);
+        const int railWidth = paperInkRail ? utn::layout::teacherRailWidth(utn::layout::railLabelsVisible(toolLabels, this->compactLayout)) :
+                                                 (this->compactLayout ? 72 : -1);
         gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(railScroller),
                                                        !paperInkRail && !this->compactLayout);
         // Lift the old maximum first: a minimum above it (72 to the teacher rail width) is refused with a CRITICAL
@@ -2321,7 +2329,8 @@ void MainWindow::updateCompactLayout(int width, bool fromAllocation) {
         gtk_widget_set_size_request(railScroller, railWidth, -1);
     }
     if (railHost) {
-        const int railWidth = paperInkRail ? utn::layout::TEACHER_RAIL_WIDTH : (this->compactLayout ? 72 : -1);
+        const int railWidth = paperInkRail ? utn::layout::teacherRailWidth(utn::layout::railLabelsVisible(toolLabels, this->compactLayout)) :
+                                                 (this->compactLayout ? 72 : -1);
         gtk_widget_set_size_request(railHost, railWidth, -1);
         if (this->compactLayout) {
             gtk_style_context_add_class(gtk_widget_get_style_context(railHost), "utnCompactRail");

@@ -79,3 +79,28 @@ TEST(SettingsTest, testReadWrite) {
     };
     saveReloadTest(fs::temp_directory_path());
 }
+
+// A new profile starts on the light paper look; the system theme is no longer the default
+TEST(SettingsTest, aNewProfileStartsOnTheLightTheme) {
+    Settings settings{"non-existing-file-path"};
+    settings.load();
+    EXPECT_EQ(settings.getThemeVariant(), THEME_VARIANT_FORCE_LIGHT);
+}
+
+// A profile that saved another theme keeps it: only the default for a new profile changed
+TEST(SettingsTest, aSavedThemeChoiceIsKept) {
+    for (const ThemeVariant saved: {THEME_VARIANT_USE_SYSTEM, THEME_VARIANT_FORCE_DARK, THEME_VARIANT_HIGH_CONTRAST}) {
+        const fs::path path = fs::temp_directory_path() / "xournalpp-test-units_Settings_savedTheme.xml";
+        fs::remove(path);
+        {
+            Settings settings(path);
+            settings.transactionStart();
+            settings.setThemeVariant(saved);
+            settings.transactionEnd();
+        }
+        Settings loaded(path);
+        loaded.load();
+        EXPECT_EQ(loaded.getThemeVariant(), saved);
+        fs::remove(path);
+    }
+}

@@ -16,6 +16,7 @@
 #include "control/ToolHandler.h"
 #include "control/settings/Settings.h"
 #include "filesystem.h"
+#include "model/TeacherPalette.h"
 
 namespace {
 /// Writes the eraser mode through ToolHandler and the settings file, then reads it back into a fresh ToolHandler
@@ -53,4 +54,15 @@ TEST(ToolHandlerSettings, everyEraserModeRoundTrips) {
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_STROKE), ERASER_TYPE_DELETE_STROKE);
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_WHITEOUT), ERASER_TYPE_WHITEOUT);
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_OBJECT), ERASER_TYPE_DELETE_OBJECT);
+}
+
+// A new pen writes in the palette's Blue, not an indigo that no swatch stands for
+TEST(ToolHandlerSettings, theDefaultPenColourIsTheTeacherPaletteBlue) {
+    Settings settings{"non-existing-file-path"};
+    ToolHandler tools(nullptr, nullptr, &settings);
+    const auto blue = utn::palette::swatch(utn::palette::Kind::Ink, 1);
+    EXPECT_STREQ(blue.name, "Blue");
+    EXPECT_EQ(static_cast<uint32_t>(tools.getTool(TOOL_PEN).getColor()), 0xFF000000U | blue.rgb);
+    EXPECT_TRUE(utn::palette::find(utn::palette::Kind::Ink, static_cast<uint32_t>(tools.getTool(TOOL_PEN).getColor())))
+            << "the default pen colour is one of the swatches";
 }

@@ -184,6 +184,9 @@ public:
     void setInterfaceMode(utn::layout::InterfaceMode mode);
     utn::layout::InterfaceMode getInterfaceMode() const { return interfaceMode; }
     int getToolLabelMode() const { return toolLabels; }
+    /// UTN: back to the standard teacher layout using the setters above: icons-only rail, Custom interface mode, the
+    /// settings panel folded. The theme, colours and every tool choice are left as they are.
+    void resetLayout();
 
     /// Teacher workspace: 0 = inspector, 1 = rail only, 2 = canvas only.
     void setTeacherWorkspace(int mode);

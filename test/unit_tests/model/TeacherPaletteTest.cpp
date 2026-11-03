@@ -17,10 +17,10 @@
 
 using namespace utn::palette;
 
-TEST(TeacherPalette, PenShapesAndTextShareTheSixInkColoursInClassroomOrder) {
-    ASSERT_EQ(count(Kind::Ink), 6U);
-    const char* expected[] = {"Black", "Blue", "Red", "Green", "Orange", "Purple"};
-    for (std::size_t i = 0; i < 6; ++i) {
+TEST(TeacherPalette, PenShapesAndTextShareTheEightInkColoursInClassroomOrder) {
+    ASSERT_EQ(count(Kind::Ink), 8U);
+    const char* expected[] = {"Black", "Blue", "Red", "Green", "Purple", "Orange", "Teal", "Pink"};
+    for (std::size_t i = 0; i < 8; ++i) {
         EXPECT_STREQ(swatch(Kind::Ink, i).name, expected[i]);
     }
     EXPECT_EQ(swatch(Kind::Ink, 1).rgb, 0x1E5BD8U) << "the Blue every surface already used";
@@ -91,4 +91,15 @@ TEST(TeacherPalette, TheBuiltInPenPresetsUseSwatchesSoThePaletteShowsThemSelecte
     EXPECT_STREQ(nameOf(Kind::Ink, red->rgb), "Red");
     EXPECT_STREQ(nameOf(Kind::Ink, blue->rgb), "Blue");
     EXPECT_STREQ(nameOf(Kind::Highlighter, yellow->rgb), "Yellow");
+}
+
+// The concept's one row of round swatches: every colour fits the one row, the highlighter keeps its own set
+TEST(TeacherPalette, TheInkRowIsExactlyEightSwatchesAndTheHighlighterHasItsOwnFour) {
+    EXPECT_EQ(count(Kind::Ink), 8U);
+    EXPECT_EQ(count(Kind::Highlighter), 4U);
+    // the colours added for the row are not near-duplicates of an older ink colour
+    EXPECT_STREQ(nameOf(Kind::Ink, 0xFF00897BU), "Teal");
+    EXPECT_STREQ(nameOf(Kind::Ink, 0xFFD63384U), "Pink");
+    EXPECT_STREQ(nameOf(Kind::Highlighter, 0xFFFF7EB6U), "Pink") << "the highlighter's pink is a different colour";
+    EXPECT_FALSE(find(Kind::Highlighter, 0xFF00897BU).has_value()) << "ink teal is not offered to the highlighter";
 }
