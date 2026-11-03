@@ -2,6 +2,7 @@
 
 #include <cstdint>  // for uint32_t
 #include <string>   // for string
+#include <vector>
 
 #include "control/Control.h"          // for Control
 #include "control/ToolHandler.h"      // for ToolHandler
@@ -37,6 +38,25 @@ GtkWidget* partOf(GtkWidget* panel, const char* key) {
 
 /// The status line is a status bar for screen readers: every message is set anew, so it is read even when the same
 /// message comes twice in a row
+/// The label of entry @p index as the buttons show it: as it is when it is unique, otherwise numbered among the entries that
+/// share it, e.g. "(2 of 3) Check your working"
+std::string uniqueBankLabel(const std::vector<Annotation>& bank, std::size_t index) {
+    std::size_t same = 0;
+    std::size_t position = 0;
+    for (std::size_t i = 0; i < bank.size(); ++i) {
+        if (bank[i].label == bank[index].label) {
+            ++same;
+            if (i <= index) {
+                ++position;
+            }
+        }
+    }
+    if (same < 2) {
+        return bank[index].label;
+    }
+    return "(" + std::to_string(position) + " of " + std::to_string(same) + ") " + bank[index].label;
+}
+
 void setStatus(GtkWidget* panel, const std::string& text) {
     GtkLabel* status = GTK_LABEL(partOf(panel, STATUS_KEY));
     gtk_label_set_text(status, "");
@@ -293,8 +313,12 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
     const auto& bank = control->getAnnotationBank().all();
     for (std::size_t i = 0; i < bank.size(); ++i) {
         const Annotation& a = bank[i];
+        // Comments that share their first characters read the same on a button: number them, and let the name and the
+        // tooltip carry the whole comment, so nobody has to guess which one will be inserted
+        const std::string shown = uniqueBankLabel(bank, i);
+        const std::string fullName = shown == a.label ? a.label : shown + ": " + a.text;
         GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);  // apart: Remove cannot be undone
-        GtkWidget* insert = gtk_button_new_with_label(a.label.c_str());
+        GtkWidget* insert = gtk_button_new_with_label(shown.c_str());
         gtk_widget_set_hexpand(insert, true);
         gtk_widget_set_focus_on_click(insert, false);  // keyboard users can still Tab to it
         if (GtkWidget* label = gtk_bin_get_child(GTK_BIN(insert)); GTK_IS_LABEL(label)) {
@@ -309,10 +333,10 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
             // border, which does not depend on colour
             gtk_widget_add_css_class(insert, "utn-bank-unavailable");
         }
-        utn::setAccessibleName(insert, a.label.c_str());  // exactly what it reads
+        utn::setAccessibleName(insert, fullName.c_str());
         atk_object_set_description(gtk_widget_get_accessible(insert), hint.c_str());
         // The whole label too: a long one is cut short on the button
-        gtk_widget_set_tooltip_text(insert, (a.label + ": " + hint).c_str());
+        gtk_widget_set_tooltip_text(insert, (fullName + ": " + hint).c_str());
         g_object_set_data(G_OBJECT(insert), INDEX_KEY, GSIZE_TO_POINTER(i));
         g_object_set_data(G_OBJECT(insert), KIND_KEY, const_cast<char*>("insert"));
         g_signal_connect(insert, "clicked", G_CALLBACK(insertClicked), nullptr);
@@ -320,7 +344,7 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
 
         GtkWidget* remove = gtk_button_new_with_label(_("Remove"));
         gtk_widget_set_focus_on_click(remove, false);
-        const std::string removeName = std::string(_("Remove")) + " " + a.label;
+        const std::string removeName = std::string(_("Remove")) + " " + fullName;
         utn::setAccessibleName(remove, removeName.c_str());
         gtk_widget_set_tooltip_text(remove, _("Take this entry out of the bank (nothing on the page changes)"));
         g_object_set_data(G_OBJECT(remove), INDEX_KEY, GSIZE_TO_POINTER(i));

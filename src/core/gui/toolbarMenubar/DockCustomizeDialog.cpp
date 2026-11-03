@@ -149,6 +149,31 @@ std::vector<DockRow> dockRows(Control* control) {
     return rows;
 }
 
+/// Rows set the name beside its actions while they fit; narrower than that the actions go below the name, so nothing is
+/// clipped at a narrow width or with large text (WCAG 1.4.10)
+static void reflowDockRows(GtkWidget* list) {
+    const int available = gtk_widget_get_allocated_width(list);
+    GList* rows = gtk_container_get_children(GTK_CONTAINER(list));
+    int wideNeed = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(list), "utn-wide-need"));
+    for (GList* r = rows; r; r = r->next) {
+        if (gtk_orientable_get_orientation(GTK_ORIENTABLE(r->data)) == GTK_ORIENTATION_HORIZONTAL) {
+            int natural = 0;
+            gtk_widget_get_preferred_width(GTK_WIDGET(r->data), nullptr, &natural);
+            wideNeed = std::max(wideNeed, natural);
+        }
+    }
+    g_object_set_data(G_OBJECT(list), "utn-wide-need", GINT_TO_POINTER(wideNeed));
+    const bool narrow = available > 1 && wideNeed > 0 && available < wideNeed;
+    for (GList* r = rows; r; r = r->next) {
+        auto* row = GTK_ORIENTABLE(r->data);
+        const auto wanted = narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
+        if (gtk_orientable_get_orientation(row) != wanted) {
+            gtk_orientable_set_orientation(row, wanted);
+        }
+    }
+    g_list_free(rows);
+}
+
 void showDockCustomizeDialog(Control* control) {
     GtkWidget* dialog = gtk_dialog_new_with_buttons(_("Customise tool dock"), control->getGtkWindow(), GTK_DIALOG_MODAL,
                                                     _("Reset to default"), GTK_RESPONSE_REJECT, _("Close"),
@@ -174,6 +199,19 @@ void showDockCustomizeDialog(Control* control) {
     gtk_box_pack_start(GTK_BOX(content), intro, false, false, 0);
     gtk_box_pack_start(GTK_BOX(content), scroller, true, true, 0);
 
+    // After GTK has allocated the list (not inside the allocation), the rows are set out for the width they were given
+    g_signal_connect(list, "size-allocate", G_CALLBACK(+[](GtkWidget* widget, GdkRectangle*, gpointer) {
+                         g_idle_add_full(
+                                 G_PRIORITY_HIGH_IDLE,
+                                 +[](gpointer data) -> gboolean {
+                                     auto* w = GTK_WIDGET(data);
+                                     reflowDockRows(w);
+                                     g_object_unref(w);
+                                     return G_SOURCE_REMOVE;
+                                 },
+                                 g_object_ref(widget), nullptr);
+                     }),
+                     nullptr);
     auto* rebuild = new Rebuild();
     *rebuild = [control, list, rebuild](const std::string& focusId, int focusAction) {
         gtk_container_foreach(GTK_CONTAINER(list), +[](GtkWidget* child, gpointer) { gtk_widget_destroy(child); }, nullptr);
@@ -191,6 +229,8 @@ void showDockCustomizeDialog(Control* control) {
             }
             GtkWidget* name = gtk_label_new(text.c_str());
             gtk_widget_set_halign(name, GTK_ALIGN_START);
+            gtk_label_set_line_wrap(GTK_LABEL(name), true);  // a long name wraps rather than push the buttons out
+            gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
             gtk_widget_set_hexpand(name, true);
             gtk_box_pack_start(GTK_BOX(line), name, true, true, 0);
             if (!row.hidden) {
@@ -224,6 +264,7 @@ void showDockCustomizeDialog(Control* control) {
             gtk_box_pack_start(GTK_BOX(list), line, false, false, 0);
         }
         gtk_widget_show_all(list);
+        reflowDockRows(list);
         if (!focusId.empty()) {
             restoreFocus(list, focusId, static_cast<DockAction>(focusAction));
         }

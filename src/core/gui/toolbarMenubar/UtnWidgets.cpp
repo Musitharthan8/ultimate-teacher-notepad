@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include "util/Util.h"         // for argb_to_GdkRGBA
 #include "util/gtk4_helper.h"  // for gtk_box_append, gtk_popover_set_child
@@ -79,6 +80,61 @@ auto appendPinSettingsButton(GtkBox* panel, GtkPopover* popover, Control* contro
 void setAccessibleName(GtkWidget* widget, const char* name) {
     if (AtkObject* accessible = gtk_widget_get_accessible(widget)) {
         atk_object_set_name(accessible, name);
+    }
+}
+
+void markLiveRegion(GtkWidget* label, bool alert) {
+    if (AtkObject* accessible = gtk_widget_get_accessible(label)) {
+        atk_object_set_role(accessible, alert ? ATK_ROLE_ALERT : ATK_ROLE_STATUSBAR);
+    }
+}
+
+void setDescribedBy(GtkWidget* widget, GtkWidget* description, bool on) {
+    AtkObject* subject = gtk_widget_get_accessible(widget);
+    AtkObject* target = gtk_widget_get_accessible(description);
+    if (!subject || !target) {
+        return;
+    }
+    atk_object_remove_relationship(subject, ATK_RELATION_DESCRIBED_BY, target);  // never twice
+    if (on) {
+        atk_object_add_relationship(subject, ATK_RELATION_DESCRIBED_BY, target);
+    }
+}
+
+auto appendMenuToggle(GtkBox* panel, GtkPopover* popover, const char* label, const char* hint) -> GtkWidget* {
+    GtkWidget* button = gtk_toggle_button_new_with_label(label);
+    gtk_button_set_relief(GTK_BUTTON(button), GTK_RELIEF_NONE);
+    if (GtkWidget* text = gtk_bin_get_child(GTK_BIN(button)); GTK_IS_LABEL(text)) {
+        gtk_label_set_xalign(GTK_LABEL(text), 0.0F);
+    }
+    if (hint) {
+        gtk_widget_set_tooltip_text(button, hint);
+    }
+    if (popover) {
+        g_signal_connect_swapped(button, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
+    }
+    gtk_box_append(panel, button);
+    return button;
+}
+
+void setToggleQuiet(GtkWidget* toggle, bool active) {
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle)) != active) {
+        // GTK3 implements set_active as a click, so the click handlers are held back while the state is put right
+        // and so are those of the other buttons of a radio group, which GTK clicks to switch them off
+        const guint clicked = g_signal_lookup("clicked", GTK_TYPE_BUTTON);
+        std::vector<GtkWidget*> held{toggle};
+        if (GTK_IS_RADIO_BUTTON(toggle)) {
+            for (GSList* m = gtk_radio_button_get_group(GTK_RADIO_BUTTON(toggle)); m; m = m->next) {
+                held.push_back(GTK_WIDGET(m->data));
+            }
+        }
+        for (GtkWidget* w: held) {
+            g_signal_handlers_block_matched(w, G_SIGNAL_MATCH_ID, clicked, 0, nullptr, nullptr, nullptr);
+        }
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), active);
+        for (GtkWidget* w: held) {
+            g_signal_handlers_unblock_matched(w, G_SIGNAL_MATCH_ID, clicked, 0, nullptr, nullptr, nullptr);
+        }
     }
 }
 
@@ -171,6 +227,12 @@ void bindActiveToolOptions(GtkToggleButton* tool, GtkMenuButton* options) {
 }
 
 void placeOptionsCorner(GtkWidget* options) {
+    // The tile this corner belongs to is told, so touch mode can give the corner a column of its own
+    if (GtkWidget* overlay = gtk_widget_get_parent(options); overlay && GTK_IS_OVERLAY(overlay)) {
+        if (GtkWidget* tile = gtk_bin_get_child(GTK_BIN(overlay))) {
+            gtk_widget_add_css_class(tile, "utn-has-options-corner");
+        }
+    }
     gtk_widget_set_halign(options, GTK_ALIGN_END);
     gtk_widget_set_valign(options, GTK_ALIGN_END);
     gtk_widget_set_margin_end(options, 3);

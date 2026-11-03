@@ -454,6 +454,7 @@ void CommandPalette::open() {
     gtk_label_set_line_wrap_mode(GTK_LABEL(status), PANGO_WRAP_WORD_CHAR);
     gtk_label_set_xalign(GTK_LABEL(status), 0);
     gtk_label_set_max_width_chars(GTK_LABEL(status), 40);
+    utn::markLiveRegion(status);  // result counts and the reason a command is unavailable are announced while focus stays in Search
     gtk_box_pack_start(GTK_BOX(box), status, FALSE, FALSE, 0);
 
     g_signal_connect(search, "search-changed", G_CALLBACK(+[](GtkSearchEntry*, gpointer data) {

@@ -82,9 +82,19 @@ namespace {
 Color teacherCurrentColour(Control* ctrl) { return ctrl->getToolHandler()->getDisplayedColor(); }
 
 /// The one path every colour surface uses; the palette adds only the gate. Keeps the highlighter's opacity.
-void teacherApplyColour(Control* ctrl, Color selected) {
+/// @p expectedKind is the palette kind (ink or highlighter) the control was drawn for, or -1 for a control that fits any
+/// tool with a colour. A click that was already queued when a preset or shortcut changed the tool must not recolour the
+/// new tool with a swatch of the old kind.
+void teacherApplyColour(Control* ctrl, Color selected, int expectedKind = -1) {
     if (!ToolUtnContextBar::toolControlsReachable(ctrl)) {
         return;  // gone busy, covered, or Present put the tools away since the palette opened
+    }
+    auto* tools = ctrl->getToolHandler();
+    if (!tools->hasCapability(TOOL_CAP_COLOR)) {
+        return;  // the tool changed to one with no colour
+    }
+    if (expectedKind >= 0 && expectedKind != static_cast<int>(utn::palette::kindFor(tools->getToolType() == TOOL_HIGHLIGHTER))) {
+        return;  // the tool changed to one this swatch is not for
     }
     ctrl->applyDisplayedColour(selected);
 }
@@ -148,6 +158,8 @@ void updatePaletteIndicator(GtkPopover* popover, Control* ctrl) {
         words += std::string(", ") + _(sizeName);
     }
     gtk_label_set_text(label, words.c_str());
+    // The accessible name is the value shown, not a fixed phrase that hides it
+    utn::setAccessibleName(GTK_WIDGET(label), (std::string(_("Active colour and thickness")) + ": " + words).c_str());
 }
 
 /// What the section under the swatches is built for: the tab, the shape, the text mode and the thickness. It is
@@ -388,7 +400,6 @@ public:
         GtkWidget* indicator = gtk_label_new("");
         gtk_label_set_xalign(GTK_LABEL(indicator), 0.0F);
         gtk_widget_add_css_class(indicator, "utn-palette-indicator");
-        utn::setAccessibleName(indicator, _("Active colour and thickness"));
         gtk_box_append(panel, indicator);
         g_object_set_data(G_OBJECT(popover), "utn-indicator", indicator);
 
@@ -405,6 +416,7 @@ public:
                 GtkWidget* button = utn::createColourSwatch(value, _(entry.name));
                 g_object_set_data(G_OBJECT(button), "utn-classroom-colour", GUINT_TO_POINTER(static_cast<uint32_t>(value)));
                 g_object_set_data(G_OBJECT(button), "utn-popover", popover);
+                g_object_set_data(G_OBJECT(button), "utn-palette-kind", GINT_TO_POINTER(static_cast<int>(kind)));
                 g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                                      auto colour = Color(GPOINTER_TO_UINT(
                                              g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
@@ -412,7 +424,8 @@ public:
                                      // trigger a toolbar rebuild that destroys the popover.
                                      auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
                                      gtk_popover_popdown(popup);
-                                     teacherApplyColour(static_cast<Control*>(data), colour);
+                                     teacherApplyColour(static_cast<Control*>(data), colour,
+                                                        GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-palette-kind")));
                                  }), control);
                 // The colour's name is written under it: nobody has to tell the colours apart by looking
                 GtkWidget* cell = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);

@@ -988,6 +988,12 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
     if (!teacherCover && show) {
         teacherCover = gtk_event_box_new();
         gtk_widget_add_css_class(teacherCover, "utn-blank-cover");
+        // The cover says what it is: an alert named for what the students see, with the way back related to it
+        if (AtkObject* accessible = gtk_widget_get_accessible(teacherCover)) {
+            atk_object_set_role(accessible, ATK_ROLE_ALERT);
+            atk_object_set_name(accessible, _("Screen hidden"));
+            atk_object_set_description(accessible, _("The page is hidden from students. Choose Show page to bring it back."));
+        }
         gtk_widget_set_halign(teacherCover, GTK_ALIGN_FILL);
         gtk_widget_set_valign(teacherCover, GTK_ALIGN_FILL);
         GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -1003,6 +1009,7 @@ void ToolStudentView::showTeacherBlankCover(bool show) {
                          this);
         gtk_widget_add_css_class(showButton, "utn-blank-show");
         gtk_box_append(GTK_BOX(content), showButton);
+        utn::setDescribedBy(showButton, label, true);
         g_object_set_data(G_OBJECT(teacherCover), "utn-show-button", showButton);
         gtk_container_add(GTK_CONTAINER(teacherCover), content);
         gtk_overlay_add_overlay(GTK_OVERLAY(win->get("mainOverlay")), teacherCover);

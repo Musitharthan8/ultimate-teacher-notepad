@@ -1438,7 +1438,10 @@ void TextEditor::finalizeEdition() {
     db->setActionState(Action::FONT, this->control->getSettings()->getFont().asString().c_str());
     db->setActionState(Action::TEXT_ALIGNMENT, th->getTextAlignment());
     db->setActionState(Action::TEXT_JUSTIFY, th->getTextJustify());
-    db->setActionState(Action::TOOL_COLOR, th->getColorMaskAlpha());
+    // The colour the toolbar shows: Feedback and Answer Box text keep their own, not the plain text tool's
+    Color shownColor = th->getDisplayedColor();
+    shownColor.alpha = 0xff;
+    db->setActionState(Action::TOOL_COLOR, shownColor);
 
     auto* doc = this->control->getDocument();
     UndoRedoHandler* undo = this->control->getUndoRedoHandler();

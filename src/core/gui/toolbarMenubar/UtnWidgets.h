@@ -71,6 +71,20 @@ inline constexpr const char* PRESENTATION_BANNER_CLASS = "utn-presentation-banne
 /// Name read by screen readers, for buttons whose visible content is an icon, a colour or a single letter
 void setAccessibleName(GtkWidget* widget, const char* name);
 
+/// Make a label a live region for assistive technology: a status (polite) or, with @p alert, an alert (assertive).
+/// Its text is what is announced when it changes.
+void markLiveRegion(GtkWidget* label, bool alert = false);
+
+/// Tie @p widget to the text that explains it (ATK "described by"), or remove the tie again.
+void setDescribedBy(GtkWidget* widget, GtkWidget* description, bool on);
+
+/// Like appendMenuButton, but a toggle button: its pressed state is exposed to assistive technology and kept in step by
+/// setToggleQuiet. The label stays the visible text.
+GtkWidget* appendMenuToggle(GtkBox* panel, GtkPopover* popover, const char* label, const char* hint = nullptr);
+
+/// Set a toggle or radio button to match the real state; sends "toggled" but runs none of the "clicked" handlers
+void setToggleQuiet(GtkWidget* toggle, bool active);
+
 /**
  * Append the keyboard shortcut of the button's action to its tooltip, e.g. "Pen (Ctrl+Alt+P)".
  * The shortcut is looked up when the tooltip opens, so it follows the user's key bindings and any later

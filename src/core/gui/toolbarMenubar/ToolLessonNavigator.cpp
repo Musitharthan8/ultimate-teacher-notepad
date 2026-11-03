@@ -208,6 +208,7 @@ public:
         gtk_widget_set_name(GTK_WIDGET(goError), "utnGoToPageError");
         gtk_widget_set_halign(GTK_WIDGET(goError), GTK_ALIGN_START);
         gtk_widget_add_css_class(GTK_WIDGET(goError), "utn-context-hint");
+        utn::markLiveRegion(GTK_WIDGET(goError), true);  // an invalid page number is announced where the focus stays
         gtk_box_append(panel, GTK_WIDGET(goError));
 
         // Bookmark the page; open the thumbnails
@@ -360,6 +361,7 @@ public:
 private:
     void clearGoToError() {
         gtk_label_set_text(goError, "");
+        utn::setDescribedBy(GTK_WIDGET(goEntry), GTK_WIDGET(goError), false);
         gtk_style_context_remove_class(gtk_widget_get_style_context(GTK_WIDGET(goEntry)), "error");
     }
 
@@ -370,6 +372,7 @@ private:
             std::string message = count == 0 ? std::string(_("This document has no pages")) :
                                                std::string(_("Enter a page from 1 to ")) + std::to_string(count);
             gtk_label_set_text(goError, message.c_str());
+            utn::setDescribedBy(GTK_WIDGET(goEntry), GTK_WIDGET(goError), true);
             gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(goEntry)), "error");
             return;
         }

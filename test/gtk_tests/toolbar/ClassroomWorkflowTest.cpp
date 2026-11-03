@@ -8900,6 +8900,363 @@ TEST_F(ClassroomWorkflow, anOpenPaletteFollowsAPresetOrToolChangeAndItsStaleCont
     tools->setColor(previousHighlighter, false);
 }
 
+// Review round A2: a swatch, custom colour or tab event that is queued for one tool is rechecked against the tool and the
+// palette kind it was drawn for when it finally runs.
+TEST_F(ClassroomWorkflow, aQueuedSwatchOrCustomColourEventForAnotherToolChangesNothing) {
+    PenPresetsGuard presetsGuard(control.get());
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previousPen = tools->getTool(TOOL_PEN).getColor();
+    const Color previousHighlighter = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+
+    prepareHighlighter(control.get());
+    GtkWidget* popover = openedPalette(rail);
+    PaletteControls queued(popover);
+    ASSERT_TRUE(queued.complete());
+
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    // No settle(): the palette has not looked at the tool change yet, as for a click already in the queue
+    const ToolSnapshot before = snapshotTools(control.get());
+    gtk_button_clicked(GTK_BUTTON(queued.swatch));  // the highlighter's Cyan, now hidden
+    settle();
+    EXPECT_TRUE(snapshotTools(control.get()) == before) << "the hidden highlighter swatch recoloured the pen";
+
+    // Same after the palette has caught up
+    gtk_button_clicked(GTK_BUTTON(queued.swatch));
+    settle();
+    EXPECT_TRUE(snapshotTools(control.get()) == before);
+
+    // A custom colour for a tool that has no colour at all
+    control->selectTool(TOOL_ERASER);
+    const ToolSnapshot erasing = snapshotTools(control.get());
+    GdkRGBA green{0.1, 0.7, 0.1, 1.0};
+    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(queued.custom), &green);
+    g_signal_emit_by_name(queued.custom, "color-set");
+    settle();
+    EXPECT_TRUE(snapshotTools(control.get()) == erasing) << "a custom colour reached a tool without colour";
+
+    // B9: the indicator's accessible name carries the value it shows
+    control->selectTool(TOOL_PEN);
+    settle();
+    GtkWidget* indicator = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-indicator"));
+    ASSERT_NE(indicator, nullptr);
+    EXPECT_FALSE(indicatorText(popover).empty());
+    EXPECT_NE(accessibleName(indicator).find(indicatorText(popover)), std::string::npos)
+            << "name: " << accessibleName(indicator) << " shown: " << indicatorText(popover);
+
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    control->selectTool(TOOL_PEN);
+    tools->setColor(previousPen, false);
+    tools->setColor(previousHighlighter, false);
+}
+
+// Review round A1: ending an Answer Box edit publishes the colour the toolbar shows (the box's own), not the plain text
+// tool's.
+TEST_F(ClassroomWorkflow, finishingAnAnswerBoxEditKeepsTheToolbarColourOfTheAnswerBox) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previousBox = tools->getAnswerBoxTextColor();
+    tools->setAnswerBoxTextColor(Color{0x6AU, 0x1BU, 0x9AU});
+    control->startAnswersLayer();
+    auto page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("answer");
+    box->setColor(Color{0x6AU, 0x1BU, 0x9AU});  // the box's own colour, which is not the plain text tool's
+    box->setBoxEnabled(true);
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::AnswerBox);
+    ASSERT_NE(editAt(101, 101), nullptr);
+    control->clearSelectionEndText();
+    settle();
+
+    GVariant* state = g_action_get_state(G_ACTION(control->getActionDatabase()->getAction(Action::TOOL_COLOR).get()));
+    ASSERT_NE(state, nullptr);
+    const Color shown = getGVariantValue<Color>(state);
+    g_variant_unref(state);
+    Color expected = tools->getDisplayedColor();
+    expected.alpha = 0xff;
+    EXPECT_EQ(static_cast<uint32_t>(shown), static_cast<uint32_t>(expected))
+            << "the toolbar colour state follows the displayed colour after the edit";
+    EXPECT_EQ(static_cast<uint32_t>(shown) & 0xFFFFFFU, 0x6A1B9AU);
+    control->selectTextMode(TextMode::Plain);
+    tools->setAnswerBoxTextColor(previousBox);
+}
+
+// Review round B: names, roles and states that assistive technology reads.
+namespace {
+AtkRole roleOf(GtkWidget* widget) { return atk_object_get_role(gtk_widget_get_accessible(widget)); }
+}  // namespace
+
+TEST_F(ClassroomWorkflow, dynamicStatusTextIsALiveRegionAndPageErrorsAreTiedToTheirEntry) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    // B3: the document status
+    GtkWidget* status = widgetNamed(window->getWindow(), "utnDocumentSaveStatus");
+    ASSERT_NE(status, nullptr);
+    EXPECT_TRUE(roleOf(status) == ATK_ROLE_STATUSBAR || roleOf(status) == ATK_ROLE_ALERT);
+
+    // B7: an invalid page number
+    addPlainPages(control.get(), 3);
+    NavigatorUnderTest navigator(control.get());
+    GtkWidget* error = navigator.named("utnGoToPageError");
+    GtkWidget* entry = navigator.named("utnGoToPage");
+    ASSERT_NE(error, nullptr);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(roleOf(error), ATK_ROLE_ALERT);
+    const auto describedBy = [&] {
+        AtkRelationSet* set = atk_object_ref_relation_set(gtk_widget_get_accessible(entry));
+        AtkRelation* relation = atk_relation_set_get_relation_by_type(set, ATK_RELATION_DESCRIBED_BY);
+        bool tied = false;
+        if (relation) {
+            GPtrArray* targets = atk_relation_get_target(relation);
+            for (guint i = 0; i < targets->len; ++i) {
+                tied = tied || g_ptr_array_index(targets, i) == gtk_widget_get_accessible(error);
+            }
+        }
+        g_object_unref(set);
+        return tied;
+    };
+    EXPECT_FALSE(describedBy());
+    navigator.goTo("99");
+    EXPECT_TRUE(describedBy()) << "the entry is described by the error";
+    EXPECT_STRNE(gtk_label_get_text(GTK_LABEL(error)), "");
+    navigator.goTo("2");
+    EXPECT_FALSE(describedBy()) << "cleared with the error";
+}
+
+TEST_F(ClassroomWorkflow, beginnerAndExpertAndThePenPresetAreRealRadioStatesWithTheSameNames) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    // B10
+    // A mode change can rebuild the toolbar, so the menu is looked up again after each one
+    const auto modeButtons = [&](GtkWidget*& beginner, GtkWidget*& expert) {
+        GtkWidget* menu = menuButtonAccessibleNamed(window->getWindow(), "Workspace layout");
+        ASSERT_NE(menu, nullptr);
+        GtkWidget* panel = gtk_bin_get_child(GTK_BIN(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))));
+        beginner = buttonAccessibleNamed(panel, "Beginner: tool names and hints");
+        expert = buttonAccessibleNamed(panel, "Expert: compact, icons only");
+    };
+    GtkWidget* beginner = nullptr;
+    GtkWidget* expert = nullptr;
+    modeButtons(beginner, expert);
+    ASSERT_NE(beginner, nullptr) << "the name has no selected suffix any more";
+    ASSERT_NE(expert, nullptr);
+    EXPECT_TRUE(GTK_IS_RADIO_BUTTON(beginner));
+    EXPECT_EQ(roleOf(beginner), ATK_ROLE_RADIO_BUTTON);
+    window->setInterfaceMode(utn::layout::InterfaceMode::Expert);
+    settle();
+    modeButtons(beginner, expert);
+    ASSERT_NE(expert, nullptr);
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(expert)));
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(beginner)));
+    EXPECT_NE(std::string(gtk_button_get_label(GTK_BUTTON(expert))).find("\xE2\x97\x8F"), std::string::npos)
+            << "the visible bullet stays";
+    window->setInterfaceMode(utn::layout::InterfaceMode::Beginner);
+    settle();
+    modeButtons(beginner, expert);
+    ASSERT_NE(beginner, nullptr);
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(beginner)));
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(expert)));
+
+    // B11: the active preset
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    control->selectTool(TOOL_PEN);
+    settle();
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    settle();
+    auto* presets = menuButtonAccessibleNamed(window->getWindow(), "Presets");
+    ASSERT_NE(presets, nullptr);
+    auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(presets)));
+    int checked = 0;
+    for (GtkWidget* button: buttonsIn(popover)) {
+        const std::string name = atk_object_get_name(gtk_widget_get_accessible(button));
+        EXPECT_EQ(name.find("selected"), std::string::npos) << name;
+        if (GTK_IS_RADIO_BUTTON(button) && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button))) {
+            ++checked;
+            EXPECT_EQ(name, "Red marking pen");
+        }
+    }
+    EXPECT_EQ(checked, 1) << "exactly the active preset is checked";
+}
+
+TEST_F(ClassroomWorkflow, deletingTheLastPresetMovesTheKeyboardToRestoreDefaultPresets) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    control->selectTool(TOOL_PEN);
+    settle();
+    auto* menu = menuButtonAccessibleNamed(window->getWindow(), "Presets");
+    ASSERT_NE(menu, nullptr);
+    GtkWidget* manage = buttonNamedIn(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu))), "Manage presets…");
+    ASSERT_NE(manage, nullptr);
+    gtk_button_clicked(GTK_BUTTON(manage));
+    settle();
+    GtkWidget* dialog = visibleDialogTitled("Manage presets");
+    ASSERT_NE(dialog, nullptr);
+    while (!control->getPenPresets().all().empty()) {
+        const std::string name = control->getPenPresets().all().front().name;
+        GtkWidget* remove = buttonNamedIn(dialog, ("Delete preset: " + name).c_str());
+        ASSERT_NE(remove, nullptr) << name;
+        gtk_button_clicked(GTK_BUTTON(remove));
+        settle();
+    }
+    GtkWidget* focused = gtk_window_get_focus(GTK_WINDOW(dialog));
+    GtkWidget* restore = gtk_dialog_get_widget_for_response(GTK_DIALOG(dialog), GTK_RESPONSE_REJECT);
+    ASSERT_NE(restore, nullptr);
+    EXPECT_EQ(focused, restore) << "focus was left on a destroyed Delete button";
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_REJECT);
+    settle();
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, bankCommentsThatShareTheirStartHaveDistinctNamesAndTheFullTextInTheName) {
+    AnnotationBankGuard bankGuard(control.get());
+    control->updateAnnotationBank([](utn::AnnotationBank& bank) { bank.restoreDefaults(); });
+    const std::string stem(utn::AnnotationBank::MAX_LABEL_BYTES, 'a');
+    control->updateAnnotationBank([&](utn::AnnotationBank& bank) {
+        bank.addComment(stem + " first ending", 0x2E7D32);
+        bank.addComment(stem + " second ending", 0x2E7D32);
+    });
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* panel = annotationBankPanel(window.get());
+    ASSERT_NE(panel, nullptr);
+    utn::refreshAnnotationBankPanel(panel);
+    std::vector<std::string> names;
+    for (GtkWidget* button: buttonsIn(panel)) {
+        const std::string name = atk_object_get_name(gtk_widget_get_accessible(button));
+        if (name.find(stem) != std::string::npos && name.rfind("Remove", 0) != 0) {
+            names.push_back(name);
+            const char* tip = gtk_widget_get_tooltip_text(button);
+            ASSERT_NE(tip, nullptr);
+            EXPECT_NE(std::string(tip).find("ending"), std::string::npos) << "the tooltip has the full comment";
+        }
+    }
+    ASSERT_EQ(names.size(), 2U);
+    EXPECT_NE(names[0], names[1]);
+    EXPECT_NE(names[0].find("first ending"), std::string::npos) << names[0];
+    EXPECT_NE(names[1].find("second ending"), std::string::npos) << names[1];
+}
+
+TEST_F(ClassroomWorkflow, classroomTogglesExposeTheirStateAndTheBlankCoverIsAnAlertThatNamesItself) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    GtkWidget* menuButton = menuButtonAccessibleNamed(window->getWindow(), "Classroom controls");
+    ASSERT_NE(menuButton, nullptr);
+    auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menuButton)));
+    GtkWidget* status = widgetNamed(popover, "utnClassroomStatus");
+    ASSERT_NE(status, nullptr);
+    EXPECT_EQ(roleOf(status), ATK_ROLE_STATUSBAR);
+    GtkWidget* spotlight = buttonNamedIn(popover, "Spotlight");
+    ASSERT_NE(spotlight, nullptr);
+    EXPECT_TRUE(GTK_IS_TOGGLE_BUTTON(spotlight));
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(spotlight)));
+    gtk_button_clicked(GTK_BUTTON(spotlight));
+    settle();
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(spotlight))) << "pressed while the spotlight is on";
+    gtk_button_clicked(GTK_BUTTON(spotlight));
+    settle();
+    EXPECT_FALSE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(spotlight)));
+
+    // The Blank cover (the same screen: no Student View window is opened by this)
+    students->setBlanked(true);
+    students->showTeacherBlankCover(true);  // what Blank does on one display
+    settle();
+    ASSERT_TRUE(students->isTeacherCoverShown());
+    GtkWidget* cover = nullptr;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(window->get("mainOverlay")));
+    for (GList* c = children; c; c = c->next) {
+        if (gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(c->data)), "utn-blank-cover")) {
+            cover = GTK_WIDGET(c->data);
+        }
+    }
+    g_list_free(children);
+    ASSERT_NE(cover, nullptr);
+    EXPECT_NE(buttonNamedIn(cover, "Show page"), nullptr);
+    EXPECT_EQ(roleOf(cover), ATK_ROLE_ALERT);
+    EXPECT_EQ(accessibleName(cover), "Screen hidden");
+    EXPECT_STRNE(atk_object_get_description(gtk_widget_get_accessible(cover)), "");
+    students->showTeacherBlankCover(false);
+    students->setBlanked(false);
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, theDockDialogPutsTheActionsBelowTheNameWhenItIsNarrow) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    utn::showDockCustomizeDialog(control.get());
+    settle();
+    GtkWidget* dialog = visibleDialogTitled("Customise tool dock");
+    ASSERT_NE(dialog, nullptr);
+    GtkWidget* hide = nullptr;
+    for (GtkWidget* button: buttonsIn(dialog)) {
+        const std::string name = atk_object_get_name(gtk_widget_get_accessible(button));
+        if (!hide && name.rfind("Hide: ", 0) == 0 && gtk_widget_get_sensitive(button)) {
+            hide = button;
+        }
+    }
+    ASSERT_NE(hide, nullptr);
+    GtkWidget* row = gtk_widget_get_parent(hide);
+    ASSERT_TRUE(GTK_IS_BOX(row));
+    gtk_window_resize(GTK_WINDOW(dialog), 900, 400);
+    for (int i = 0; i < 20; ++i) {
+        settle();
+    }
+    EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(row)), GTK_ORIENTATION_HORIZONTAL);
+    gtk_window_resize(GTK_WINDOW(dialog), 150, 400);
+    for (int i = 0; i < 20; ++i) {
+        settle();
+    }
+    EXPECT_EQ(gtk_orientable_get_orientation(GTK_ORIENTABLE(row)), GTK_ORIENTATION_VERTICAL);
+    gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, railOptionCornersAreAtLeast24PixelsSquareAndStayAboveTheirTile) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    allocatedWidthAfterResize(window->getWindow(), 1280);
+    settle();
+    int corners = 0;
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* widget) {
+        if (gtk_style_context_has_class(gtk_widget_get_style_context(widget), "utn-tool-options-corner") &&
+            gtk_widget_get_mapped(widget)) {
+            ++corners;
+            EXPECT_GE(gtk_widget_get_allocated_width(widget), 24);
+            EXPECT_GE(gtk_widget_get_allocated_height(widget), 24);
+        }
+        if (GTK_IS_CONTAINER(widget)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+            for (GList* c = children; c; c = c->next) {
+                walk(GTK_WIDGET(c->data));
+            }
+            g_list_free(children);
+        }
+    };
+    walk(window->get("tbLeft1"));
+    EXPECT_GT(corners, 0);
+}
+
 // Busy, the Blank cover and Present with its tools away stop an open palette: it closes when the gate closes, its
 // controls are disabled, and a click or edit that arrives anyway changes nothing.
 TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRefusesEveryChange) {

@@ -1365,8 +1365,8 @@ window.utnShell #tbLeft1 .utn-tool-arrow arrow {
    tool remains a full-size click target and the rail no longer pays a second
    column for every popover-capable tool. */
 window.utnShell #tbLeft1 button.utn-tool-options-corner {
-    min-width: 16px;
-    min-height: 16px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 0;
     margin: 0;
     border-radius: 6px;
@@ -1377,8 +1377,8 @@ window.utnShell.darkMode #tbLeft1 button.utn-tool-options-corner {
     background-color: @utn_paper_dark_surface;
 }
 window.utnShell.utnHighContrast #tbLeft1 button.utn-tool-options-corner {
-    min-width: 18px;
-    min-height: 18px;
+    min-width: 24px;
+    min-height: 24px;
     border: 2px solid @utn_hc_fg;
 }
 window.utnShell.darkMode #tbTop1 { border-bottom-color: @utn_paper_dark_hairline; }
@@ -1493,10 +1493,11 @@ window.utnShell.utnCompact #tbLeft1 button.utn-tool-arrow {
 
 /* Design pass 2026-10-30. The options marker of a split rail tile is a quiet corner glyph, not a second button laid
    over the tool icon: it sits in the tile's lower-right corner (see utn::placeOptionsCorner), has no fill until it is
-   hovered, and keeps a 16 px target so it never clips the icon it belongs to. */
+   hovered, and keeps a 24 px target (WCAG 2.2 target size minimum), which sits above the tile's corner so the tool's own
+   click area ends where it begins. *
 window.utnShell #tbLeft1 button.utn-tool-options-corner {
-    min-width: 16px;
-    min-height: 16px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 0;
     margin: 0;
     border: none;
@@ -1532,6 +1533,24 @@ window.utnShell #tbLeft1 button:focus {
 }
 window.utnShell #tbLeft1 button.utn-tool-options-corner:focus {
     outline-offset: -1px;
+}
+
+/* The compact rail narrows every arrow to 14 px; the options target keeps its minimum */
+window.utnShell.utnCompact #tbLeft1 button.utn-tool-options-corner {
+    min-width: 24px;
+    min-height: 24px;
+}
+/* Touch: the options target is 44 px square and gets its own column beside the tool, so it never covers the tile */
+window.utnShell.utnTouch #tbLeft1 button.utn-tool-options-corner {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell.utnTouch.utnCompact #tbLeft1 button.utn-tool-options-corner {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell.utnTouch #tbLeft1 button.utn-has-options-corner {
+    margin-right: 47px;
 }
 
 /* Design pass 2026-10-30 (responsive): below the width the app bar needs, it scrolls instead of silently dropping

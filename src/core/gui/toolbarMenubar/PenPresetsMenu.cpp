@@ -130,13 +130,19 @@ void showManageDialog(Control* control) {
                                  // Focus stays where the teacher was: on the Delete button of the row that took this one's place
                                  GList* rows = gtk_container_get_children(GTK_CONTAINER(list));
                                  const int count = static_cast<int>(g_list_length(rows));
-                                 if (GtkWidget* row = static_cast<GtkWidget*>(g_list_nth_data(rows, std::min(index, count - 1)));
-                                     row && GTK_IS_BOX(row)) {
+                                 GtkWidget* row = static_cast<GtkWidget*>(g_list_nth_data(rows, std::min(index, count - 1)));
+                                 if (row && GTK_IS_BOX(row)) {
                                      GList* parts = gtk_container_get_children(GTK_CONTAINER(row));
                                      if (GList* last = g_list_last(parts)) {
                                          gtk_widget_grab_focus(GTK_WIDGET(last->data));
                                      }
                                      g_list_free(parts);
+                                 } else if (GtkWidget* top = gtk_widget_get_toplevel(list); GTK_IS_DIALOG(top)) {
+                                     // No row is left (only the "no presets" note): the Delete button that had the keyboard
+                                     // is gone, so it goes to the way to bring the built-in presets back
+                                     if (GtkWidget* restore = gtk_dialog_get_widget_for_response(GTK_DIALOG(top), GTK_RESPONSE_REJECT)) {
+                                         gtk_widget_grab_focus(restore);
+                                     }
                                  }
                                  g_list_free(rows);
                              }),
@@ -192,15 +198,30 @@ void fillPopover(GtkWidget* popoverWidget, Control* control) {
     gtk_widget_set_margin_top(panel, 8);
     gtk_widget_set_margin_bottom(panel, 8);
 
+    GtkWidget* presetGroup = nullptr;
     for (const PresetMenuEntry& entry: presetMenuEntries(control)) {
-        // The mark is a shape, not only a colour, and the screen reader hears it too
+        // The mark is a shape, not only a colour; the real state is the radio's, so the bullet is only drawing
         const std::string label = (entry.active ? "\xE2\x97\x8F " : "   ") + entry.name;
-        GtkWidget* button = utn::appendMenuButton(GTK_BOX(panel), popover, label.c_str());
-        utn::setAccessibleName(button, (entry.active ? entry.name + ", " + _("selected") : entry.name).c_str());
+        GtkWidget* button = presetGroup ? gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(presetGroup), label.c_str()) :
+                                          gtk_radio_button_new_with_label(nullptr, label.c_str());
+        presetGroup = presetGroup ? presetGroup : button;
+        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);  // drawn as a menu entry
+        gtk_button_set_relief(GTK_BUTTON(button), GTK_RELIEF_NONE);
+        if (GtkWidget* text = gtk_bin_get_child(GTK_BIN(button)); GTK_IS_LABEL(text)) {
+            gtk_label_set_xalign(GTK_LABEL(text), 0.0F);
+        }
+        g_signal_connect_swapped(button, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
+        gtk_box_pack_start(GTK_BOX(panel), button, false, false, 0);
+        utn::setToggleQuiet(button, entry.active);
+        utn::setAccessibleName(button, entry.name.c_str());
         g_object_set_data_full(G_OBJECT(button), PRESET_ID_KEY, new std::string(entry.id),
                                +[](gpointer p) { delete static_cast<std::string*>(p); });
         g_object_set_data(G_OBJECT(button), "utn-control", control);
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer) {
+                             // A radio group clicks the entry it switches off as well: only the chosen one applies
+                             if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(b))) {
+                                 return;
+                             }
                              auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(b), "utn-control"));
                              // Copied first: applying rebuilds the settings panel, and this button with it
                              const std::string id = *static_cast<std::string*>(g_object_get_data(G_OBJECT(b), PRESET_ID_KEY));

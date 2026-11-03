@@ -8,6 +8,7 @@
 
 #include "ToolPresentationKit.h"
 
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -119,6 +120,7 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
     }
     if (students) {
         if (ui.freeze) {
+            utn::setToggleQuiet(ui.freeze, frozen);
             utn::setMenuButtonLabel(ui.freeze, frozen ? _("Resume live view") : _("Freeze students' screen"));
             gtk_widget_set_sensitive(ui.freeze, students->isWindowOpen());
             // Why it is greyed out, for a screen reader (the tooltip is not read to everyone)
@@ -132,6 +134,7 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
             }
         }
         if (ui.blank) {
+            utn::setToggleQuiet(ui.blank, blanked);
             utn::setMenuButtonLabel(ui.blank, blanked ? _("Show the page to students again") : _("Blank students' screen"));
         }
         if (ui.studentWindow) {
@@ -140,9 +143,11 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
         }
     }
     if (ui.spotlight) {
+        utn::setToggleQuiet(ui.spotlight, spotlight);
         utn::setMenuButtonLabel(ui.spotlight, spotlight ? _("Spotlight is on: choose to turn off") : _("Spotlight"));
     }
     if (ui.curtain) {
+        utn::setToggleQuiet(ui.curtain, curtain);
         utn::setMenuButtonLabel(ui.curtain, curtain ? _("Curtain is on: choose to turn off") : _("Curtain"));
     }
     if (ui.exit) {
@@ -232,6 +237,7 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     gtk_widget_set_name(ui->status, "utnClassroomStatus");
     gtk_widget_set_halign(ui->status, GTK_ALIGN_START);
     gtk_widget_add_css_class(ui->status, "utn-context-hint");
+    utn::markLiveRegion(ui->status);  // what is on is announced when it changes, wherever the keyboard is
     gtk_box_append(panel, ui->status);
     ui->back = utn::appendMenuButton(panel, popover, _("Back to normal"),
                                      _("Turn off Spotlight, Curtain, Freeze and Blank. Saved work is not changed."));
@@ -249,10 +255,10 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     connect(utn::appendMenuButton(panel, popover, _("Temporary highlight"),
                                   _("Highlight that fades away; it is never saved")),
             [](Control* c) { selectPresentationTool(c, TOOL_LASER_POINTER_HIGHLIGHTER); });
-    ui->spotlight = utn::appendMenuButton(panel, popover, _("Spotlight"),
+    ui->spotlight = utn::appendMenuToggle(panel, popover, _("Spotlight"),
                                           _("Darken the page around the pointer. Choose again to show the whole page."));
     connect(ui->spotlight, [](Control* c) { selectPresentationTool(c, TOOL_HAND, true, false); });
-    ui->curtain = utn::appendMenuButton(panel, popover, _("Curtain"),
+    ui->curtain = utn::appendMenuToggle(panel, popover, _("Curtain"),
                                         _("Cover the page. Choose again to show the whole page."));
     connect(ui->curtain, [](Control* c) { selectPresentationTool(c, TOOL_HAND, false, true); });
     ui->exit = utn::appendMenuButton(panel, popover, _("Show the whole page"),
@@ -261,14 +267,14 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
 
     if (students) {
         utn::appendPopoverHeading(panel, _("Students' screen"));
-        ui->freeze = utn::appendMenuButton(panel, popover, _("Freeze students' screen"),
+        ui->freeze = utn::appendMenuToggle(panel, popover, _("Freeze students' screen"),
                                            _("Keep showing this page while you prepare the next step"));
         g_signal_connect(ui->freeze, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                              auto* s = static_cast<ToolStudentView*>(data);
                              s->setFrozen(!s->isFrozen());
                          }),
                          students);
-        ui->blank = utn::appendMenuButton(panel, popover, _("Blank students' screen"),
+        ui->blank = utn::appendMenuToggle(panel, popover, _("Blank students' screen"),
                                           _("Hide the page from students until you turn this off"));
         g_signal_connect(ui->blank, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                              auto* s = static_cast<ToolStudentView*>(data);
@@ -357,6 +363,25 @@ auto ToolPresentationKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                          *static_cast<PresentState*>(data) = PresentState{};
                      }),
                      ui.get());
+    // A toggle flips itself when clicked; if the action was refused the state did not change, so show the real one
+    {
+        auto resync = [weak = std::weak_ptr<PresentState>(ui), control = this->control, students]() {
+            if (auto state = weak.lock(); state && state->button) {
+                refreshPresentState(*state, control, students);
+            }
+        };
+        for (GtkWidget* toggle: {ui->spotlight, ui->curtain, ui->freeze, ui->blank}) {
+            if (!toggle) {
+                continue;
+            }
+            g_object_set_data_full(G_OBJECT(toggle), "utn-resync", new std::function<void()>(resync),
+                                   +[](gpointer p) { delete static_cast<std::function<void()>*>(p); });
+            g_signal_connect_after(toggle, "clicked", G_CALLBACK(+[](GtkButton* b, gpointer) {
+                                       (*static_cast<std::function<void()>*>(g_object_get_data(G_OBJECT(b), "utn-resync")))();
+                                   }),
+                                   nullptr);
+        }
+    }
     refreshPresentState(*ui, control, students);
     control->getToolHandler()->addToolChangedListener(
             [weak = std::weak_ptr<PresentState>(ui), control = this->control, students](ToolType) {

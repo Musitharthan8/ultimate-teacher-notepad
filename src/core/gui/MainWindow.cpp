@@ -4,6 +4,8 @@
 #include "gui/CommandPalette.h"     // for CommandPalette
 #include "gui/SelectionToolbar.h"   // for SelectionToolbar
 #include "gui/UtnToast.h"           // for UtnToast
+#include <algorithm>
+#include <cctype>
 #include <regex>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>  // for gdk_pixbuf_new_fr...
@@ -415,7 +417,15 @@ void MainWindow::updateColorscheme() {
     }
     auto props = getThemeProperties(this->window);
 
-    const bool highContrast = variant == THEME_VARIANT_HIGH_CONTRAST;
+    // "Use system" follows the platform: GTK reports the system High Contrast mode as a theme named HighContrast (or
+    // HighContrastInverse). Only the theme name is read, so nothing is overridden when it is something else.
+    const auto isHighContrastTheme = [](const std::string& root) {
+        std::string lower = root;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+        return lower == "highcontrast" || lower == "highcontrastinverse";
+    };
+    const bool highContrast = variant == THEME_VARIANT_HIGH_CONTRAST ||
+                              (variant == THEME_VARIANT_USE_SYSTEM && isHighContrastTheme(props.rootname));
     this->darkMode = highContrast || (props.dark && variant != THEME_VARIANT_FORCE_LIGHT) ||
                      variant == THEME_VARIANT_FORCE_DARK;
 
@@ -1047,6 +1057,8 @@ void MainWindow::updateDocumentHeader() {
     gtk_label_set_text(GTK_LABEL(documentHeaderStatus), text.c_str());
     gtk_widget_set_tooltip_text(documentHeaderStatus, tooltip.c_str());
     utn::setAccessibleName(documentHeaderStatus, summary.accessibleName.c_str());
+    // A live region: a save or export that fails is announced where the focus is, not only when the header is reached
+    utn::markLiveRegion(documentHeaderStatus, summary.cssClass == "utn-status-error");
     if (documentHeaderStatusButton) {
         utn::setAccessibleName(documentHeaderStatusButton, summary.accessibleName.c_str());
         gtk_widget_set_tooltip_text(documentHeaderStatusButton, tooltip.c_str());
@@ -1107,13 +1119,21 @@ void MainWindow::appendWorkspaceMenu() {
     gtk_box_append(GTK_BOX(panel), interfaceTitle);
     // Same tools and actions in both; only how much the screen explains. A mode sets the tool labels, and a label
     // choice made by hand afterwards is kept.
+    GtkWidget* modeGroup = nullptr;
     for (const utn::layout::InterfaceMode choice: {utn::layout::InterfaceMode::Beginner, utn::layout::InterfaceMode::Expert}) {
-        GtkWidget* button = gtk_button_new();
+        // One linked radio group, so Beginner and Expert are exclusive and the chosen one is a real state
+        GtkWidget* button = modeGroup ? gtk_radio_button_new_from_widget(GTK_RADIO_BUTTON(modeGroup)) :
+                                        gtk_radio_button_new(nullptr);
+        modeGroup = modeGroup ? modeGroup : button;
+        gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);  // drawn as a button, with the same visible labels
         gtk_widget_set_tooltip_text(button, choice == utn::layout::InterfaceMode::Beginner ?
                                                     _("Show tool names and short explanations under the settings") :
                                                     _("Icons only and no explanations: for teachers who know the tools"));
         g_object_set_data(G_OBJECT(button), "utn-interface-mode", GINT_TO_POINTER(static_cast<int>(choice)));
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button))) {
+                                 return;  // the radio group clicks the mode it switches off too
+                             }
                              static_cast<MainWindow*>(data)->setInterfaceMode(static_cast<utn::layout::InterfaceMode>(
                                      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-interface-mode"))));
                          }), this);
@@ -2237,7 +2257,8 @@ void MainWindow::updateInterfaceModeButtons() {
         const bool current = this->interfaceMode == mode;
         const std::string label = std::string(current ? "\xE2\x97\x8F " : "   ") + name;
         gtk_button_set_label(GTK_BUTTON(button), label.c_str());
-        utn::setAccessibleName(button, current ? (std::string(name) + ", " + _("selected")).c_str() : name);
+        utn::setToggleQuiet(button, current);  // the radio state is what assistive technology reads, not a suffix
+        utn::setAccessibleName(button, name);
     };
     mark(beginnerModeButton, _("Beginner: tool names and hints"), utn::layout::InterfaceMode::Beginner);
     mark(expertModeButton, _("Expert: compact, icons only"), utn::layout::InterfaceMode::Expert);
