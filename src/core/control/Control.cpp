@@ -2411,7 +2411,9 @@ void Control::applyDisplayedColour(Color color, bool userSelection) {
     this->toolHandler->setDisplayedColor(color, userSelection);
     if (this->toolHandler->getToolType() == TOOL_TEXT) {
         if (auto* editor = getTextEditor()) {
-            editor->setColor(color);
+            // Feedback and Answer Box text may retain an alpha distinct from the swatch's.
+            // The editor must use ToolHandler's effective colour, like every other colour surface.
+            editor->setColor(this->toolHandler->getDisplayedColor());
         }
     }
 }
