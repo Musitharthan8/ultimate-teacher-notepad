@@ -7952,6 +7952,17 @@ TEST_F(ClassroomWorkflow, undoHistoryIsNeverShownUnderTheBlankCoverOrInQuietPres
     ASSERT_TRUE(students->isTeacherCoverShown());
     EXPECT_TRUE(waitUntilHidden(popover)) << "the open History closes when the cover goes up";
     EXPECT_TRUE(historyRows(panel).empty()) << "no step is left in the list";
+    // The buttons do not carry the newest step's words either, nor their tooltips or screen reader names
+    for (const char* name: {"utnUndoHistoryUndo", "utnUndoHistoryRedo"}) {
+        GtkWidget* button = widgetNamed(panel, name);
+        ASSERT_NE(button, nullptr) << name;
+        const std::string text = buttonText(button);
+        EXPECT_TRUE(text == "Undo" || text == "Redo") << name << ": " << text;
+        gchar* tip = gtk_widget_get_tooltip_text(button);
+        ASSERT_NE(tip, nullptr) << name;
+        EXPECT_EQ(std::string(tip).find("Draw stroke"), std::string::npos) << name << ": " << tip;
+        g_free(tip);
+    }
     EXPECT_FALSE(gtk_widget_get_visible(gtk_widget_get_parent(gtk_widget_get_parent(historyList(panel)))))
             << "the list is put away";
     EXPECT_EQ(historyStatus(panel), "Unavailable while Blank covers your screen");

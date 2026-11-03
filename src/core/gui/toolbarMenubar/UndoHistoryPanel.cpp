@@ -2,6 +2,7 @@
 
 #include <algorithm>  // for max, min
 #include <cstddef>   // for size_t
+#include <memory>    // for shared_ptr
 #include <optional>  // for optional
 #include <string>    // for string
 
@@ -48,6 +49,8 @@ struct PanelState final: UndoRedoListener {
     guint refreshSource = 0;
     guint jumpSource = 0;
     guint focusSource = 0;
+    /// False once the panel is gone: a step that runs a nested main loop (an error dialog) may outlive the panel
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true);
     std::optional<Jump> jump;
     /// What the last thing the teacher did here came to; shown until the popover opens again or the history changes
     std::string message;
@@ -57,6 +60,7 @@ struct PanelState final: UndoRedoListener {
     std::optional<std::pair<HistorySide, std::size_t>> focusAfterRefresh;
 
     ~PanelState() override {
+        *alive = false;
         if (refreshSource) {
             g_source_remove(refreshSource);
         }
@@ -207,6 +211,8 @@ gboolean jumpTick(gpointer data) {
         return G_SOURCE_REMOVE;
     }
     UndoRedoHandler* handler = s->control->getUndoRedoHandler();
+    const guint thisSource = s->jumpSource;
+    const auto alive = s->alive;
     const std::size_t undoBefore = handler->undoCount();
     const std::size_t redoBefore = handler->redoCount();
     if (undoBefore != j.undoCount || redoBefore != j.redoCount) {
@@ -216,6 +222,11 @@ gboolean jumpTick(gpointer data) {
         return G_SOURCE_REMOVE;
     }
     s->control->getActionDatabase()->fireActivateAction(action);
+    // A failing step shows an error dialog, which runs a nested main loop: the panel may have been destroyed, the jump
+    // stopped (the cover went up) or even replaced meanwhile. Then it is no longer this tick's to carry on.
+    if (!*alive || !s->jump || s->jumpSource != thisSource) {
+        return G_SOURCE_REMOVE;
+    }
     const bool moved = j.side == HistorySide::Undo ?
                                handler->undoCount() + 1 == undoBefore && handler->redoCount() == redoBefore + 1 :
                                handler->redoCount() + 1 == redoBefore && handler->undoCount() == undoBefore + 1;
@@ -235,9 +246,10 @@ gboolean jumpTick(gpointer data) {
     const HistorySide side = j.side;
     const std::size_t total = j.total;
     s->jump.reset();
-    say(s, side == HistorySide::Undo ? FS(_F("Undid {1} steps.") % total) : FS(_F("Redid {1} steps.") % total));
     if (total == 1) {
         say(s, side == HistorySide::Undo ? _("Undid 1 step.") : _("Redid 1 step."));
+    } else {
+        say(s, side == HistorySide::Undo ? FS(_F("Undid {1} steps.") % total) : FS(_F("Redid {1} steps.") % total));
     }
     // The keyboard stays with the step that was chosen: it is now the next Redo (or the next Undo)
     s->focusAfterRefresh = std::make_pair(side == HistorySide::Undo ? HistorySide::Redo : HistorySide::Undo,
@@ -357,7 +369,11 @@ void stepClicked(PanelState* s, HistorySide side) {
     UndoRedoHandler* handler = s->control->getUndoRedoHandler();
     const auto texts = side == HistorySide::Undo ? handler->undoTexts(1) : handler->redoTexts(1);
     const std::string what = texts.empty() ? std::string() : stepText(texts.front());
+    const auto alive = s->alive;
     s->control->getActionDatabase()->fireActivateAction(action);
+    if (!*alive) {
+        return;  // the panel went away while the step ran (a nested main loop)
+    }
     say(s, side == HistorySide::Undo ? FS(_F("Undid: {1}.") % what) : FS(_F("Redid: {1}.") % what));
     refreshUndoHistoryPanel(s->panel);
 }
@@ -552,10 +568,15 @@ void refreshUndoHistoryPanel(GtkWidget* panel) {
     }
     g_list_free(rows);
 
-    updateButton(s, s->undoButton, Action::UNDO, handler->undoDescription(), _("Takes away the newest done step"));
-    updateButton(s, s->redoButton, Action::REDO, handler->redoDescription(), _("Brings back the newest undone step"));
+    // Under the cover (or in quiet Present) not even the buttons may carry the newest step's words
+    const bool hidesList = gateHidesList(gate);
+    updateButton(s, s->undoButton, Action::UNDO, hidesList ? std::string(_("Undo")) : handler->undoDescription(),
+                 _("Takes away the newest done step"));
+    updateButton(s, s->redoButton, Action::REDO, hidesList ? std::string(_("Redo")) : handler->redoDescription(),
+                 _("Brings back the newest undone step"));
 
-    if (gateHidesList(gate)) {
+    if (hidesList) {
+        s->message.clear();
         // Nothing of the history is on show while the class may be watching; the reason stays reachable
         if (s->jump) {
             const Jump j = *s->jump;
