@@ -145,9 +145,9 @@ TEST(ShapeRecognizerRobustness, GappedTriangleRecognisesAcrossDrawingScales) {
         SCOPED_TRACE(scale);
         Stroke input;
         const std::vector<Point> corners{
-                Point{scale * 0.0, scale * 0.0},
-                Point{scale * 24.0, scale * 3.0},
-                Point{scale * 12.0, scale * 21.0}};
+                Point{scale * -11.0, scale * -7.0},
+                Point{scale * 12.0, scale * -6.0},
+                Point{scale * 1.0, scale * 10.0}};
         polygon(input, corners, 20, true, 0.12 * scale);
         ShapeRecognizer recognizer;
         auto result = recognizer.recognizePatterns(&input, 80.0);
