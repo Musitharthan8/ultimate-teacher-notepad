@@ -120,6 +120,13 @@ auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
     if (points.size() < 3) {
         return nullptr;
     }
+    // Check coordinates before calculating bounds or inertia. NaN endpoint gaps
+    // otherwise bypass both comparisons, and a malformed point can poison the fit.
+    for (const auto& point: points) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+            return nullptr;
+        }
+    }
     double length = 0.0;
     for (size_t i = 1; i < points.size(); ++i) {
         length += std::hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
@@ -127,8 +134,8 @@ auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
     const double gap = std::hypot(points.front().x - points.back().x, points.front().y - points.back().y);
     const auto bounds = stroke->getSnappedBounds();
     const double diagonal = std::hypot(bounds.width, bounds.height);
-    if (!std::isfinite(length) || !std::isfinite(diagonal) || length <= 0.0 || diagonal <= 0.0 ||
-        gap > 0.14 * length || gap > 0.45 * diagonal) {
+    if (!std::isfinite(length) || !std::isfinite(gap) || !std::isfinite(diagonal) ||
+        length <= 0.0 || diagonal <= 0.0 || gap > 0.14 * length || gap > 0.45 * diagonal) {
         return nullptr;
     }
     Inertia s;
