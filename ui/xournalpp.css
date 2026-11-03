@@ -1494,7 +1494,7 @@ window.utnShell.utnCompact #tbLeft1 button.utn-tool-arrow {
 /* Design pass 2026-10-30. The options marker of a split rail tile is a quiet corner glyph, not a second button laid
    over the tool icon: it sits in the tile's lower-right corner (see utn::placeOptionsCorner), has no fill until it is
    hovered, and keeps a 24 px target (WCAG 2.2 target size minimum), which sits above the tile's corner so the tool's own
-   click area ends where it begins. *
+   click area ends where it begins. */
 window.utnShell #tbLeft1 button.utn-tool-options-corner {
     min-width: 24px;
     min-height: 24px;
