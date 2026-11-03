@@ -263,7 +263,7 @@ Code-confirmed non-colour cues:
 | --- | --- | --- |
 | Selected rail tool | inset 3 px left bar (`box-shadow: inset 3px 0 0`) | CSS `#tbLeft1 button:checked` |
 | High Contrast selected rail tool | 3 px frame instead of 1 px | CSS `utnHighContrast #tbLeft1 button:checked` |
-| Selected swatch | border colour change and, in High Contrast, 3 px border; also sets the GTK `CHECKED` state flag | CSS `.utn-swatch-selected`; `UW::setSwatchSelected` 302-309 |
+| Selected swatch | thicker outer ring **and a contrasting tick** inside the colour dot, plus GTK `CHECKED` state; High Contrast ring is yellow, distinct from unselected white ring | CSS `.utn-swatch-selected`, `.utnHighContrast .utn-swatch-selected`; `UW::createColourSwatch` and `UW::setSwatchSelected` |
 | Eraser / shape mode | border-width 2-3 px in High Contrast | CSS |
 | Current page in Lesson Navigator | bold 700 text and 4 px left border | CSS `button.utn-current-page`; `ToolLessonNavigator.cpp` 483 |
 | Student View state | written label ("Freeze" / "Resume live", "Blank" / "Show page") and a dot glyph | CSS comments; `.utn-sv-dot` |
@@ -272,7 +272,7 @@ Code-confirmed non-colour cues:
 | Disabled (High Contrast, destructive) | dashed border | CSS |
 | Inspector divider | colour change on hover/focus only | CSS `#utnInspectorPaned separator:hover` |
 
-Not covered by a non-colour cue in the stylesheet: selected swatch in light and dark themes outside High Contrast (border colour only; border width stays 2 px); original-shell checked state on app bar buttons. **Not yet defined.**
+Selected swatches now combine a thicker ring, GTK selected state and a contrasting tick in light, dark and High Contrast. Original-shell checked state on app bar buttons outside these new palette and classroom controls remains imperfectly specified.
 
 The Document status CSS comment says "a word and a shape as well as a colour". No shape or glyph for document status was found in CSS or `MainWindow.cpp`; only the words and a weight step. The Student View pill does use a dot glyph label (`ToolStudentView.cpp` 738).
 
@@ -337,8 +337,87 @@ The earlier doc is prescriptive prose. Where it disagrees with code, code is rec
 8. Pressed state; disabled state outside High Contrast and destructive buttons.
 9. Motion tokens and reduced-motion handling.
 10. Verified contrast ratios other than the stated 4.5:1 for status colours; focus-ring 3:1.
-11. Non-colour selected cue for swatches in light/dark.
+11. Original-shell checked-state cues outside the updated palette and classroom controls.
 12. Window minimum size.
 13. Duplicated/overridden rules (for example swatch size 34 then 26, two accent families, rail padding set four times) are unresolved; the effective value is the last rule that matches.
 14. Text-scaling behaviour.
 15. Dialog styling beyond `.utn-dialog` focus ring.
+
+
+## 16. Phase 6 palette and classroom controls (source review, unverified build)
+
+This section supersedes earlier swatch/target counts where they conflict. It documents the source on
+`wip/phase6-chatgpt-design-system`. No Windows build, native rendering, keyboard accessibility audit,
+or colour-contrast measurement has been completed for this branch.
+
+### Palette source and state
+
+- `src/core/model/TeacherPalette.h`: the named **ink** row is Black `#000000`, Blue `#1E5BD8`,
+  Red `#D32F2F`, Green `#2E7D32`, Purple `#6A1B9A`, Orange `#EF6C00`,
+  Teal `#00897B`, Pink `#D63384`. These are *named swatch constants*, not another colour state.
+  Pen, Shapes, and Text use the ink list.
+- The separate translucent **highlighter** list is Yellow `#FFEB3B`, Pink `#FF7EB6`,
+  Cyan `#00D5E8`, Green `#8BE04E`. Choosing a hue preserves the active highlighter alpha.
+- The active colour and colour mutations flow through `ToolHandler::getDisplayedColor`,
+  `setDisplayedColor` and `Control::applyDisplayedColour` for text modes and tools.
+  `ToolProfileSelector` also uses the displayed-colour path, so profiles do not create parallel colour state.
+- The rail's colour dot is repainted **inside its existing widget** when presets or other controls change
+  colour. The caption-bearing box is not replaced, preserving the visible **Colours** rail label.
+  The GTK regression test asserts a mapped, non-zero-sized caption.
+- `ToolMenuHandler.cpp` renders the floating Pen/Highlighter/Shapes/Text panel:
+  header with “Applies to new strokes” (new text for Text), one colour row, width steps with
+  point label and wave preview, existing stroke types as six tiles, existing grid-snap switch,
+  and `Pin to side` using the pre-existing settings inspector. The highlighter adds opacity,
+  and Text uses its existing text size controls. “Snap shapes to grid” is not a new recognition
+  sensitivity control. The legacy Smart Shape “Smallest shape” slider was removed.
+- `ToolAppearance.cpp` uses existing layout setters for **Reset layout** (icons-only rail,
+  Custom interface mode, inspector folded); new profiles default to Light while saved theme
+  selections remain unchanged. The standard pen starts on palette Blue.
+
+### Palette selection and touch tokens
+
+| Element | Current selection or size | Source |
+| --- | --- | --- |
+| Ink swatch dot | round 18×18 px hue, thin neutral outline | `UtnWidgets.cpp::createColourSwatch` |
+| Selected swatch | thicker outer ring + contrasting **tick** inside dot + GTK checked state | `UtnWidgets.cpp::setSwatchSelected`, CSS `.utn-swatch-selected` |
+| Light selected ring | `@utn_accent_strong = #126c63` | CSS `.utn-swatch.utn-swatch-selected` |
+| Dark selected ring | `@utn_accent_dark = #55d6c2` | CSS `window.utnShell.darkMode` |
+| High Contrast ring | unselected white `@utn_hc_fg = #ffffff`; selected yellow `@utn_hc_focus = #ffff00` | CSS `window.utnShell.utnHighContrast` |
+| Palette swatch mouse target | minimum 30×30 px | CSS `.utn-palette-grid .utn-swatch` |
+| Palette swatch touch target | minimum 44×44 px | CSS `.utnTouch .utn-palette-grid .utn-swatch` |
+| Stroke tile | minimum height 36 px; touch minimum 44×44 px; selected 2 px ring | CSS `.utn-stroke-tile` |
+| Pen/Highlighter/Shapes/Text tabs | minimum 24 px high; touch minimum 44 px high; bold and underline when checked | CSS `.utn-palette-tabs` |
+| Pin to side | touch minimum 44×44 px, visible and accessible names identical | CSS `.utn-pop-link`; `ToolMenuHandler.cpp` |
+| Focus/High Contrast | palette stroke tile 4 px yellow selection ring; app-bar classroom buttons 2 px white border, 2 px yellow focus ring | CSS `.utnHighContrast` |
+
+All palette dimensions above are **CSS minimums**, not verified GTK allocations. The mapped-size
+GTK tests need Windows confirmation at 96 and 120 DPI, larger fonts and touch density.
+
+### Classroom header and bottom dock
+
+- The teacher app bar keeps the existing distinct actions: **Students**, **Freeze**, **Blank**,
+  **Spotlight & Curtain**. `ToolStudentView` still owns Student View/Freeze/Blank and
+  `ToolPresentationKit` owns Spotlight/Curtain and its “Classroom controls” popover.
+  The group is *visually capsule-like*, not a single combined GTK widget. No classroom state was duplicated.
+- Rounded family controls have 32 px minimum height in mouse mode, 44×44 px minimum in touch mode.
+  High Contrast uses white border, yellow active border and yellow focus outline.
+  Compact widths may hide the “Spotlight & Curtain” caption; the button retains its accessible name.
+- `MainWindow::inkDockEnabled` defaults to `true` on **new** profiles; saved
+  `utn/inkDockEnabled` selections still override it. The dock is only visible for Pen
+  in teacher layouts when classroom tool controls are reachable; handlers re-check
+  Blank, busy, and quiet Present before changing a colour or width.
+- The default dock and classroom gate are covered by GTK source tests but **not run on Windows**.
+  The controls behind the Blank cover must remain inaccessible while the cover is visible.
+
+### Explicit limitations and verification
+
+- **Saved Classroom Themes** (Marking/Corrections/Presentation/Student View Safe): no current
+  preset/workspace mapping. Only the existing Red marking, Blue explanation, Yellow highlighter
+  pen presets are supported. No new theme engine, setting architecture or file format was introduced.
+- Smart Shape fitting and gap tolerance are **code changes pending native validation**, not proven
+  recogniser accuracy. Inspect noisy/rotated/gapped diagrams, stylus pressure, handwriting
+  false positives and undo/reopen behaviours before integration.
+- Required Windows checks: MSYS2 UCRT64 build, all unit and GTK suites at 96 and 120 DPI;
+  800/1024/1280 windows, large fonts, High Contrast and dark title bar;
+  Student View privacy, Blank/Freeze, spotlight/curtain gating, stylus/touch,
+  keyboard navigation, NVDA, and real-profile SHA-256/mtime unchanged.
