@@ -12,6 +12,7 @@
 
 #include <gtk/gtk.h>
 
+#include "model/TeacherPalette.h"
 #include "util/Color.h"
 #include "util/i18n.h"
 
@@ -24,14 +25,18 @@ struct NamedSwatch {
     Color colour;
 };
 
-// Few, clearly distinct classroom colours; "More colours" opens the full chooser
-inline constexpr std::array<NamedSwatch, 5> INK_SWATCHES{{
-        {N_("Black"), Color{0x00U, 0x00U, 0x00U}},
-        {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
-        {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}},
-        {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
-        {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}},
-}};
+/// A palette (model/TeacherPalette.h) as widget swatches: every surface offers the same few classroom colours;
+/// "More colours" opens the full chooser
+template <std::size_t N>
+constexpr std::array<NamedSwatch, N> swatchesOf(const std::array<palette::Swatch, N>& entries) {
+    std::array<NamedSwatch, N> swatches{};
+    for (std::size_t i = 0; i < N; ++i) {
+        swatches[i] = NamedSwatch{entries[i].name, Color{0xFF000000U | entries[i].rgb}};
+    }
+    return swatches;
+}
+inline constexpr auto INK_SWATCHES = swatchesOf(palette::INK);
+inline constexpr auto HIGHLIGHT_SWATCHES = swatchesOf(palette::HIGHLIGHTER);
 
 /// A popover with the standard UTN menu panel inside it
 struct PopoverPanel {

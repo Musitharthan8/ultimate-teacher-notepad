@@ -200,6 +200,22 @@ auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
                          cairo_set_source_rgba(cr, 0, 0, 0, 0.35);
                          cairo_set_line_width(cr, 1.0);
                          cairo_stroke(cr);
+                         // Selected: a tick on top of the colour, so the mark does not depend on seeing the border
+                         // colour (the button is the dot's parent, see setSwatchSelected)
+                         if (GtkWidget* owner = gtk_widget_get_parent(widget);
+                             owner && (gtk_widget_get_state_flags(owner) & GTK_STATE_FLAG_CHECKED)) {
+                             const double luma = 0.299 * rgba->red + 0.587 * rgba->green + 0.114 * rgba->blue;
+                             if (luma > 0.55) {
+                                 cairo_set_source_rgb(cr, 0, 0, 0);
+                             } else {
+                                 cairo_set_source_rgb(cr, 1, 1, 1);
+                             }
+                             cairo_set_line_width(cr, 2.0);
+                             cairo_move_to(cr, w / 2.0 - r * 0.45, h / 2.0);
+                             cairo_line_to(cr, w / 2.0 - r * 0.1, h / 2.0 + r * 0.4);
+                             cairo_line_to(cr, w / 2.0 + r * 0.5, h / 2.0 - r * 0.4);
+                             cairo_stroke(cr);
+                         }
                          return false;
                      }),
                      nullptr);
@@ -307,6 +323,7 @@ void setSwatchSelected(GtkWidget* swatch, bool selected) {
         gtk_widget_remove_css_class(swatch, "utn-swatch-selected");
         gtk_widget_unset_state_flags(swatch, GTK_STATE_FLAG_CHECKED);
     }
+    gtk_widget_queue_draw(swatch);  // the tick inside the dot follows the state
 }
 
 }  // namespace utn

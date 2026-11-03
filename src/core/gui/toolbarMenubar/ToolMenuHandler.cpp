@@ -10,6 +10,8 @@
 #include "control/PageBackgroundChangeController.h"  // for PageBackgroundChangeController
 #include "control/ScrollHandler.h"                   // for ScrollHandler
 #include "control/actions/ActionDatabase.h"          // for ActionDatabase
+#include "gui/MainWindow.h"                           // for MainWindow::presentKeepsToolsAway
+#include "model/TeacherPalette.h"                    // for utn::palette
 #include "control/settings/Settings.h"               // for Settings
 #include "gui/GladeGui.h"                            // for GladeGui
 #include "gui/GladeSearchpath.h"
@@ -74,28 +76,6 @@
 
 namespace {
 
-struct ClassroomColour {
-    const char* name;
-    Color value;
-};
-
-// The fast colour set intentionally covers both handwriting and highlighting. The full
-// GTK chooser below supports arbitrary colours, including those outside these presets.
-constexpr std::array<ClassroomColour, 12> CLASSROOM_COLOURS{{
-        {N_("Black"), Color{0x00, 0x00, 0x00}},
-        {N_("Blue"), Color{0x1E, 0x5B, 0xD8}},
-        {N_("Red"), Color{0xE5, 0x26, 0x29}},
-        {N_("Green"), Color{0x39, 0xC6, 0x5E}},
-        {N_("Purple"), Color{0x8A, 0x45, 0xC8}},
-        {N_("Yellow"), Color{0xFF, 0xEA, 0x36}},
-        {N_("Orange"), Color{0xFF, 0xA7, 0x26}},
-        {N_("Pink"), Color{0xFF, 0x7E, 0xB6}},
-        {N_("Cyan"), Color{0x00, 0xD5, 0xE8}},
-        {N_("Lime"), Color{0x8B, 0xE0, 0x4E}},
-        {N_("Brown"), Color{0xA5, 0x62, 0x38}},
-        {N_("White"), Color{0xFF, 0xFF, 0xFF}},
-}};
-
 Color teacherCurrentColour(Control* ctrl) {
     auto* tools = ctrl->getToolHandler();
     if (tools->getToolType() == TOOL_TEXT) {
@@ -133,6 +113,24 @@ void showRailColour(GtkWidget* menu, Color current) {
     g_object_set_data(G_OBJECT(menu), "utn-rail-colour", GUINT_TO_POINTER(static_cast<uint32_t>(current)));
 }
 
+/// Whether the colour controls may act: not while UTN is busy, not over the Blank cover, not in Present while its tools
+/// are kept away (the same rules as the Command Palette and the selection toolbar)
+bool paletteReachable(Control* ctrl) {
+    if (ctrl->isBlocked()) {
+        return false;
+    }
+    auto* window = ctrl->getWindow();
+    if (!window) {
+        return true;
+    }
+    if (window->presentKeepsToolsAway()) {
+        return false;
+    }
+    auto* menus = window->getToolMenuHandler();
+    auto* students = menus ? menus->getStudentView() : nullptr;
+    return !(students && students->isTeacherCoverShown());
+}
+
 void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     auto* grid = GTK_GRID(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
     auto* custom = GTK_COLOR_BUTTON(g_object_get_data(G_OBJECT(popover), "utn-custom-colour"));
@@ -143,17 +141,28 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     }
     // The palette has no meaning for Eraser/Hand; avoid silently modifying their tool state.
     const bool available = ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR);
-    gtk_widget_set_sensitive(GTK_WIDGET(grid), available);
-    gtk_widget_set_sensitive(GTK_WIDGET(custom), available);
+    // Like the other tool controls: not while UTN is busy, under the Blank cover, or in Present with its tools away
+    const bool usable = available && paletteReachable(ctrl);
+    const auto kind = utn::palette::kindFor(ctrl->getToolHandler()->getToolType() == TOOL_HIGHLIGHTER);
+    gtk_widget_set_sensitive(GTK_WIDGET(grid), usable);
+    gtk_widget_set_sensitive(GTK_WIDGET(custom), usable);
     GList* swatches = gtk_container_get_children(GTK_CONTAINER(grid));
     for (GList* item = swatches; item; item = item->next) {
         GtkWidget* swatch = GTK_WIDGET(item->data);
         const auto raw = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(swatch), "utn-classroom-colour"));
         const Color value(raw);
-        utn::setSwatchSelected(swatch, available && current.red == value.red &&
-                                                      current.green == value.green && current.blue == value.blue);
+        const bool ofKind = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(swatch), "utn-palette-kind")) ==
+                            static_cast<int>(kind);
+        gtk_widget_set_visible(swatch, ofKind);
+        utn::setSwatchSelected(swatch, available && current.red == value.red && current.green == value.green &&
+                                               current.blue == value.blue);
     }
     g_list_free(swatches);
+    // A colour that is no swatch is the teacher's Custom colour; say which, as the swatches cannot show it
+    const bool isCustom = !utn::palette::find(kind, static_cast<uint32_t>(current));
+    const std::string customHint = isCustom ? std::string(_("Custom colour ")) + utn::palette::hex(static_cast<uint32_t>(current)) :
+                                              std::string(_("Open the full colour picker"));
+    gtk_widget_set_tooltip_text(GTK_WIDGET(custom), customHint.c_str());
     GdkRGBA rgba = Util::argb_to_GdkRGBA(current);
     rgba.alpha = 1.0;  // Opacity stays in the tool's own properties.
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &rgba);
@@ -177,22 +186,28 @@ public:
         GtkGrid* grid = GTK_GRID(gtk_grid_new());
         gtk_grid_set_column_spacing(grid, 3);
         gtk_grid_set_row_spacing(grid, 3);
-        for (size_t i = 0; i < CLASSROOM_COLOURS.size(); ++i) {
-            const auto& entry = CLASSROOM_COLOURS[i];
-            GtkWidget* button = utn::createColourSwatch(entry.value, _(entry.name));
-            g_object_set_data(G_OBJECT(button), "utn-classroom-colour",
-                              GUINT_TO_POINTER(static_cast<uint32_t>(entry.value)));
-            g_object_set_data(G_OBJECT(button), "utn-popover", popover);
-            g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
-                                 auto colour = Color(GPOINTER_TO_UINT(
-                                         g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
-                                 // Close while this widget is still alive; applying the colour may
-                                 // trigger a toolbar rebuild that destroys the popover.
-                                 auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
-                                 gtk_popover_popdown(popup);
-                                 teacherApplyColour(static_cast<Control*>(data), colour);
-                             }), control);
-            gtk_grid_attach(grid, button, static_cast<int>(i % 4), static_cast<int>(i / 4), 1, 1);
+        // Ink and highlighter colours share the grid cells; the one that does not fit the tool is hidden (see
+        // refreshClassroomColours)
+        for (const utn::palette::Kind kind: {utn::palette::Kind::Ink, utn::palette::Kind::Highlighter}) {
+            for (size_t i = 0; i < utn::palette::count(kind); ++i) {
+                const auto& entry = utn::palette::swatch(kind, i);
+                const Color value{0xFF000000U | entry.rgb};
+                GtkWidget* button = utn::createColourSwatch(value, _(entry.name));
+                g_object_set_data(G_OBJECT(button), "utn-classroom-colour", GUINT_TO_POINTER(static_cast<uint32_t>(value)));
+                g_object_set_data(G_OBJECT(button), "utn-palette-kind", GINT_TO_POINTER(static_cast<int>(kind)));
+                g_object_set_data(G_OBJECT(button), "utn-popover", popover);
+                gtk_widget_set_no_show_all(button, true);
+                g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                                     auto colour = Color(GPOINTER_TO_UINT(
+                                             g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
+                                     // Close while this widget is still alive; applying the colour may
+                                     // trigger a toolbar rebuild that destroys the popover.
+                                     auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
+                                     gtk_popover_popdown(popup);
+                                     teacherApplyColour(static_cast<Control*>(data), colour);
+                                 }), control);
+                gtk_grid_attach(grid, button, static_cast<int>(i % 3), static_cast<int>(i / 3), 1, 1);
+            }
         }
         gtk_box_append(panel, GTK_WIDGET(grid));
 
@@ -222,6 +237,15 @@ public:
         gtk_widget_set_tooltip_text(GTK_WIDGET(menu), _("Quick colours and custom colour picker"));
         utn::setAccessibleName(GTK_WIDGET(menu), _("Colours"));
         gtk_menu_button_set_popover(menu, GTK_WIDGET(popover));
+        // One colour state: the dot follows the tool colour whoever changes it (a Favourite Pen Preset, the context
+        // panel, the selection toolbar, a shortcut), not only when this popover is opened.
+        g_object_set_data(G_OBJECT(menu), "utn-control", control);
+        g_signal_connect_object(control->getActionDatabase()->getAction(Action::TOOL_COLOR).get(), "notify::state",
+                                G_CALLBACK(+[](GObject*, GParamSpec*, gpointer rail) {
+                                    auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(rail), "utn-control"));
+                                    showRailColour(GTK_WIDGET(rail), teacherCurrentColour(ctrl));
+                                }),
+                                menu, GConnectFlags(0));
         gtk_menu_button_set_direction(menu, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);
         gtk_widget_show_all(GTK_WIDGET(panel));
         return xoj::util::WidgetSPtr(GTK_WIDGET(menu), xoj::util::adopt);

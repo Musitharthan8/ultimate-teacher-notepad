@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 #include <utility>
 
 #include "control/Control.h"
@@ -47,14 +49,7 @@ namespace {
 
 using utn::NamedSwatch;
 using utn::INK_SWATCHES;  // shared with the selection toolbar
-
-constexpr std::array<NamedSwatch, 5> HIGHLIGHT_SWATCHES{{
-        {N_("Yellow"), Color{0xFFU, 0xEBU, 0x3BU}},
-        {N_("Green"), Color{0x8BU, 0xE0U, 0x4EU}},
-        {N_("Pink"), Color{0xFFU, 0x7EU, 0xB6U}},
-        {N_("Blue"), Color{0x6EU, 0xC6U, 0xFFU}},
-        {N_("Orange"), Color{0xFFU, 0xA7U, 0x26U}},
-}};
+using utn::HIGHLIGHT_SWATCHES;
 
 struct SizeEntry {
     const char* label;  ///< shown on the button
@@ -296,6 +291,28 @@ GtkWidget* newMenuButton(const char* label, const char* hint, GtkPopover* popove
     gtk_menu_button_set_direction(button, GTK_ARROW_DOWN);
     return GTK_WIDGET(button);
 }
+
+/// Move the mark on the colour swatches below @p root to the tool's current colour. No swatch is marked while an
+/// object selection is being edited, as it has no single colour.
+void markColourSwatches(GtkWidget* root, Control* control) {
+    auto* window = control->getWindow();
+    const bool hasSelection = window && window->getXournal() && window->getXournal()->getSelection();
+    const Color current = currentColour(control->getToolHandler());
+    std::function<void(GtkWidget*)> walk = [&](GtkWidget* widget) {
+        if (g_object_get_data(G_OBJECT(widget), "utn-colour")) {
+            const Color swatch(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(widget), "utn-colour")));
+            utn::setSwatchSelected(widget, !hasSelection && sameHue(swatch, current));
+        }
+        if (GTK_IS_CONTAINER(widget)) {
+            GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+            for (GList* child = children; child; child = child->next) {
+                walk(GTK_WIDGET(child->data));
+            }
+            g_list_free(children);
+        }
+    };
+    walk(root);
+}
 }  // namespace
 
 ToolUtnContextBar::ToolUtnContextBar(std::string id, Control* control, bool followToolChanges):
@@ -333,6 +350,16 @@ auto ToolUtnContextBar::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 }
             }),
             this);
+
+    // One colour state: whoever changes the tool colour (a Favourite Pen Preset, the palette, a shortcut), the marked
+    // swatch follows. Colours do not rebuild the bar, so only the marks move.
+    g_object_set_data(G_OBJECT(box), "utn-control", control);
+    g_signal_connect_object(control->getActionDatabase()->getAction(Action::TOOL_COLOR).get(), "notify::state",
+                            G_CALLBACK(+[](GObject*, GParamSpec*, gpointer widget) {
+                                markColourSwatches(GTK_WIDGET(widget),
+                                                   static_cast<Control*>(g_object_get_data(G_OBJECT(widget), "utn-control")));
+                            }),
+                            box, GConnectFlags(0));
 
     rebuild(control->getToolHandler()->getToolType());
     gtk_widget_show_all(GTK_WIDGET(box));
@@ -616,14 +643,16 @@ auto ToolUtnContextBar::appendButton(const char* label, const char* hint) -> Gtk
 }
 
 void ToolUtnContextBar::appendColourControls(Palette palette) {
-    const auto& swatches = palette == Palette::Highlight ? HIGHLIGHT_SWATCHES : INK_SWATCHES;
+    const std::vector<NamedSwatch> swatches = palette == Palette::Highlight
+                                                      ? std::vector<NamedSwatch>(HIGHLIGHT_SWATCHES.begin(), HIGHLIGHT_SWATCHES.end())
+                                                      : std::vector<NamedSwatch>(INK_SWATCHES.begin(), INK_SWATCHES.end());
     const Color current = currentColour(control->getToolHandler());
     const bool hasSelection = [this] {
         auto* window = control->getWindow();
         return window && window->getXournal() && window->getXournal()->getSelection();
     }();
 
-    // Five swatches plus "More colours"; in the touch-size side panel they wrap onto two rows of three
+    // The palette plus "More colours"; in the touch-size side panel they wrap onto rows of three
     if (isSidePanel()) {
         GtkWidget* title = gtk_label_new(palette == Palette::Highlight ? _("Highlight colour") : _("Ink colour"));
         gtk_widget_set_halign(title, GTK_ALIGN_START);

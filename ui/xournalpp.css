@@ -1004,6 +1004,8 @@ window.utnShell .utn-swatch {
 }
 window.utnShell .utn-swatch.utn-swatch-selected {
     border-color: @utn_accent_strong;
+    border-width: 3px;  /* a thicker ring as well as the accent colour, and a tick inside the dot */
+    padding: 1px;
 }
 window.utnShell.darkMode .utn-swatch.utn-swatch-selected {
     border-color: @utn_accent_dark;

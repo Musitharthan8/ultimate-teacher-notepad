@@ -1,19 +1,44 @@
 #include "TeacherPalette.h"
 
+#include <cstdio>
+
 namespace utn::palette {
 
-auto count(Kind) -> std::size_t { return 0; }
+namespace {
+constexpr uint32_t RGB_MASK = 0x00FFFFFFU;
+constexpr uint32_t ALPHA_MASK = 0xFF000000U;
+}  // namespace
 
-auto swatch(Kind, std::size_t) -> const Swatch& { return INK[0]; }
+auto count(Kind kind) -> std::size_t { return kind == Kind::Highlighter ? HIGHLIGHTER.size() : INK.size(); }
 
-auto kindFor(bool) -> Kind { return Kind::Ink; }
+auto swatch(Kind kind, std::size_t index) -> const Swatch& {
+    return kind == Kind::Highlighter ? HIGHLIGHTER.at(index) : INK.at(index);
+}
 
-auto find(Kind, uint32_t) -> std::optional<std::size_t> { return std::nullopt; }
+auto kindFor(bool highlighter) -> Kind { return highlighter ? Kind::Highlighter : Kind::Ink; }
 
-auto hex(uint32_t) -> std::string { return {}; }
+auto find(Kind kind, uint32_t argb) -> std::optional<std::size_t> {
+    for (std::size_t i = 0; i < count(kind); ++i) {
+        if (swatch(kind, i).rgb == (argb & RGB_MASK)) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
 
-auto nameOf(Kind, uint32_t) -> const char* { return ""; }
+auto hex(uint32_t argb) -> std::string {
+    char text[8];
+    std::snprintf(text, sizeof(text), "#%06X", static_cast<unsigned>(argb & RGB_MASK));
+    return text;
+}
 
-auto withOpacityOf(uint32_t chosen, uint32_t) -> uint32_t { return chosen; }
+auto nameOf(Kind kind, uint32_t argb) -> const char* {
+    const auto index = find(kind, argb);
+    return index ? swatch(kind, *index).name : "";
+}
+
+auto withOpacityOf(uint32_t chosen, uint32_t current) -> uint32_t {
+    return (current & ALPHA_MASK) | (chosen & RGB_MASK);
+}
 
 }  // namespace utn::palette

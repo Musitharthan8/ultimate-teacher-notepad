@@ -8112,3 +8112,91 @@ TEST_F(ClassroomWorkflow, colourRailIndicatorFollowsAPresetThatChangesThePenColo
 
     tools->setColor(previous, false);
 }
+
+namespace {
+/// The swatches named @p name anywhere under @p root that are shown as selected
+int selectedSwatchesNamed(GtkWidget* root, const char* name) {
+    int selected = 0;
+    for (GtkWidget* button: buttonsIn(root)) {
+        AtkObject* accessible = gtk_widget_get_accessible(button);
+        if (accessible && g_strcmp0(atk_object_get_name(accessible), name) == 0 &&
+            (gtk_widget_get_state_flags(button) & GTK_STATE_FLAG_CHECKED)) {
+            ++selected;
+        }
+    }
+    return selected;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, everyColourSurfaceFollowsTheOneToolColourWhoeverChangesIt) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getTool(TOOL_PEN).getColor();
+    control->selectTool(TOOL_PEN);
+    settle();
+    GtkWidget* root = window->getWindow();
+    ToolUtnContextBar contextBar("UTN_CONTEXT_TEST", control.get(), true);
+    xoj::util::WidgetSPtr contextPanel = contextBar.createItem(false);
+    gtk_widget_show_all(contextPanel.get());
+    settle();
+    GtkWidget* rail = menuButtonAccessibleNamed(root, "Colours");
+    ASSERT_NE(rail, nullptr);
+
+    tools->setColor(Color{0x1EU, 0x5BU, 0xD8U}, false);  // as the palette's Blue
+    settle();
+    EXPECT_EQ(railColour(rail), 0x1E5BD8U);
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Blue"), 1) << "the context panel marks Blue";
+    EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Red"), 0);
+
+    // Not a palette swatch (a Favourite Pen Preset's red is near Red): no swatch may keep claiming the pen
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    settle();
+    EXPECT_EQ(toolRgb(control.get()), 0xD93025U) << "the real pen";
+    EXPECT_EQ(railColour(rail), 0xD93025U);
+    EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Blue"), 0) << "the context panel no longer marks Blue";
+
+    // A palette colour chosen anywhere moves every mark
+    tools->setColor(Color{0xD3U, 0x2FU, 0x2FU}, false);
+    settle();
+    EXPECT_EQ(railColour(rail), 0xD32F2FU);
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Red"), 1);
+    EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Blue"), 0);
+
+    tools->setColor(previous, false);
+}
+
+TEST_F(ClassroomWorkflow, theHighlighterShowsItsOwnSeeThroughColoursAndKeepsItsOpacity) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+    control->selectTool(TOOL_HIGHLIGHTER);
+    settle();
+    GtkWidget* root = window->getWindow();
+    ToolUtnContextBar contextBar("UTN_CONTEXT_TEST", control.get(), true);
+    xoj::util::WidgetSPtr contextPanel = contextBar.createItem(false);
+    gtk_widget_show_all(contextPanel.get());
+    settle();
+    GtkWidget* rail = menuButtonAccessibleNamed(root, "Colours");
+    ASSERT_NE(rail, nullptr);
+    const uint8_t opacity = tools->getColor().alpha;
+
+    tools->setColor(Color{0x00U, 0xD5U, 0xE8U, opacity}, false);  // the palette's Cyan
+    settle();
+    EXPECT_EQ(railColour(rail), 0x00D5E8U);
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Cyan"), 1);
+    EXPECT_EQ(tools->getColor().alpha, opacity) << "a hue change keeps the highlighter see-through";
+
+    // The rail's palette offers the one palette per tool, each swatch named for a screen reader
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(rail)));
+    for (const char* name: {"Black", "Blue", "Red", "Green", "Orange", "Purple", "Yellow", "Pink", "Cyan"}) {
+        EXPECT_NE(buttonAccessibleNamed(popover, name), nullptr) << name;
+    }
+    EXPECT_EQ(buttonAccessibleNamed(popover, "Brown"), nullptr) << "no colour outside the palette";
+
+    tools->setColor(previous, false);
+}
