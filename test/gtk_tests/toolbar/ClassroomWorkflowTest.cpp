@@ -1707,6 +1707,23 @@ TEST_F(ClassroomWorkflow, workspaceMenuLabelChoicesDriveTheRailCaptions) {
     window->updateCompactLayout(gtk_widget_get_allocated_width(window->getWindow()));
 }
 
+// Smart Shape has automatic recognition: the old page-unit minimum-size slider is no longer an on-screen teacher
+// control. Check a real mapped inspector, not just a widget constructed away from a window.
+TEST_F(ClassroomWorkflow, smartShapeInspectorHasNoMinimumSizeSlider) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    window->setTeacherWorkspace(0);
+    control->selectTool(TOOL_PEN);
+    control->setToolDrawingType(DRAWING_TYPE_SHAPE_RECOGNIZER);
+    settle();
+    GtkWidget* inspector = window->get("utnContextSide");
+    ASSERT_NE(inspector, nullptr);
+    EXPECT_TRUE(gtk_widget_get_mapped(inspector));
+    EXPECT_GT(gtk_widget_get_allocated_width(inspector), 0);
+    EXPECT_GT(gtk_widget_get_allocated_height(inspector), 0);
+    EXPECT_EQ(accessibleNamed(inspector, "Smart Shape minimum size"), nullptr);
+}
+
 TEST_F(ClassroomWorkflow, shapesAndFeedbackCanPinInspectorWithoutReselectingTools) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
