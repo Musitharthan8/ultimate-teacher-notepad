@@ -6,6 +6,7 @@
 
 #include "ToolWorkspaceSwitch.h"
 
+#include <iterator>
 #include <string>
 
 #include "control/Control.h"
@@ -30,16 +31,41 @@ const Workspace WORKSPACES[] = {
         {"UTN Present", "Present", "Present: a quiet layout for the projector"},
 };
 
+// The newest button for each workspace. Switching rebuilds the toolbar and destroys the button that was used, so the
+// keyboard would be left on nothing; this finds its replacement. Weak: a rebuilt toolbar clears the entry.
+GtkWidget* newestButton[std::size(WORKSPACES)] = {};
+
+// Only if the entry still names the dying button: its replacement may already have been registered
+void forgetButton(gpointer data, GObject* gone) {
+    auto** entry = static_cast<GtkWidget**>(data);
+    if (*entry == reinterpret_cast<GtkWidget*>(gone)) {
+        *entry = nullptr;
+    }
+}
+
+gboolean restoreWorkspaceFocus(gpointer data) {
+    // After the rebuild: a button that is not on screen (for example a layout with no switch) cannot take the keyboard
+    if (GtkWidget* target = newestButton[GPOINTER_TO_SIZE(data)]; target && gtk_widget_get_mapped(target)) {
+        gtk_widget_grab_focus(target);
+    }
+    return G_SOURCE_REMOVE;
+}
+
 void onWorkspaceClicked(GtkButton* button, gpointer data) {
     auto* control = static_cast<Control*>(data);
     if (utn::isSyncing(GTK_WIDGET(button))) {
         return;
     }
     const auto* layoutId = static_cast<const char*>(g_object_get_data(G_OBJECT(button), "utn-layout"));
+    const gboolean keyboardWasHere = gtk_widget_has_focus(GTK_WIDGET(button));
     // Keep the tapped workspace active; the toolbar rebuild refreshes the others.
     utn::syncToggle(GTK_TOGGLE_BUTTON(button), true);
     if (auto* window = control->getWindow()) {
         window->toolbarSelected(layoutId);
+    }
+    if (keyboardWasHere) {
+        // Pressing Space on "Mark" must leave the keyboard on "Mark", not on nothing (Tab would start from the top)
+        g_idle_add(restoreWorkspaceFocus, GSIZE_TO_POINTER(GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(button), "utn-index"))));
     }
 }
 }  // namespace
@@ -54,7 +80,8 @@ xoj::util::WidgetSPtr ToolWorkspaceSwitch::createItem(bool) {
 
     // The workspace the window is showing now comes from settings, which are updated before toolbars rebuild.
     const std::string& current = control->getSettings()->getSelectedToolbar();
-    for (const auto& ws: WORKSPACES) {
+    for (size_t index = 0; index < std::size(WORKSPACES); ++index) {
+        const auto& ws = WORKSPACES[index];
         GtkWidget* toggle = gtk_toggle_button_new();
         gtk_button_set_child(GTK_BUTTON(toggle), gtk_label_new(_(ws.label)));
         gtk_widget_add_css_class(toggle, "utnWorkspaceButton");
@@ -62,6 +89,9 @@ xoj::util::WidgetSPtr ToolWorkspaceSwitch::createItem(bool) {
         gtk_widget_set_tooltip_text(toggle, _(ws.tooltip));
         utn::setAccessibleName(toggle, _(ws.label));
         g_object_set_data(G_OBJECT(toggle), "utn-layout", const_cast<char*>(ws.layoutId));
+        g_object_set_data(G_OBJECT(toggle), "utn-index", GSIZE_TO_POINTER(index));
+        newestButton[index] = toggle;
+        g_object_weak_ref(G_OBJECT(toggle), forgetButton, &newestButton[index]);
         utn::syncToggle(GTK_TOGGLE_BUTTON(toggle), current == ws.layoutId);
         g_signal_connect(toggle, "clicked", G_CALLBACK(onWorkspaceClicked), control);
         gtk_box_append(GTK_BOX(box), toggle);

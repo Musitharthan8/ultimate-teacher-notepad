@@ -344,6 +344,12 @@ void ToolStudentView::updateState() {
                                                "on now.") :
                                              _("Keep showing students this page while you prepare the next step"));
         utn::setAccessibleName(freezeQuick, quickFreezeName(frozen));
+        // Freeze stays pressable with no Student View, to explain itself with a toast; it must still look unavailable
+        if (open) {
+            gtk_widget_remove_css_class(freezeQuick, "utn-needs-student-view");
+        } else {
+            gtk_widget_add_css_class(freezeQuick, "utn-needs-student-view");
+        }
         setAccessibleDescription(freezeQuick, open ? nullptr : _("Freeze needs Student View. Open it on the projector first, "
                                                             "then students keep seeing this page while you prepare the "
                                                             "next step."));

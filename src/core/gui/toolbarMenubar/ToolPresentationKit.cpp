@@ -109,6 +109,13 @@ void refreshPresentState(const PresentState& ui, Control* control, ToolStudentVi
     }
     if (ui.back) {
         gtk_widget_set_sensitive(ui.back, summary.anyActive());
+        // Why it is greyed out, for a screen reader (the tooltip is not read to everyone)
+        if (AtkObject* accessible = gtk_widget_get_accessible(ui.back)) {
+            gchar* tooltip = gtk_widget_get_tooltip_text(ui.back);
+            atk_object_set_description(accessible, summary.anyActive() ? (tooltip ? tooltip : "") :
+                                                                        _("Nothing is on, so there is nothing to turn off"));
+            g_free(tooltip);
+        }
     }
     if (students) {
         if (ui.freeze) {

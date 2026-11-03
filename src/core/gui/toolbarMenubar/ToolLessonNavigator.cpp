@@ -140,7 +140,7 @@ public:
     xoj::util::WidgetSPtr makeWidget() {
         GtkBox* box = GTK_BOX(gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 2));
 
-        GtkWidget* previous = gtk_button_new_with_label("‹");
+        GtkWidget* previous = previousButton = gtk_button_new_with_label("‹");
         gtk_widget_set_tooltip_text(previous, _("Previous page"));
         utn::setAccessibleName(previous, _("Previous page"));
         g_signal_connect(
@@ -323,7 +323,7 @@ public:
 
         gtk_box_append(box, GTK_WIDGET(menuButton));
 
-        GtkWidget* next = gtk_button_new_with_label("›");
+        GtkWidget* next = nextButton = gtk_button_new_with_label("›");
         gtk_widget_set_tooltip_text(next, _("Next page"));
         utn::setAccessibleName(next, _("Next page"));
         g_signal_connect(
@@ -394,6 +394,20 @@ private:
         }
 
         gtk_button_set_label(GTK_BUTTON(menuButton), text.c_str());
+
+        // At the first or last page the arrow does nothing, so it must not look pressable. If it held the keyboard,
+        // the page button takes it first: GTK would otherwise drop focus to nowhere.
+        const std::pair<GtkWidget*, bool> arrows[] = {{previousButton, utn::canGoPrevious(currentPage, pageCount)},
+                                                      {nextButton, utn::canGoNext(currentPage, pageCount)}};
+        for (const auto& [arrow, usable]: arrows) {
+            if (!arrow) {
+                continue;
+            }
+            if (!usable && gtk_widget_has_focus(arrow)) {
+                gtk_widget_grab_focus(GTK_WIDGET(menuButton));
+            }
+            gtk_widget_set_sensitive(arrow, usable);
+        }
 
         if (currentEntry) {
             gtk_editable_set_text(GTK_EDITABLE(currentEntry), label.c_str());
@@ -559,6 +573,8 @@ private:
     GtkEntry* goEntry = nullptr;
     GtkLabel* goError = nullptr;
     GtkButton* bookmarkButton = nullptr;
+    GtkWidget* previousButton = nullptr;  ///< unavailable on the first page
+    GtkWidget* nextButton = nullptr;      ///< unavailable on the last page
     GtkBox* labelList = nullptr;
     GtkBox* recentList = nullptr;
 };

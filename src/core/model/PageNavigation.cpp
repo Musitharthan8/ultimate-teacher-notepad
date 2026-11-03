@@ -5,6 +5,10 @@
 
 namespace utn {
 
+bool canGoPrevious(size_t current, size_t pageCount) { return current > 0 && current < pageCount; }
+
+bool canGoNext(size_t current, size_t pageCount) { return current + 1 < pageCount; }
+
 std::optional<size_t> parsePageNumber(std::string_view text, size_t pageCount) {
     while (!text.empty() && text.front() == ' ') {
         text.remove_prefix(1);
