@@ -86,7 +86,7 @@ SelectionToolbar::SelectionToolbar(MainWindow* win, Control* control, GtkOverlay
                              if (GtkWidget* open = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER)) {
                                  gtk_popover_popdown(GTK_POPOVER(open));
                              }
-                             static_cast<Control*>(data)->getToolHandler()->setColor(colour, true);  // recolours it
+                             static_cast<Control*>(data)->applyDisplayedColour(colour);  // recolours it
                          }),
                          control);
         gtk_box_append(GTK_BOX(swatches), button);

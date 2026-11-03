@@ -1030,12 +1030,17 @@ struct ActionProperties<Action::TOOL_COLOR> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) {
         bool enable = ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR);
-        return enable ? ctrl->getToolHandler()->getActiveTool()->getColor() : Colors::black;
+        if (!enable) {
+            return Colors::black;
+        }
+        Color shown = ctrl->getToolHandler()->getDisplayedColor();
+        shown.alpha = 0xff;
+        return shown;
     }
     static bool initiallyEnabled(Control* ctrl) { return ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
         g_simple_action_set_state(ga, p);
-        ctrl->getToolHandler()->setColor(getGVariantValue<Color>(p), true);
+        ctrl->applyDisplayedColour(getGVariantValue<Color>(p));  // Feedback and Answer Box text keep their own colour
     }
 };
 

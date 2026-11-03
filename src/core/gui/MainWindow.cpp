@@ -1257,7 +1257,7 @@ void MainWindow::appendPenSettingsMenu() {
         g_signal_connect(swatch, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
                              auto* colour = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-property-colour"));
-                             self->control->getToolHandler()->setColor(*colour, true);
+                             self->control->applyDisplayedColour(*colour);
                              self->updateInkDock();
                          }), this);
         penPropertySwatches[i] = swatch;
@@ -1423,7 +1423,7 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
         g_signal_connect(swatch, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
                              auto* colour = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-ink-colour"));
-                             self->control->getToolHandler()->setColor(*colour, true);
+                             self->control->applyDisplayedColour(*colour);
                              self->updateInkDock();
                          }), this);
         inkDockSwatches[i] = swatch;
@@ -1497,6 +1497,9 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
 }
 
 void MainWindow::updateSelectionToolbar() {
+    if (toolbar) {
+        toolbar->refreshColourPalettes();  // busy, Blank and Present change what the palette may do
+    }
     if (selectionToolbar) {
         selectionToolbar->update();
     }
@@ -2397,4 +2400,9 @@ void MainWindow::applyPanelPolicy() {
     applyingPanelPolicy = false;
 }
 
-void MainWindow::toolLookChanged() { updateInkDock(); }
+void MainWindow::toolLookChanged() {
+    updateInkDock();
+    if (toolbar) {
+        toolbar->refreshColourPalettes();  // an open palette would otherwise show the tool as it was
+    }
+}

@@ -51,6 +51,11 @@ public:
     enum class PaletteTab { Pen, Highlighter, Shapes, Text };
     static GtkWidget* createPaletteSection(Control* control, PaletteTab tab);
 
+    /// Whether the colour and tool controls may act now: not while UTN is busy, not over the Blank cover, not in Present
+    /// while its tools are kept away (the rules of the Command Palette and the selection toolbar). Every callback that
+    /// changes the tool asks again at the moment it runs: the answer may have changed since the control was drawn.
+    static bool toolControlsReachable(Control* control);
+
 private:
     static void populateTextSettingsPanel(Control* control, GtkBox* panel);
     enum class Palette { Ink, Highlight };

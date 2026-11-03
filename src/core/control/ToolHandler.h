@@ -118,6 +118,19 @@ public:
     Color getColorMaskAlpha() const;
 
     /**
+     * UTN: the colour the teacher sees for the active tool: the Feedback or Answer Box text colour while the Text tool
+     * is in that mode, else the active tool's colour. Every colour surface shows this.
+     */
+    Color getDisplayedColor() const;
+
+    /**
+     * UTN: the one way a colour surface (toolbar item, full chooser, palette, context bar, selection toolbar) sets that
+     * colour. Feedback and Answer Box text keep their own colour (and alpha), anything else is setColor(). One
+     * toolColorChanged() notification.
+     */
+    void setDisplayedColor(Color color, bool userSelection);
+
+    /**
      * @brief Enable/disable fill for the tool selected in the toolbar
      *
      * @param fill whether fill should be enabled

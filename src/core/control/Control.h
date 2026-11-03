@@ -408,6 +408,9 @@ public:
     void setFill(bool fill);
 
     TextEditor* getTextEditor();
+    /// UTN: the one way every colour surface applies the colour it shows (see ToolHandler::setDisplayedColor); also
+    /// recolours the text being edited
+    void applyDisplayedColour(Color color, bool userSelection = true);
 
     GladeSearchpath* getGladeSearchPath() const;
 

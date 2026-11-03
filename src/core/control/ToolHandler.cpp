@@ -604,6 +604,37 @@ void ToolHandler::setButtonColor(Color color, Button button) {
 
 auto ToolHandler::getColor() const -> Color { return this->activeTool->getColor(); }
 
+auto ToolHandler::getDisplayedColor() const -> Color {
+    if (this->activeTool->type == TOOL_TEXT) {
+        switch (getTextMode()) {
+            case TextMode::Feedback:
+                return this->teacherStampColor;
+            case TextMode::AnswerBox:
+                return this->answerBoxTextColor;
+            case TextMode::Plain:
+                break;
+        }
+    }
+    return this->activeTool->getColor();
+}
+
+void ToolHandler::setDisplayedColor(Color color, bool userSelection) {
+    if (this->activeTool->type == TOOL_TEXT) {
+        const TextMode mode = getTextMode();
+        if (mode == TextMode::Feedback) {
+            color.alpha = this->teacherStampColor.alpha;
+            setTeacherStampColor(color);  // tells the surfaces once
+            return;
+        }
+        if (mode == TextMode::AnswerBox) {
+            color.alpha = this->answerBoxTextColor.alpha;
+            setAnswerBoxTextColor(color);
+            return;
+        }
+    }
+    setColor(color, userSelection);
+}
+
 auto ToolHandler::getColorMaskAlpha() const -> Color {
     Color c = this->activeTool->getColor();
     c.alpha = 0xff;

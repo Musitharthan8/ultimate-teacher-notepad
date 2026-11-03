@@ -3,6 +3,7 @@
 #include "control/UtnLayout.h"  // for isTeacherLayout
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>  // for max
 #include <sstream>    // for istringstream
 
@@ -77,35 +78,15 @@
 
 namespace {
 
-Color teacherCurrentColour(Control* ctrl) {
-    auto* tools = ctrl->getToolHandler();
-    if (tools->getToolType() == TOOL_TEXT) {
-        if (tools->getTextMode() == TextMode::Feedback) {
-            return tools->getTeacherStampColor();
-        }
-        if (tools->getTextMode() == TextMode::AnswerBox) {
-            return tools->getAnswerBoxTextColor();
-        }
-    }
-    return tools->getColor();
-}
+/// The colour the palette shows: the one every colour surface shows (Feedback and Answer Box text have their own)
+Color teacherCurrentColour(Control* ctrl) { return ctrl->getToolHandler()->getDisplayedColor(); }
 
+/// The one path every colour surface uses; the palette adds only the gate. Keeps the highlighter's opacity.
 void teacherApplyColour(Control* ctrl, Color selected) {
-    auto* tools = ctrl->getToolHandler();
-    // Keep highlighter opacity (and any other current-tool alpha) when changing only hue.
-    selected.alpha = teacherCurrentColour(ctrl).alpha;
-    if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::Feedback) {
-        tools->setTeacherStampColor(selected);
-    } else if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::AnswerBox) {
-        tools->setAnswerBoxTextColor(selected);
-    } else {
-        tools->setColor(selected, true);  // Also recolours an active object selection.
+    if (!ToolUtnContextBar::toolControlsReachable(ctrl)) {
+        return;  // gone busy, covered, or Present put the tools away since the palette opened
     }
-    if (tools->getToolType() == TOOL_TEXT) {
-        if (auto* editor = ctrl->getTextEditor()) {
-            editor->setColor(selected);
-        }
-    }
+    ctrl->applyDisplayedColour(selected);
 }
 
 /// The rail's colour dot. The colour it shows is also kept on the button ("utn-rail-colour", 0xAARRGGBB) for tests.
@@ -116,21 +97,7 @@ void showRailColour(GtkWidget* menu, Color current) {
 
 /// Whether the colour controls may act: not while UTN is busy, not over the Blank cover, not in Present while its tools
 /// are kept away (the same rules as the Command Palette and the selection toolbar)
-bool paletteReachable(Control* ctrl) {
-    if (ctrl->isBlocked()) {
-        return false;
-    }
-    auto* window = ctrl->getWindow();
-    if (!window) {
-        return true;
-    }
-    if (window->presentKeepsToolsAway()) {
-        return false;
-    }
-    auto* menus = window->getToolMenuHandler();
-    auto* students = menus ? menus->getStudentView() : nullptr;
-    return !(students && students->isTeacherCoverShown());
-}
+bool paletteReachable(Control* ctrl) { return ToolUtnContextBar::toolControlsReachable(ctrl); }
 
 /// Which tab of the Teacher Annotation Palette stands for the active tool; -1 for a tool the palette does not paint
 int paletteTabOf(ToolHandler* tools) {
@@ -183,22 +150,62 @@ void updatePaletteIndicator(GtkPopover* popover, Control* ctrl) {
     gtk_label_set_text(label, words.c_str());
 }
 
-/// Rebuild the part of the palette that depends on the tool: the size, opacity, shape or text-size row
+/// What the section under the swatches is built for: the tab, the shape, the text mode and the thickness. It is
+/// rebuilt only when this changes, so a slider being dragged is not destroyed by the colour change it causes.
+std::string paletteSectionSignature(Control* ctrl) {
+    auto* tools = ctrl->getToolHandler();
+    const ToolSize size = tools->getToolType() == TOOL_HIGHLIGHTER ? tools->getHighlighterSize() :
+                          tools->getToolType() == TOOL_PEN         ? tools->getPenSize() :
+                                                                     TOOL_SIZE_NONE;
+    return std::to_string(paletteTabOf(tools)) + "/" + std::to_string(static_cast<int>(tools->getDrawingType())) + "/" +
+           std::to_string(static_cast<int>(tools->getTextMode())) + "/" + std::to_string(static_cast<int>(size));
+}
+
+GtkWidget* findOpacityScale(GtkWidget* widget) {
+    if (g_object_get_data(G_OBJECT(widget), "utn-opacity")) {
+        return widget;
+    }
+    if (!GTK_IS_CONTAINER(widget)) {
+        return nullptr;
+    }
+    GtkWidget* found = nullptr;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+    for (GList* child = children; child && !found; child = child->next) {
+        found = findOpacityScale(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    return found;
+}
+
+/// Rebuild the part of the palette that depends on the tool (the size, opacity, shape or text-size row) when the tool
+/// changed, keep the opacity slider in step with the highlighter in place, and make it follow the gate
 void refreshPaletteSection(GtkPopover* popover, Control* ctrl) {
     auto* holder = GTK_BOX(g_object_get_data(G_OBJECT(popover), "utn-section"));
     if (!holder) {
         return;
     }
-    GList* old = gtk_container_get_children(GTK_CONTAINER(holder));
-    for (GList* item = old; item; item = item->next) {
-        gtk_widget_destroy(GTK_WIDGET(item->data));
-    }
-    g_list_free(old);
     const int tab = paletteTabOf(ctrl->getToolHandler());
-    if (tab >= 0) {
-        gtk_box_append(holder, ToolUtnContextBar::createPaletteSection(
-                                       ctrl, static_cast<ToolUtnContextBar::PaletteTab>(tab)));
+    const std::string signature = paletteSectionSignature(ctrl);
+    auto* built = static_cast<const char*>(g_object_get_data(G_OBJECT(popover), "utn-section-signature"));
+    if (!built || signature != built) {
+        GList* old = gtk_container_get_children(GTK_CONTAINER(holder));
+        for (GList* item = old; item; item = item->next) {
+            gtk_widget_destroy(GTK_WIDGET(item->data));
+        }
+        g_list_free(old);
+        if (tab >= 0) {
+            gtk_box_append(holder, ToolUtnContextBar::createPaletteSection(
+                                           ctrl, static_cast<ToolUtnContextBar::PaletteTab>(tab)));
+        }
+        g_object_set_data_full(G_OBJECT(popover), "utn-section-signature", g_strdup(signature.c_str()), g_free);
+    } else if (GtkWidget* scale = findOpacityScale(GTK_WIDGET(holder));
+               scale && ctrl->getToolHandler()->getToolType() == TOOL_HIGHLIGHTER) {
+        const double percent = 100.0 * static_cast<double>(ctrl->getToolHandler()->getColor().alpha) / 255.0;
+        if (std::lround(gtk_range_get_value(GTK_RANGE(scale))) != std::lround(percent)) {
+            gtk_range_set_value(GTK_RANGE(scale), percent);
+        }
     }
+    gtk_widget_set_sensitive(GTK_WIDGET(holder), paletteReachable(ctrl));
     gtk_widget_set_visible(GTK_WIDGET(holder), tab >= 0);
 }
 
@@ -216,6 +223,16 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     // Like the other tool controls: not while UTN is busy, under the Blank cover, or in Present with its tools away
     const bool reachable = paletteReachable(ctrl);
     const bool usable = available && reachable;
+    // An open palette that stops being usable (a save starts, the Blank cover goes up, Present puts the tools away) is
+    // closed, as the History panel is; opened afterwards it shows its controls disabled with the rest of the dock
+    const bool wasReachable = g_object_get_data(G_OBJECT(popover), "utn-unreachable") == nullptr;
+    g_object_set_data(G_OBJECT(popover), "utn-unreachable", reachable ? nullptr : GINT_TO_POINTER(1));
+    if (wasReachable && !reachable && gtk_widget_get_visible(GTK_WIDGET(popover))) {
+        gtk_popover_popdown(popover);
+        if (!gtk_widget_get_mapped(GTK_WIDGET(popover))) {
+            gtk_widget_hide(GTK_WIDGET(popover));  // its button is hidden with the dock: there is no fade to wait for
+        }
+    }
     const auto kind = utn::palette::kindFor(ctrl->getToolHandler()->getToolType() == TOOL_HIGHLIGHTER);
 
     // The tabs show the tool in use; choosing one is choosing the tool, so they need the same gate
@@ -256,6 +273,45 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &rgba);
     updatePaletteIndicator(popover, ctrl);
     refreshPaletteSection(popover, ctrl);
+}
+
+/// Every Teacher Annotation Palette popover that exists, so a change of the tool or of what may be used reaches the
+/// open ones whoever caused it (a preset, a shortcut, another colour surface, a save, the Blank cover, Present)
+std::vector<GtkPopover*>& colourPalettePopovers() {
+    static std::vector<GtkPopover*> popovers;
+    return popovers;
+}
+
+/// Look again at the tool and the gate, once, from the main loop: the change may have been made by one of the
+/// palette's own controls, which must not be rebuilt while it is still running its signal
+void schedulePaletteRefresh(GtkPopover* popover) {
+    if (g_object_get_data(G_OBJECT(popover), "utn-refresh-source")) {
+        return;
+    }
+    const guint source = g_idle_add_full(
+            G_PRIORITY_HIGH_IDLE,
+            +[](gpointer data) -> gboolean {
+                auto* popup = GTK_POPOVER(data);
+                g_object_set_data(G_OBJECT(popup), "utn-refresh-source", nullptr);
+                refreshClassroomColours(popup, static_cast<Control*>(g_object_get_data(G_OBJECT(popup), "utn-control")));
+                return G_SOURCE_REMOVE;
+            },
+            popover, nullptr);
+    g_object_set_data(G_OBJECT(popover), "utn-refresh-source", GUINT_TO_POINTER(source));
+}
+
+void registerColourPalette(GtkPopover* popover, Control* ctrl) {
+    g_object_set_data(G_OBJECT(popover), "utn-control", ctrl);
+    colourPalettePopovers().push_back(popover);
+    g_signal_connect(popover, "destroy", G_CALLBACK(+[](GtkWidget* widget, gpointer) {
+                         if (auto source = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(widget), "utn-refresh-source"))) {
+                             g_source_remove(source);
+                             g_object_set_data(G_OBJECT(widget), "utn-refresh-source", nullptr);
+                         }
+                         auto& all = colourPalettePopovers();
+                         all.erase(std::remove(all.begin(), all.end(), GTK_POPOVER(widget)), all.end());
+                     }),
+                     nullptr);
 }
 
 /// The palette's tab @p tab was chosen: choose the tool it stands for (and a shape, for Shapes)
@@ -318,6 +374,10 @@ public:
                                      return;
                                  }
                                  auto* ctrl = static_cast<Control*>(data);
+                                 if (!paletteReachable(ctrl)) {
+                                     refreshClassroomColours(popup, ctrl);  // puts the tabs back as the tool is
+                                     return;
+                                 }
                                  choosePaletteTab(ctrl, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-palette-tab")));
                                  refreshClassroomColours(popup, ctrl);
                              }), control);
@@ -371,13 +431,20 @@ public:
         GtkBox* customRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
         GtkWidget* customLabel = gtk_label_new(_("Custom colour"));
         GtkWidget* custom = gtk_color_button_new();
+        g_object_set_data(G_OBJECT(custom), "utn-popover", popover);
         gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(custom), false);
         gtk_widget_set_tooltip_text(custom, _("Open the full colour picker"));
         utn::setAccessibleName(custom, _("Custom colour picker"));
         g_signal_connect(custom, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                              GdkRGBA rgba{};
                              gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &rgba);
-                             teacherApplyColour(static_cast<Control*>(data), Util::GdkRGBA_to_rgb(rgba));
+                             auto* ctrl = static_cast<Control*>(data);
+                             teacherApplyColour(ctrl, Util::GdkRGBA_to_rgb(rgba));
+                             if (!paletteReachable(ctrl)) {
+                                 if (auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"))) {
+                                     refreshClassroomColours(popup, ctrl);  // shows the colour the tool still has
+                                 }
+                             }
                          }), control);
         GtkWidget* customState = gtk_label_new("");
         gtk_widget_set_no_show_all(customState, true);
@@ -396,6 +463,7 @@ public:
         g_object_set_data(G_OBJECT(popover), "utn-custom-colour", custom);
         g_object_set_data(G_OBJECT(popover), "utn-custom-state", customState);
         g_object_set_data(G_OBJECT(popover), "utn-section", section);
+        registerColourPalette(GTK_POPOVER(popover), control);
         g_signal_connect(popover, "map", G_CALLBACK(+[](GtkWidget* widget, gpointer data) {
                              refreshClassroomColours(GTK_POPOVER(widget), static_cast<Control*>(data));
                          }), control);
@@ -1251,4 +1319,10 @@ void ToolMenuHandler::setDefaultNewPageType(const std::optional<PageType>& pt) {
 }
 void ToolMenuHandler::setDefaultNewPaperSize(const std::optional<PaperSize>& paperSize) {
     this->pageTypeSelectionPopup->setSelectedPaperSize(paperSize);
+}
+
+void ToolMenuHandler::refreshColourPalettes() {
+    for (GtkPopover* popover: colourPalettePopovers()) {
+        schedulePaletteRefresh(popover);
+    }
 }

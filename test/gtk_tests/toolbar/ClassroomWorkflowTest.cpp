@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -8308,6 +8309,29 @@ TEST_F(ClassroomWorkflow, undoHistoryOpensFromThePaletteIsKeyboardNavigableBound
 // --- Phase 6: Teacher Annotation Palette and the one colour-changed path ---------------------------------------------
 
 namespace {
+/// Puts the in-memory Favourite Pen Presets and their saved attribute back as they were, also when an assertion ends the
+/// test early. The tests below apply presets, which save through Settings; the GTK tests run against a throw-away
+/// profile (see HermeticProfileEnvironment.cpp), and this keeps the shared Control from carrying the change to the next
+/// test as well.
+class PenPresetsGuard {
+public:
+    explicit PenPresetsGuard(Control* control):
+            control(control), saved(control->getPenPresets().serialise()), setting(control->getSettings(), "penPresets") {}
+    ~PenPresetsGuard() {
+        const std::string restore = saved;
+        control->updatePenPresets([&](utn::PenPresetStore& store) { store = utn::PenPresetStore::parse(restore); });
+    }
+    PenPresetsGuard(const PenPresetsGuard&) = delete;
+    PenPresetsGuard& operator=(const PenPresetsGuard&) = delete;
+
+private:
+    Control* control;
+    std::string saved;
+    UtnSettingGuard setting;  ///< destroyed first: puts the attribute back after the store has been restored
+};
+}  // namespace
+
+namespace {
 /// The colour the rail's Colours button shows, 0xRRGGBB
 uint32_t railColour(GtkWidget* rail) {
     return GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(rail), "utn-rail-colour")) & 0xFFFFFFU;
@@ -8315,6 +8339,7 @@ uint32_t railColour(GtkWidget* rail) {
 }  // namespace
 
 TEST_F(ClassroomWorkflow, colourRailIndicatorFollowsAPresetThatChangesThePenColour) {
+    PenPresetsGuard presetsGuard(control.get());
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
     settle();
@@ -8351,6 +8376,7 @@ int selectedSwatchesNamed(GtkWidget* root, const char* name) {
 }  // namespace
 
 TEST_F(ClassroomWorkflow, everyColourSurfaceFollowsTheOneToolColourWhoeverChangesIt) {
+    PenPresetsGuard presetsGuard(control.get());
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
     settle();
@@ -8406,12 +8432,32 @@ TEST_F(ClassroomWorkflow, theHighlighterShowsItsOwnSeeThroughColoursAndKeepsItsO
     settle();
     GtkWidget* rail = menuButtonAccessibleNamed(root, "Colours");
     ASSERT_NE(rail, nullptr);
-    const uint8_t opacity = tools->getColor().alpha;
-
-    tools->setColor(Color{0x00U, 0xD5U, 0xE8U, opacity}, false);  // the palette's Cyan
+    // A see-through yellow, so the opacity is something a hue change could lose
+    tools->setColor(Color{0xFFU, 0xEBU, 0x3BU, 0x80U}, false);
     settle();
+    const uint8_t opacity = tools->getColor().alpha;
+    ASSERT_EQ(opacity, 0x80);
+
+    // The real Cyan swatch of the rail's palette, then of the context panel: the engine keeps the opacity
+    GtkWidget* palette = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(rail)));
+    g_signal_emit_by_name(palette, "map");
+    GtkWidget* paletteCyan = buttonAccessibleNamed(palette, "Cyan");
+    ASSERT_NE(paletteCyan, nullptr);
+    gtk_button_clicked(GTK_BUTTON(paletteCyan));
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTool(TOOL_HIGHLIGHTER).getColor()), 0x80U << 24U | 0x00D5E8U)
+            << "the palette's Cyan, at the highlighter's own opacity";
     EXPECT_EQ(railColour(rail), 0x00D5E8U);
     EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Cyan"), 1);
+
+    tools->setColor(Color{0xFFU, 0xEBU, 0x3BU, 0x80U}, false);
+    settle();
+    GtkWidget* contextCyan = buttonAccessibleNamed(contextPanel.get(), "Cyan");
+    ASSERT_NE(contextCyan, nullptr);
+    gtk_button_clicked(GTK_BUTTON(contextCyan));
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTool(TOOL_HIGHLIGHTER).getColor()), 0x80U << 24U | 0x00D5E8U)
+            << "the context panel's Cyan, at the highlighter's own opacity";
     EXPECT_EQ(tools->getColor().alpha, opacity) << "a hue change keeps the highlighter see-through";
 
     // The rail's palette offers the one palette per tool, each swatch named for a screen reader
@@ -8539,34 +8585,398 @@ TEST_F(ClassroomWorkflow, shapesAndTextColoursStayInStepWithTheRailAndThePalette
     tools->setColor(previousPen, false);
 }
 
-TEST_F(ClassroomWorkflow, theAnnotationPaletteCannotBeUsedWhileBusyOrWhenPresentKeepsToolsAway) {
+// --- Colour review round: one mode-aware colour path, a palette that follows the tool and the gate ------------------
+
+namespace {
+/// Everything a stale palette control could wrongly change
+struct ToolSnapshot {
+    ToolType type;
+    DrawingType drawing;
+    uint32_t pen;
+    uint32_t highlighter;
+    uint32_t text;
+    uint32_t stamp;
+    ToolSize penSize;
+    ToolSize highlighterSize;
+    bool operator==(const ToolSnapshot& o) const {
+        return type == o.type && drawing == o.drawing && pen == o.pen && highlighter == o.highlighter &&
+               text == o.text && stamp == o.stamp && penSize == o.penSize && highlighterSize == o.highlighterSize;
+    }
+};
+
+ToolSnapshot snapshotTools(Control* control) {
+    auto* tools = control->getToolHandler();
+    return {tools->getToolType(),
+            tools->getDrawingType(),
+            static_cast<uint32_t>(tools->getTool(TOOL_PEN).getColor()),
+            static_cast<uint32_t>(tools->getTool(TOOL_HIGHLIGHTER).getColor()),
+            static_cast<uint32_t>(tools->getTool(TOOL_TEXT).getColor()),
+            static_cast<uint32_t>(tools->getTeacherStampColor()),
+            tools->getPenSize(),
+            tools->getHighlighterSize()};
+}
+
+/// The opacity slider (not the label of the same name) under @p widget, or nullptr
+GtkWidget* opacitySlider(GtkWidget* widget) {
+    if (GTK_IS_RANGE(widget)) {
+        AtkObject* accessible = gtk_widget_get_accessible(widget);
+        if (accessible && g_strcmp0(atk_object_get_name(accessible), "Opacity") == 0) {
+            return widget;
+        }
+    }
+    if (!GTK_IS_CONTAINER(widget)) {
+        return nullptr;
+    }
+    GtkWidget* found = nullptr;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+    for (GList* child = children; child && !found; child = child->next) {
+        found = opacitySlider(GTK_WIDGET(child->data));
+    }
+    g_list_free(children);
+    return found;
+}
+
+/// The colour a GTK colour chooser dialog would start from
+bool chooserDialogColour(GdkRGBA& out) {
+    GList* windows = gtk_window_list_toplevels();
+    bool found = false;
+    for (GList* w = windows; w && !found; w = w->next) {
+        if (GTK_IS_COLOR_CHOOSER_DIALOG(w->data)) {
+            gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(w->data), &out);
+            gtk_dialog_response(GTK_DIALOG(w->data), GTK_RESPONSE_CANCEL);
+            found = true;
+        }
+    }
+    g_list_free(windows);
+    settle();
+    return found;
+}
+
+/// A palette popover that is open: its tool state read as opening it does, then shown
+GtkWidget* openedPalette(GtkWidget* rail) {
+    GtkWidget* popover = refreshedPalette(rail);
+    gtk_popover_popup(GTK_POPOVER(popover));
+    settle();
+    return popover;
+}
+
+/// The controls of an open palette, kept alive (referenced) so a click or edit the user made before the palette closed
+/// can still arrive afterwards, as a queued event does
+struct PaletteControls {
+    explicit PaletteControls(GtkWidget* popover) {
+        tab = hold(paletteTab(popover, 3));
+        swatch = hold(buttonAccessibleNamed(popover, "Cyan"));
+        custom = hold(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-custom-colour")));
+        size = hold(buttonAccessibleNamed(popover, "Extra thick"));
+        opacity = hold(opacitySlider(popover));
+    }
+    ~PaletteControls() {
+        for (GtkWidget* w: {tab, swatch, custom, size, opacity}) {
+            if (w) {
+                g_object_unref(w);
+            }
+        }
+    }
+    PaletteControls(const PaletteControls&) = delete;
+    PaletteControls& operator=(const PaletteControls&) = delete;
+
+    bool complete() const { return tab && swatch && custom && size && opacity; }
+
+    /// Every way of changing the tool the palette offers: another tab, a swatch, a custom colour, a thickness, an opacity
+    void mutateEverything() const {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tab), true);
+        gtk_button_clicked(GTK_BUTTON(swatch));
+        GdkRGBA red{0.8, 0.1, 0.1, 1.0};
+        gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &red);
+        g_signal_emit_by_name(custom, "color-set");
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(size), true);
+        gtk_button_clicked(GTK_BUTTON(size));
+        gtk_range_set_value(GTK_RANGE(opacity), 30.0);
+        settle();
+    }
+
+    GtkWidget* tab;
+    GtkWidget* swatch;
+    GtkWidget* custom;
+    GtkWidget* size;
+    GtkWidget* opacity;
+
+private:
+    static GtkWidget* hold(GtkWidget* w) { return w ? GTK_WIDGET(g_object_ref(w)) : nullptr; }
+};
+
+/// The highlighter set up the gate tests start from: yellow, see-through, medium
+void prepareHighlighter(Control* control) {
+    auto* tools = control->getToolHandler();
+    control->selectTool(TOOL_HIGHLIGHTER);
+    tools->setColor(Color{0xFFU, 0xEBU, 0x3BU, 0x80U}, false);
+    tools->setHighlighterSize(TOOL_SIZE_MEDIUM);
+    settle();
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, guiTestsWriteTheirSettingsToAThrowAwayProfileNotTheRealOne) {
+    const std::string config = Util::getConfigFolder().string();
+    const char* xdg = g_getenv("XDG_CONFIG_HOME");
+    ASSERT_NE(xdg, nullptr);
+    EXPECT_EQ(config.rfind(std::filesystem::path(xdg).string(), 0), 0U) << config;
+    const char* local = g_getenv("LOCALAPPDATA");
+    if (local) {
+        EXPECT_NE(config.rfind(std::filesystem::path(local).string(), 0), 0U) << "never the real profile: " << config;
+    }
+}
+
+// The colour a Feedback or Answer Box text shows is the colour every surface sets: the toolbar action (and so the full
+// chooser), the palette, the context bar. None of them writes the ordinary text tool's colour instead.
+TEST_F(ClassroomWorkflow, everyColourSurfaceSetsTheFeedbackAndAnswerBoxColourItShowsNotTheTextTool) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
     settle();
-    control->selectTool(TOOL_PEN);
+    auto* tools = control->getToolHandler();
+    const Color previousText = tools->getTool(TOOL_TEXT).getColor();
+    const Color previousStamp = tools->getTeacherStampColor();
+    const Color previousAnswer = tools->getAnswerBoxTextColor();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    ToolUtnContextBar contextBar("UTN_CONTEXT_TEST", control.get(), true);
+    xoj::util::WidgetSPtr contextPanel = contextBar.createItem(false);
+    gtk_widget_show_all(contextPanel.get());
+    auto* actions = control->getActionDatabase();
+
+    const auto textColour = [&] { return static_cast<uint32_t>(tools->getTool(TOOL_TEXT).getColor()) & 0xFFFFFFU; };
+    const uint32_t textBefore = textColour();
+
+    // Feedback
+    control->selectTextMode(TextMode::Feedback, "Well done");
+    tools->setTeacherStampColor(Color{0x20U, 0x25U, 0x2BU});  // Black
+    settle();
+    ASSERT_EQ(tools->getTextMode(), TextMode::Feedback);
+    actions->fireChangeActionState(Action::TOOL_COLOR, Color{0x1EU, 0x5BU, 0xD8U});  // the toolbar's colour action
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTeacherStampColor()) & 0xFFFFFFU, 0x1E5BD8U) << "the action set the Feedback colour";
+    EXPECT_EQ(textColour(), textBefore) << "and left the ordinary text colour alone";
+    EXPECT_EQ(railColour(rail), 0x1E5BD8U) << "one notification reached the rail";
+
+    GtkWidget* popover = refreshedPalette(rail);
+    GtkWidget* red = buttonAccessibleNamed(popover, "Red");
+    ASSERT_NE(red, nullptr);
+    gtk_button_clicked(GTK_BUTTON(red));  // the palette
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTeacherStampColor()) & 0xFFFFFFU, 0xD32F2FU);
+    EXPECT_EQ(textColour(), textBefore);
+
+    GtkWidget* green = buttonAccessibleNamed(contextPanel.get(), "Green");
+    ASSERT_NE(green, nullptr);
+    gtk_button_clicked(GTK_BUTTON(green));  // the context bar
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTeacherStampColor()) & 0xFFFFFFU, 0x2E7D32U);
+    EXPECT_EQ(textColour(), textBefore);
+
+    // The full chooser starts from the colour that is shown (item: its initial colour is the displayed one)
+    ASSERT_TRUE(actions->isActionEnabled(Action::SELECT_COLOR));
+    actions->fireActivateAction(Action::SELECT_COLOR);
+    settle();
+    GdkRGBA chooser{};
+    ASSERT_TRUE(chooserDialogColour(chooser)) << "the colour chooser opened";
+    EXPECT_EQ(static_cast<uint32_t>(Util::GdkRGBA_to_rgb(chooser)) & 0xFFFFFFU, 0x2E7D32U)
+            << "the chooser starts from the Feedback colour, not the text tool's";
+
+    // Answer Box
+    control->selectTextMode(TextMode::AnswerBox);
+    tools->setAnswerBoxTextColor(Color{0x20U, 0x25U, 0x2BU});
+    settle();
+    actions->fireChangeActionState(Action::TOOL_COLOR, Color{0x6AU, 0x1BU, 0x9AU});
+    settle();
+    EXPECT_EQ(static_cast<uint32_t>(tools->getAnswerBoxTextColor()) & 0xFFFFFFU, 0x6A1B9AU);
+    EXPECT_EQ(textColour(), textBefore);
+    actions->fireActivateAction(Action::SELECT_COLOR);
+    settle();
+    ASSERT_TRUE(chooserDialogColour(chooser));
+    EXPECT_EQ(static_cast<uint32_t>(Util::GdkRGBA_to_rgb(chooser)) & 0xFFFFFFU, 0x6A1B9AU);
+
+    // Plain text is still the text tool's own colour
+    control->selectTextMode(TextMode::Plain);
+    settle();
+    actions->fireChangeActionState(Action::TOOL_COLOR, Color{0xEFU, 0x6CU, 0x00U});
+    settle();
+    EXPECT_EQ(textColour(), 0xEF6C00U);
+    EXPECT_EQ(static_cast<uint32_t>(tools->getAnswerBoxTextColor()) & 0xFFFFFFU, 0x6A1B9AU) << "Answer Box untouched";
+
+    control->selectTextMode(TextMode::Plain);
+    tools->setTeacherStampColor(previousStamp);
+    tools->setAnswerBoxTextColor(previousAnswer);
+    tools->setColor(previousText, false);
+}
+
+// The opacity slider turns a percent into the nearest of the 256 alpha steps.
+TEST_F(ClassroomWorkflow, theOpacitySliderRoundsToTheNearestAlphaStep) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+    prepareHighlighter(control.get());
     GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
     ASSERT_NE(rail, nullptr);
     GtkWidget* popover = refreshedPalette(rail);
-    GtkWidget* grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
-    EXPECT_TRUE(gtk_widget_get_sensitive(grid));
-    EXPECT_TRUE(gtk_widget_get_sensitive(paletteTab(popover, 1)));
+    GtkWidget* scale = opacitySlider(popover);
+    ASSERT_NE(scale, nullptr);
+    const auto alpha = [&] { return static_cast<int>(tools->getTool(TOOL_HIGHLIGHTER).getColor().alpha); };
 
-    control->block("palette test");
-    popover = refreshedPalette(rail);
-    EXPECT_FALSE(gtk_widget_get_sensitive(grid)) << "busy";
-    EXPECT_FALSE(gtk_widget_get_sensitive(paletteTab(popover, 1)));
-    control->unblock();
+    gtk_range_set_value(GTK_RANGE(scale), 10.0);
     settle();
+    EXPECT_EQ(alpha(), 26) << "10 percent of 255 is 25.5: the nearest step is 26";
+    gtk_range_set_value(GTK_RANGE(scale), 50.0);
+    settle();
+    EXPECT_EQ(alpha(), 128) << "50 percent is 127.5: the nearest step is 128";
+    gtk_range_set_value(GTK_RANGE(scale), 100.0);
+    settle();
+    EXPECT_EQ(alpha(), 255);
+    EXPECT_EQ(static_cast<uint32_t>(tools->getTool(TOOL_HIGHLIGHTER).getColor()) & 0xFFFFFFU, 0xFFEB3BU)
+            << "only the opacity changed";
 
+    tools->setColor(previous, false);
+}
+
+// Presets, shortcuts and other surfaces change the tool while the palette is open: it follows without being reopened,
+// and a control it drew for the old tool cannot change the new one.
+TEST_F(ClassroomWorkflow, anOpenPaletteFollowsAPresetOrToolChangeAndItsStaleControlsCannotTouchTheNewTool) {
+    PenPresetsGuard presetsGuard(control.get());
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previousPen = tools->getTool(TOOL_PEN).getColor();
+    const Color previousHighlighter = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+
+    prepareHighlighter(control.get());
+    GtkWidget* popover = openedPalette(rail);
+    ASSERT_EQ(activePaletteTab(popover), 1);
+    PaletteControls stale(popover);
+    ASSERT_TRUE(stale.complete()) << "the highlighter palette has its swatches, thicknesses and opacity";
+
+    // A preset (or a shortcut: the same tool change) selects the pen with its own colour
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+    ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
+    settle();
+    EXPECT_EQ(activePaletteTab(popover), 0) << "the tab follows the pen without reopening";
+    EXPECT_TRUE(swatchShown(popover, "Orange"));
+    EXPECT_FALSE(swatchShown(popover, "Cyan")) << "the highlighter colours went away";
+    EXPECT_EQ(accessibleNamed(popover, "Opacity"), nullptr) << "the pen has no opacity row";
+    GtkWidget* redSwatch = buttonAccessibleNamed(popover, "Red");
+    ASSERT_NE(redSwatch, nullptr);
+    EXPECT_TRUE(gtk_widget_get_state_flags(redSwatch) & GTK_STATE_FLAG_CHECKED) << "the preset's Red is marked";
+    EXPECT_EQ(indicatorText(popover).rfind("Red", 0), 0U) << indicatorText(popover);
+
+    // Controls drawn for the highlighter, used now that the pen is the tool
+    const ToolSnapshot before = snapshotTools(control.get());
+    gtk_range_set_value(GTK_RANGE(stale.opacity), 30.0);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(stale.size), true);
+    gtk_button_clicked(GTK_BUTTON(stale.size));
+    settle();
+    EXPECT_TRUE(snapshotTools(control.get()) == before)
+            << "a stale highlighter opacity or thickness must not reach the pen";
+    EXPECT_EQ(tools->getTool(TOOL_PEN).getColor().alpha, 255);
+
+    // The thickness changed from elsewhere reaches the open palette too
+    tools->setPenSize(TOOL_SIZE_THICK);
+    settle();
+    GtkWidget* thick = buttonAccessibleNamed(popover, "Thick");
+    ASSERT_NE(thick, nullptr);
+    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(thick))) << "the pen's thickness is marked";
+
+    // And the text tool: its row is the text size, not a stale pen row
+    control->selectTool(TOOL_TEXT);
+    settle();
+    EXPECT_EQ(activePaletteTab(popover), 3);
+    EXPECT_NE(accessibleNamed(popover, "Text size"), nullptr);
+    EXPECT_EQ(buttonAccessibleNamed(popover, "Thick"), nullptr);
+
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    control->selectTool(TOOL_PEN);
+    tools->setColor(previousPen, false);
+    tools->setColor(previousHighlighter, false);
+}
+
+// Busy, the Blank cover and Present with its tools away stop an open palette: it closes when the gate closes, its
+// controls are disabled, and a click or edit that arrives anyway changes nothing.
+TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRefusesEveryChange) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previousHighlighter = tools->getTool(TOOL_HIGHLIGHTER).getColor();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+
+    const auto expectClosedAndDisabled = [&](GtkWidget* popover, const char* why) {
+        EXPECT_TRUE(waitUntilHidden(popover)) << why << ": the open palette stayed on show";
+        GtkWidget* grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
+        GtkWidget* section = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-section"));
+        EXPECT_FALSE(gtk_widget_get_sensitive(grid)) << why;
+        EXPECT_FALSE(gtk_widget_get_sensitive(section)) << why << ": thickness and opacity";
+        for (int i = 0; i < 4; ++i) {
+            EXPECT_FALSE(gtk_widget_get_sensitive(paletteTab(popover, i))) << why << ": tab " << i;
+        }
+    };
+
+    // Busy: a save or export starts while the palette is open
+    prepareHighlighter(control.get());
+    GtkWidget* popover = openedPalette(rail);
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    ASSERT_TRUE(gtk_widget_get_sensitive(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"))));
+    {
+        PaletteControls controls(popover);
+        ASSERT_TRUE(controls.complete());
+        const ToolSnapshot before = snapshotTools(control.get());
+        control->block("palette gate test");
+        settle();
+        expectClosedAndDisabled(popover, "busy");
+        controls.mutateEverything();
+        EXPECT_TRUE(snapshotTools(control.get()) == before) << "busy: nothing changed";
+        control->unblock();
+        settle();
+    }
+
+    // The Blank cover goes up (inside the main window; Student View is never opened)
+    prepareHighlighter(control.get());
+    popover = openedPalette(rail);
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    {
+        PaletteControls controls(popover);
+        ASSERT_TRUE(controls.complete());
+        const ToolSnapshot before = snapshotTools(control.get());
+        students->showTeacherBlankCover(true);
+        settle();
+        ASSERT_TRUE(students->isTeacherCoverShown());
+        expectClosedAndDisabled(popover, "Blank");
+        controls.mutateEverything();
+        EXPECT_TRUE(snapshotTools(control.get()) == before) << "Blank: nothing changed";
+        students->showTeacherBlankCover(false);
+        settle();
+    }
+
+    // Present with its tools put away: the palette that was open goes with the workspace and nothing is changed
+    prepareHighlighter(control.get());
+    popover = openedPalette(rail);
+    ASSERT_TRUE(gtk_widget_get_visible(popover));
+    g_object_ref(popover);
+    GWeakRef weak;
+    g_weak_ref_init(&weak, popover);
+    const ToolSnapshot beforePresent = snapshotTools(control.get());
     window->toolbarSelected("UTN Present");
     settle();
     ASSERT_TRUE(window->presentKeepsToolsAway());
-    GtkWidget* presentRail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
-    if (presentRail) {
-        popover = refreshedPalette(presentRail);
-        grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
-        EXPECT_FALSE(gtk_widget_get_sensitive(grid)) << "Present with its tools away";
-    }
+    EXPECT_TRUE(waitUntilHidden(popover)) << "Present: the open palette stayed on show";
+    EXPECT_TRUE(snapshotTools(control.get()) == beforePresent);
+    g_weak_ref_clear(&weak);
+    g_object_unref(popover);
+
     window->toolbarSelected("UTN Teacher");
     settle();
+    tools->setColor(previousHighlighter, false);
 }

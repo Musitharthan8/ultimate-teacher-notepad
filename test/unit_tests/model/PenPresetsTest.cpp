@@ -189,3 +189,61 @@ TEST(PenPresets, APresetIsSelectedOnlyWhenTheToolReallyMatchesIt) {
     EXPECT_FALSE(matchesTool(preset, PresetTool::Pen, 0x1B7F5C, 3, 99)) << "another opacity";
     EXPECT_TRUE(matchesTool(preset, PresetTool::Pen, 0xFF1B7F5C, 3, 100)) << "the alpha byte of a colour is not the colour";
 }
+
+// The built-ins moved onto the palette swatches. What a teacher saved before that still holds the former colours: the
+// untouched built-ins follow the palette, everything the teacher changed stays theirs.
+namespace {
+const std::string FORMER_RED = "red-marking|Red marking pen|pen|d93025|2|255";
+const std::string FORMER_BLUE = "blue-explanation|Blue explanation pen|pen|1a5fd0|2|255";
+const std::string FORMER_YELLOW = "yellow-highlighter|Yellow highlighter|highlighter|ffe94a|3|128";
+const PenPreset* findIn(const PenPresetStore& store, const char* id) { return store.find(id); }
+}  // namespace
+
+TEST(PenPresetMigration, untouchedFormerBuiltInsMoveToThePaletteColoursInPlace) {
+    const PenPresetStore migrated = PenPresetStore::parse("v1;" + FORMER_RED + ";" + FORMER_BLUE + ";" + FORMER_YELLOW);
+    const PenPresetStore defaults;
+    ASSERT_EQ(migrated.all().size(), 3U);
+    for (std::size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(migrated.all()[i].id, defaults.all()[i].id);
+        EXPECT_EQ(migrated.all()[i].rgb, defaults.all()[i].rgb) << migrated.all()[i].id;
+        EXPECT_EQ(migrated.all()[i].size, defaults.all()[i].size);
+        EXPECT_EQ(migrated.all()[i].opacity, defaults.all()[i].opacity);
+    }
+    EXPECT_EQ(findIn(migrated, PenPresetStore::RED_MARKING_ID)->rgb, 0xD32F2FU);
+    EXPECT_EQ(findIn(migrated, PenPresetStore::YELLOW_HIGHLIGHTER_ID)->rgb, 0xFFEB3BU);
+    EXPECT_EQ(migrated.serialise().rfind("v2;", 0), 0U) << "saved again, it is the new form";
+}
+
+TEST(PenPresetMigration, anEditedRenamedCustomOrDeletedPresetIsLeftAsTheTeacherHasIt) {
+    // Red: colour changed. Blue: renamed. Yellow: size changed. A custom preset reuses a former built-in colour.
+    const PenPresetStore kept = PenPresetStore::parse(
+            "v1;red-marking|Red marking pen|pen|d93026|2|255;blue-explanation|My blue|pen|1a5fd0|2|255;"
+            "yellow-highlighter|Yellow highlighter|highlighter|ffe94a|4|128;mine|Mine|pen|d93025|2|255");
+    ASSERT_EQ(kept.all().size(), 4U);
+    EXPECT_EQ(findIn(kept, PenPresetStore::RED_MARKING_ID)->rgb, 0xD93026U);
+    EXPECT_EQ(findIn(kept, PenPresetStore::BLUE_EXPLANATION_ID)->rgb, 0x1A5FD0U) << "renamed: the teacher's";
+    EXPECT_EQ(findIn(kept, PenPresetStore::BLUE_EXPLANATION_ID)->name, "My blue");
+    EXPECT_EQ(findIn(kept, PenPresetStore::YELLOW_HIGHLIGHTER_ID)->rgb, 0xFFE94AU);
+    EXPECT_EQ(findIn(kept, "mine")->rgb, 0xD93025U) << "a custom preset is never migrated, whatever its colour";
+
+    // Opacity edited on a highlighter, and a tool changed
+    const PenPresetStore other = PenPresetStore::parse("v1;" + FORMER_RED + ";yellow-highlighter|Yellow highlighter|highlighter|ffe94a|3|100");
+    EXPECT_EQ(findIn(other, PenPresetStore::RED_MARKING_ID)->rgb, 0xD32F2FU) << "the untouched one still moves";
+    EXPECT_EQ(findIn(other, PenPresetStore::YELLOW_HIGHLIGHTER_ID)->rgb, 0xFFE94AU);
+
+    // Deleted built-ins stay deleted
+    const PenPresetStore deleted = PenPresetStore::parse("v1;" + FORMER_BLUE);
+    ASSERT_EQ(deleted.all().size(), 1U);
+    EXPECT_EQ(deleted.find(PenPresetStore::RED_MARKING_ID), nullptr);
+    EXPECT_EQ(deleted.all()[0].rgb, 0x1E5BD8U);
+}
+
+TEST(PenPresetMigration, theNewFormIsNeverMigratedSoAFormerColourChosenOnPurposeStays) {
+    const PenPresetStore chosen = PenPresetStore::parse("v2;" + FORMER_RED);
+    ASSERT_EQ(chosen.all().size(), 1U);
+    EXPECT_EQ(chosen.all()[0].rgb, 0xD93025U);
+    PenPresetStore round = PenPresetStore::parse(PenPresetStore().serialise());
+    EXPECT_EQ(round.all().size(), 3U);
+    EXPECT_EQ(findIn(round, PenPresetStore::RED_MARKING_ID)->rgb, 0xD32F2FU);
+    EXPECT_EQ(PenPresetStore::parse("v1").all().size(), 3U) << "unreadable still gives the built-ins";
+}

@@ -111,6 +111,10 @@ public:
     /// Student View, which owns Freeze and Blank. Null before the items are created.
     ToolStudentView* getStudentView() const { return studentView; }
 
+    /// Looks again, from the main loop, at every Teacher Annotation Palette: the tool, the colour and whether the colour
+    /// controls may act. Called whenever any of those may have changed.
+    void refreshColourPalettes();
+
     void hideAudioMenuItems();
 
     std::string iconName(const char* icon);

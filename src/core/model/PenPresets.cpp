@@ -15,7 +15,10 @@ constexpr std::size_t MAX_SAVED_BYTES = 16384;  // far more than 27 presets need
 constexpr std::size_t MAX_SAVED_RECORDS = 64;
 constexpr std::size_t MAX_ID_BYTES = 40;
 constexpr std::size_t FIELD_COUNT = 6;
-constexpr const char* SAVED_VERSION = "v1";
+constexpr const char* SAVED_VERSION = "v2";
+/// The first saved form. Its built-in presets still carry the colours they had before they were moved onto the palette
+/// swatches; it is read, and those colours are migrated (see migrateLegacyBuiltIn).
+constexpr const char* LEGACY_VERSION = "v1";
 constexpr const char* SAVED_EMPTY = "none";
 
 std::string trimmed(const std::string& text) {
@@ -165,6 +168,29 @@ bool parseRecord(const std::string& record, PenPreset& preset) {
     preset = std::move(parsed);
     return true;
 }
+
+/// A built-in as the first release saved it (before the palette colours), for the migration from the "v1" saved form
+struct LegacyBuiltIn {
+    const char* id;
+    const char* name;
+    PresetTool tool;
+    uint32_t rgb;
+    int size;
+    int opacity;
+};
+constexpr LegacyBuiltIn LEGACY_BUILT_INS[] = {
+        {PenPresetStore::RED_MARKING_ID, "Red marking pen", PresetTool::Pen, 0xD93025, 2, 255},
+        {PenPresetStore::BLUE_EXPLANATION_ID, "Blue explanation pen", PresetTool::Pen, 0x1A5FD0, 2, 255},
+        {PenPresetStore::YELLOW_HIGHLIGHTER_ID, "Yellow highlighter", PresetTool::Highlighter, 0xFFE94A, 3, 128},
+};
+
+/// Whether a preset read from the "v1" saved form is still exactly the former built-in of its id (same name in English
+/// or as translated, tool, colour, size and opacity). One the teacher edited in any way is theirs and stays as saved.
+bool isUntouchedLegacyBuiltIn(const PenPreset& preset, const std::string& translatedName, const LegacyBuiltIn& legacy) {
+    return preset.id == legacy.id && (preset.name == legacy.name || preset.name == translatedName) &&
+           preset.tool == legacy.tool && preset.rgb == legacy.rgb && preset.size == legacy.size &&
+           preset.opacity == legacy.opacity;
+}
 }  // namespace
 
 bool matchesTool(const PenPreset& preset, PresetTool tool, uint32_t rgb, int size, int opacity) {
@@ -288,7 +314,8 @@ PenPresetStore PenPresetStore::parse(const std::string& saved) {
         return defaults;
     }
     const std::vector<std::string> records = split(saved, ';');
-    if (records.empty() || records[0] != SAVED_VERSION || records.size() > MAX_SAVED_RECORDS + 1) {
+    const bool legacy = !records.empty() && records[0] == LEGACY_VERSION;
+    if (records.empty() || (records[0] != SAVED_VERSION && !legacy) || records.size() > MAX_SAVED_RECORDS + 1) {
         return defaults;
     }
     PenPresetStore store;
@@ -300,6 +327,18 @@ PenPresetStore PenPresetStore::parse(const std::string& saved) {
         PenPreset preset;
         if (records[i].empty() || !parseRecord(records[i], preset) || store.find(preset.id)) {
             continue;
+        }
+        if (legacy) {
+            // Only a built-in whose every field is still what the first release saved moves to the palette colour;
+            // an edited, renamed, custom or deleted preset is left exactly as the teacher has it
+            for (const LegacyBuiltIn& old: LEGACY_BUILT_INS) {
+                const auto current = std::find_if(defaults.presets.begin(), defaults.presets.end(),
+                                                  [&](const PenPreset& p) { return p.id == old.id; });
+                if (current != defaults.presets.end() && isUntouchedLegacyBuiltIn(preset, current->name, old)) {
+                    preset = *current;
+                    break;
+                }
+            }
         }
         store.presets.push_back(std::move(preset));
     }

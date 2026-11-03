@@ -1595,6 +1595,9 @@ void Control::toolChanged() {
             win->getXournal()->endSplineAllPages();
         }
     }
+    if (win) {
+        win->toolLookChanged();  // also for a tool without colour or size: an open palette follows the tool
+    }
 }
 
 void Control::eraserSizeChanged() {
@@ -1678,15 +1681,8 @@ auto Control::getLineStyleToSelect() -> std::optional<string> const {
 
 void Control::toolColorChanged() {
     // Feedback and Answer Box text have their own colour; it is the one the teacher sees, so it is the shown state
-    Color shown = getToolHandler()->getColorMaskAlpha();
-    if (getToolHandler()->getToolType() == TOOL_TEXT) {
-        if (getToolHandler()->getTextMode() == TextMode::Feedback) {
-            shown = getToolHandler()->getTeacherStampColor();
-        } else if (getToolHandler()->getTextMode() == TextMode::AnswerBox) {
-            shown = getToolHandler()->getAnswerBoxTextColor();
-        }
-        shown.alpha = 0xff;
-    }
+    Color shown = getToolHandler()->getDisplayedColor();
+    shown.alpha = 0xff;  // the state is the hue; the tool's opacity is shown elsewhere
     this->actionDB->setActionState(Action::TOOL_COLOR, shown);
     if (this->win) {
         this->win->toolLookChanged();
@@ -2411,10 +2407,19 @@ void Control::showFontDialog() {
     popup.show(GTK_WINDOW(this->win->getWindow()));
 }
 
+void Control::applyDisplayedColour(Color color, bool userSelection) {
+    this->toolHandler->setDisplayedColor(color, userSelection);
+    if (this->toolHandler->getToolType() == TOOL_TEXT) {
+        if (auto* editor = getTextEditor()) {
+            editor->setColor(color);
+        }
+    }
+}
+
 void Control::showColorChooserDialog() {
     this->actionDB->enableAction(Action::SELECT_COLOR, false);  // Only one dialog
     auto* dlg = gtk_color_chooser_dialog_new(_("Select color"), GTK_WINDOW(this->win->getWindow()));
-    GdkRGBA c = Util::argb_to_GdkRGBA(toolHandler->getColor());
+    GdkRGBA c = Util::argb_to_GdkRGBA(toolHandler->getDisplayedColor());  // what the colour controls show
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(dlg), &c);
     gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(dlg), false);
 

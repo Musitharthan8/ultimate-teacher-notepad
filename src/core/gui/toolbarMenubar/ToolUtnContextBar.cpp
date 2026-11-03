@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <functional>
 #include <string>
 #include <vector>
@@ -26,6 +27,8 @@
 #include "gui/MainWindow.h"
 #include "gui/ResponsiveLayout.h"
 #include "gui/XournalView.h"
+#include "ToolMenuHandler.h"
+#include "ToolStudentView.h"
 #include "model/Font.h"
 #include "model/Text.h"
 #include "model/StrokeStyle.h"
@@ -99,36 +102,26 @@ void applyFontStyle(Control* control, bool bold, bool active) {
 }
 
 /// The colour the colour controls show for the active tool and text mode
-Color currentColour(ToolHandler* tools) {
-    if (tools->getToolType() == TOOL_TEXT) {
-        switch (tools->getTextMode()) {
-            case TextMode::Feedback:
-                return tools->getTeacherStampColor();
-            case TextMode::AnswerBox:
-                return tools->getAnswerBoxTextColor();
-            case TextMode::Plain:
-                break;
-        }
+Color currentColour(ToolHandler* tools) { return tools->getDisplayedColor(); }
+
+/// Apply a colour to whatever the colour controls stand for (the one path every colour surface uses): tool ink, a
+/// Feedback or Answer Box text, the text being edited, or the current selection. Refused when the controls may not act.
+void applyColour(Control* control, Color chosen) {
+    if (!ToolUtnContextBar::toolControlsReachable(control)) {
+        return;
     }
-    return tools->getColor();
+    control->applyDisplayedColour(chosen);
 }
 
-/// Apply a colour to whatever the colour controls stand for: tool ink, a Feedback or Answer Box text, the text
-/// being edited, or the current selection
-void applyColour(Control* control, Color chosen) {
-    auto* tools = control->getToolHandler();
-    if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::Feedback) {
-        tools->setTeacherStampColor(chosen);
-    } else if (tools->getToolType() == TOOL_TEXT && tools->getTextMode() == TextMode::AnswerBox) {
-        tools->setAnswerBoxTextColor(chosen);
-    } else {
-        tools->setColor(chosen, true);  // keeps the tool's opacity, recolours a selection
-    }
-    if (tools->getToolType() == TOOL_TEXT) {
-        if (auto* editor = control->getTextEditor(); editor) {
-            editor->setColor(chosen);
-        }
-    }
+/// Whether a size, opacity or shape control built for @p expected may still change the tool: the controls may not act,
+/// or the tool they were built for is no longer the active one (a preset, a shortcut or another surface changed it)
+bool mayChangeTool(Control* control, ToolType expected) {
+    return ToolUtnContextBar::toolControlsReachable(control) && control->getToolHandler()->getToolType() == expected;
+}
+
+/// The alpha a highlighter opacity of @p percent stands for (10 to 100), rounded to the nearest of the 256 steps
+uint8_t opacityPercentToAlpha(double percent) {
+    return static_cast<uint8_t>(std::lround(std::clamp(percent, 10.0, 100.0) * 255.0 / 100.0));
 }
 
 void applyAnswerBoxStyleToEditor(Control* control) {
@@ -498,6 +491,22 @@ auto ToolUtnContextBar::createTextSettingsPanel(Control* control) -> GtkWidget* 
     return panel;
 }
 
+bool ToolUtnContextBar::toolControlsReachable(Control* control) {
+    if (control->isBlocked()) {
+        return false;
+    }
+    auto* window = control->getWindow();
+    if (!window) {
+        return true;
+    }
+    if (window->presentKeepsToolsAway()) {
+        return false;
+    }
+    auto* menus = window->getToolMenuHandler();
+    auto* students = menus ? menus->getStudentView() : nullptr;
+    return !(students && students->isTeacherCoverShown());
+}
+
 auto ToolUtnContextBar::createPaletteSection(Control* control, PaletteTab tab) -> GtkWidget* {
     // A short-lived builder, like the text settings panel: every callback holds only the Control, so it may go at once
     ToolUtnContextBar builder("UTN_PALETTE_SECTION", control, false);
@@ -816,6 +825,10 @@ void ToolUtnContextBar::appendSizeControls(ToolType tool) {
                                      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-size")));
                              auto tool = static_cast<ToolType>(
                                      GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-tool")));
+                             const bool forPaint = tool == TOOL_HIGHLIGHTER || tool == TOOL_PEN;
+                             if (forPaint ? !mayChangeTool(ctrl, tool) : !ToolUtnContextBar::toolControlsReachable(ctrl)) {
+                                 return;  // gone busy, covered or another tool since the control was drawn
+                             }
                              if (tool == TOOL_HIGHLIGHTER) {
                                  ctrl->getToolHandler()->setHighlighterSize(size);
                              } else if (tool == TOOL_PEN) {
@@ -849,8 +862,9 @@ void ToolUtnContextBar::appendShapePicker(DrawingType current) {
                                     };
                                     g_idle_add(+[](gpointer p) -> gboolean {
                                                    auto* request = static_cast<Request*>(p);
-                                                   request->control->selectTool(TOOL_PEN);
-                                                   request->control->setToolDrawingType(request->type);
+                                                   if (mayChangeTool(request->control, TOOL_PEN)) {  // still the pen, and free
+                                                       request->control->setToolDrawingType(request->type);
+                                                   }
                                                    delete request;
                                                    return G_SOURCE_REMOVE;
                                                },
@@ -947,10 +961,13 @@ void ToolUtnContextBar::appendOpacityControl() {
     gtk_widget_set_tooltip_text(opacity, _("Opacity: lower values let more of the page show through"));
     utn::setAccessibleName(opacity, _("Opacity"));
     g_signal_connect(opacity, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
-                         auto* tools = static_cast<Control*>(data)->getToolHandler();
+                         auto* ctrl = static_cast<Control*>(data);
+                         if (!mayChangeTool(ctrl, TOOL_HIGHLIGHTER)) {
+                             return;  // busy, covered, or no longer the highlighter: its opacity is not this tool's
+                         }
+                         auto* tools = ctrl->getToolHandler();
                          Color colour = tools->getTool(TOOL_HIGHLIGHTER).getColor();
-                         colour.alpha =
-                                 static_cast<uint8_t>(std::clamp(gtk_range_get_value(range), 10.0, 100.0) * 2.55);
+                         colour.alpha = opacityPercentToAlpha(gtk_range_get_value(range));
                          tools->setColor(colour, false);
                      }),
                      control);
@@ -958,6 +975,7 @@ void ToolUtnContextBar::appendOpacityControl() {
     gtk_widget_add_css_class(opacityLabel, "utn-context-title");
     gtk_box_append(box, opacityLabel);
     gtk_box_append(box, opacity);
+    g_object_set_data(G_OBJECT(opacity), "utn-opacity", GINT_TO_POINTER(1));  // the palette keeps it in step in place
 }
 
 void ToolUtnContextBar::appendTextSizeControl(const XojFont& current) {
@@ -967,6 +985,9 @@ void ToolUtnContextBar::appendTextSizeControl(const XojFont& current) {
     utn::setAccessibleName(size, _("Text size"));
     g_signal_connect(size, "value-changed", G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
                          auto* ctrl = static_cast<Control*>(data);
+                         if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                             return;  // busy, covered, or another tool since the control was drawn
+                         }
                          XojFont font = currentTextFont(ctrl);
                          font.setSize(gtk_spin_button_get_value(spin));
                          applyTextFont(ctrl, font);
