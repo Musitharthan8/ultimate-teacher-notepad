@@ -394,6 +394,122 @@ double cornerDeviation(const Stroke& replacement, const Stroke& original) {
     }
     return diagonal > 0 ? sum / static_cast<double>(replacement.getPointCount()) / diagonal : 1e18;
 }
+
+// A small, scale-invariant Douglas-Peucker pass is the fallback for rotated polygons whose
+// imprecise corners defeated the legacy inertia segmentation. It is deliberately conservative:
+// only a nearly closed loop with three/four convincing corners and low geometric error is replaced.
+double distanceToEdge(const Point& p, const Point& a, const Point& b) {
+    const double dx = b.x - a.x, dy = b.y - a.y;
+    const double lengthSquared = dx * dx + dy * dy;
+    const double fraction = lengthSquared > 1e-12 ?
+            std::clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared, 0.0, 1.0) : 0.0;
+    return std::hypot(p.x - a.x - fraction * dx, p.y - a.y - fraction * dy);
+}
+
+void simplifyContour(const std::vector<Point>& points, size_t first, size_t last, double tolerance,
+                     std::vector<size_t>& indices) {
+    double worst = tolerance;
+    size_t split = first;
+    for (size_t i = first + 1; i < last; ++i) {
+        const double deviation = distanceToEdge(points[i], points[first], points[last]);
+        if (deviation > worst) {
+            worst = deviation;
+            split = i;
+        }
+    }
+    if (split == first) {
+        indices.push_back(last);
+        return;
+    }
+    simplifyContour(points, first, split, tolerance, indices);
+    simplifyContour(points, split, last, tolerance, indices);
+}
+
+auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
+    auto restarted = restartAtSharpestCorner(original);
+    if (!restarted) {
+        return nullptr;
+    }
+    const auto& points = restarted->getPointVector();
+    if (points.size() < 12) {
+        return nullptr;
+    }
+    const size_t n = points.size() - 1; // the restart already repeats the first point
+    const size_t window = std::max<size_t>(2, n / 20);
+    const Point& before = points[n - window];
+    const Point& here = points[0];
+    const Point& after = points[window];
+    const double ax = here.x - before.x, ay = here.y - before.y;
+    const double bx = after.x - here.x, by = after.y - here.y;
+    const double cornerTurn = std::abs(std::atan2(ax * by - ay * bx, ax * bx + ay * by));
+    if (cornerTurn < 0.90) {
+        return nullptr;  // round loops and gentle handwriting curves are not polygon corners
+    }
+    const auto bounds = original->getSnappedBounds();
+    const double diagonal = std::hypot(bounds.width, bounds.height);
+    if (diagonal < 8.0 || !std::isfinite(diagonal)) {
+        return nullptr;
+    }
+    std::vector<size_t> indices{0};
+    simplifyContour(points, 0, n, 0.05 * diagonal, indices);
+    const size_t cornersCount = indices.size() - 1;
+    if (cornersCount != 3 && cornersCount != 4) {
+        return nullptr;
+    }
+    std::vector<Point> corners;
+    for (size_t i = 0; i < cornersCount; ++i) {
+        corners.push_back(points[indices[i]]);
+    }
+
+    double perimeter = 0.0, twiceArea = 0.0;
+    int orientation = 0;
+    for (size_t i = 0; i < cornersCount; ++i) {
+        const Point& a = corners[i];
+        const Point& b = corners[(i + 1) % cornersCount];
+        const Point& next = corners[(i + 2) % cornersCount];
+        const double ux = b.x - a.x, uy = b.y - a.y;
+        const double vx = next.x - b.x, vy = next.y - b.y;
+        const double l1 = std::hypot(ux, uy), l2 = std::hypot(vx, vy);
+        if (l1 < 0.12 * diagonal || l2 < 0.12 * diagonal) {
+            return nullptr;
+        }
+        perimeter += l1;
+        twiceArea += a.x * b.y - b.x * a.y;
+        const double cross = ux * vy - uy * vx;
+        const int sign = cross > 0 ? 1 : -1;
+        if (std::abs(cross) < 0.14 * l1 * l2 || (orientation && sign != orientation)) {
+            return nullptr;  // no tiny corners, bow-ties or folded strokes
+        }
+        orientation = sign;
+        if (cornersCount == 4 && std::abs((ux * vx + uy * vy) / (l1 * l2)) > 0.35) {
+            return nullptr;  // a rotated rectangle still needs approximately square corners
+        }
+    }
+    if (perimeter <= 0 || std::abs(twiceArea) < 0.14 * diagonal * diagonal) {
+        return nullptr;
+    }
+
+    double sumSquaredError = 0.0;
+    const auto& ink = original->getPointVector();
+    for (const Point& p : ink) {
+        double nearest = 1e18;
+        for (size_t i = 0; i < cornersCount; ++i) {
+            nearest = std::min(nearest, distanceToEdge(p, corners[i], corners[(i + 1) % cornersCount]));
+        }
+        sumSquaredError += nearest * nearest;
+    }
+    const double relativeRms = std::sqrt(sumSquaredError / ink.size()) / diagonal;
+    if (relativeRms > 0.035) {
+        return nullptr;
+    }
+    auto fitted = std::make_unique<Stroke>();
+    fitted->applyStyleFrom(original);
+    for (const Point& corner : corners) {
+        fitted->addPoint(corner);
+    }
+    fitted->addPoint(corners.front());
+    return fitted;
+}
 }  // namespace
 
 /**
@@ -517,6 +633,13 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/
                 RDEBUG("return polygon after restarting at a corner");
                 return result;
             }
+        }
+    }
+
+    if (!restartedAtCorner) {
+        if (auto polygon = fitClosedPolygon(stroke)) {
+            RDEBUG("return scale-invariant polygon");
+            return polygon;
         }
     }
 
