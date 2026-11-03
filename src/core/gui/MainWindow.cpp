@@ -1558,7 +1558,7 @@ void MainWindow::updateInkDock() {
     const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
     gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher &&
                                            ToolUtnContextBar::toolControlsReachable(control));
-    const Color active = tools->getTool(TOOL_PEN).getColor();
+    const Color active = tools->getDisplayedColor();  // same active colour surface as rail, context and palette
     const std::array<Color, 8> propertyColours{{Color{0x20U, 0x25U, 0x2BU}, Color{0x1EU, 0x5BU, 0xD8U},
                                                 Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
                                                 Color{0x6AU, 0x1BU, 0x9AU}, Color{0xEFU, 0x6CU, 0x00U},
