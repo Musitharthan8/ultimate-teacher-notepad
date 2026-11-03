@@ -752,7 +752,7 @@ public:
         gtk_button_set_relief(GTK_BUTTON(pin), GTK_RELIEF_NONE);
         gtk_widget_add_css_class(pin, "utn-pop-link");
         gtk_widget_set_tooltip_text(pin, _("Keep the full tool settings panel open beside the worksheet"));
-        utn::setAccessibleName(pin, _("Pin settings to side"));
+        utn::setAccessibleName(pin, _("Pin to side"));
         g_object_set_data(G_OBJECT(pin), "utn-popover", popover);
         g_signal_connect(pin, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* ctrl = static_cast<Control*>(data);
