@@ -132,6 +132,37 @@ TEST(ShapeRecognizerRobustness, RotatedGappedEllipseNotMistakenForACircle) {
     EXPECT_GT(bounds.height, 20.0);
 }
 
+TEST(ShapeRecognizerRobustness, GappedTriangleRecognisesAcrossDrawingScales) {
+    // The old saved minimum could make the same outline work at 4x and fail at 0.5x.
+    // Keep the gap and jitter proportional to the page-space geometry.
+    for (double scale: {0.5, 1.0, 4.0}) {
+        SCOPED_TRACE(scale);
+        Stroke input;
+        const std::vector<Point> corners{
+                Point{scale * 0.0, scale * 0.0},
+                Point{scale * 24.0, scale * 3.0},
+                Point{scale * 12.0, scale * 21.0}};
+        polygon(input, corners, 20, true, 0.12 * scale);
+        ShapeRecognizer recognizer;
+        auto result = recognizer.recognizePatterns(&input, 80.0);
+        ASSERT_NE(result, nullptr);
+        EXPECT_EQ(result->getPointCount(), 4U) << "Triangle must not become a circle or line";
+        expectClosed(*result);
+        const auto inputBounds = input.getSnappedBounds();
+        const auto resultBounds = result->getSnappedBounds();
+        EXPECT_NEAR(resultBounds.width, inputBounds.width, 1.0 * scale);
+        EXPECT_NEAR(resultBounds.height, inputBounds.height, 1.0 * scale);
+    }
+}
+
+TEST(ShapeRecognizerRobustness, OpenCShapedStrokeRemainsInk) {
+    // A letter-like open C must not be rounded into a closed O simply because an ellipse fits.
+    Stroke input;
+    ellipse(input, 45.0, 45.0, 20.0, 20.0, 0.0, 1.65 * PI, 0.12);
+    ShapeRecognizer recognizer;
+    EXPECT_EQ(recognizer.recognizePatterns(&input, 80.0), nullptr);
+}
+
 TEST(ShapeRecognizerRobustness, HandwritingLikeLoopWithStemAndCrossbarStaysInk) {
     Stroke input;
     // A rounded 'a', then a protruding downstroke and an internal crossbar.
