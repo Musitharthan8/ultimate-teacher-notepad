@@ -1,5 +1,6 @@
 #include "ShapeRecognizer.h"
 
+#include <algorithm>  // for min, max
 #include <cmath>     // for fabs, M_PI
 #include <iterator>  // for begin, next
 #include <memory>    // for allocator...
@@ -347,8 +348,15 @@ std::unique_ptr<Stroke> restartAtSharpestCorner(Stroke* original) {
     }
     const auto box = original->getSnappedBounds();
     const double diagonal = std::hypot(box.width, box.height);
-    if (diagonal <= 0 || std::hypot(pts.front().x - pts.back().x, pts.front().y - pts.back().y) > 0.25 * diagonal) {
-        return nullptr;  // not a closed loop
+    double drawnLength = 0.0;
+    for (size_t i = 1; i < n; ++i) {
+        drawnLength += std::hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    }
+    // The missing gap is a fraction of the outline the teacher actually drew, not a fixed page-unit
+    // threshold. This handles small and large gapped boxes consistently without closing open letters.
+    const double gap = std::hypot(pts.front().x - pts.back().x, pts.front().y - pts.back().y);
+    if (diagonal <= 0 || drawnLength <= 0 || gap > 0.14 * drawnLength || gap > 0.45 * diagonal) {
+        return nullptr;  // too open to infer a shape
     }
     const size_t window = std::max<size_t>(2, n / 20);
     double sharpest = 0;
@@ -391,10 +399,13 @@ double cornerDeviation(const Stroke& replacement, const Stroke& original) {
 /**
  * The main pattern recognition function
  */
-auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double strokeMinSize) -> std::unique_ptr<Stroke> {
+auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/) -> std::unique_ptr<Stroke> {
     this->stroke = stroke;
 
-    if (!isStrokeLargeEnough(stroke, strokeMinSize)) {
+    // Former per-profile minimum sizes could reject ordinary small diagrams (and the slider is no longer
+    // displayed). The same conservative 8-page-unit diagonal now applies regardless of legacy settings.
+    constexpr double MIN_SHAPE_DIAGONAL = 8.0;
+    if (!isStrokeLargeEnough(stroke, MIN_SHAPE_DIAGONAL)) {
         return nullptr;
     }
 
