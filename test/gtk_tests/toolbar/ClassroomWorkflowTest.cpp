@@ -7009,6 +7009,8 @@ TEST_F(ClassroomWorkflow, inkDockCannotAlterThePenUnderBlankCoverOrQuietPresent)
     GtkWidget* dockToggle = buttonNamed(popover, "Show ink dock");
     ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(dockToggle));
     const bool previouslyOn = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dockToggle));
+    auto& utnAttributes = control->getSettings()->getCustomElement("utn").attributes();
+    const bool hadSavedDockChoice = utnAttributes.count("inkDockEnabled") > 0;
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), true);
     settle();
     EXPECT_TRUE(gtk_widget_get_mapped(dock));
@@ -7058,6 +7060,9 @@ TEST_F(ClassroomWorkflow, inkDockCannotAlterThePenUnderBlankCoverOrQuietPresent)
     GtkWidget* restoredToggle = buttonNamed(GTK_WIDGET(restoredPopover), "Show ink dock");
     ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(restoredToggle));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(restoredToggle), previouslyOn);
+    if (!hadSavedDockChoice) {
+        utnAttributes.erase("inkDockEnabled");  // restore the absent key as well as the visible state
+    }
     settle();
 }
 
