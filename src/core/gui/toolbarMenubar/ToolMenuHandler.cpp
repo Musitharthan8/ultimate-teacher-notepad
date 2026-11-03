@@ -102,7 +102,25 @@ void teacherApplyColour(Control* ctrl, Color selected, int expectedKind = -1) {
 
 /// The rail's colour dot. The colour it shows is also kept on the button ("utn-rail-colour", 0xAARRGGBB) for tests.
 void showRailColour(GtkWidget* menu, Color current) {
-    gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(current, 22, true));
+    // The rail caption is appended under the icon after the toolbar is built. Replacing the
+    // button's WHOLE child would delete "Colours" whenever a preset or tool changed colour.
+    // Replace only its image; keep the GTK box, caption, focus target and accessibility intact.
+    GtkWidget* newIcon = ColorIcon::newGtkImage(current, 22, true);
+    GtkWidget* child = gtk_bin_get_child(GTK_BIN(menu));
+    if (GTK_IS_BOX(child)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(child));
+        for (GList* c = children; c; c = c->next) {
+            if (GTK_IS_IMAGE(c->data)) {
+                gtk_container_remove(GTK_CONTAINER(child), GTK_WIDGET(c->data));
+                break;
+            }
+        }
+        g_list_free(children);
+        gtk_box_prepend(GTK_BOX(child), newIcon);
+        gtk_widget_show(newIcon);
+    } else {
+        gtk_button_set_child(GTK_BUTTON(menu), newIcon);
+    }
     g_object_set_data(G_OBJECT(menu), "utn-rail-colour", GUINT_TO_POINTER(static_cast<uint32_t>(current)));
 }
 

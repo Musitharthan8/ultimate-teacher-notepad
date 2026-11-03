@@ -9494,3 +9494,30 @@ TEST_F(ClassroomWorkflow, classroomHeaderCapsuleAndBottomQuickBarAreActuallyVisi
     EXPECT_TRUE(gtk_widget_get_mapped(bottom));
     EXPECT_GT(gtk_widget_get_allocated_height(bottom), 0);
 }
+
+// Regression: a tool or favourite preset changes the Colours icon repeatedly; the rail caption must survive.
+TEST_F(ClassroomWorkflow, colourPreviewUpdatesNeverDestroyTheMappedRailCaption) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->setToolLabelMode(utn::layout::LABELS_SHOW);
+    settle();
+    auto* rail = window->get("tbLeft1");
+    auto* tools = control->getToolHandler();
+    control->selectTool(TOOL_PEN);
+    const Color before = tools->getDisplayedColor();
+    for (const Color next: {Color{0xFFEC4B33U}, Color{0xFF2573D9U}, before}) {
+        tools->setDisplayedColor(next, false);
+        settle();
+        GtkWidget* caption = railLabel(rail, "Colours");
+        ASSERT_NE(caption, nullptr) << "a colour update removed the caption node";
+        EXPECT_TRUE(gtk_widget_get_visible(caption));
+        EXPECT_TRUE(gtk_widget_get_mapped(caption));
+        EXPECT_GT(gtk_widget_get_allocated_width(caption), 0);
+        EXPECT_GT(gtk_widget_get_allocated_height(caption), 0);
+        GtkWidget* parent = gtk_widget_get_parent(caption);
+        ASSERT_TRUE(GTK_IS_BOX(parent));
+        EXPECT_TRUE(GTK_IS_MENU_BUTTON(gtk_widget_get_parent(parent)));
+    }
+    window->setToolLabelMode(utn::layout::LABELS_AUTOMATIC);
+}
