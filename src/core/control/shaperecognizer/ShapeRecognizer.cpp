@@ -520,11 +520,16 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/
         }
     }
 
-    // not a polygon: maybe a circle ?
+    // not a polygon: maybe a circle or ellipse? Keep the proven legacy recogniser first,
+    // then try a guarded least-squares fit for smaller, noisy or slightly gapped loops.
     auto s = CircleRecognizer::recognize(stroke);
     if (s) {
         RDEBUG("return circle");
         return s;
+    }
+    if (auto smooth = CircleRecognizer::recognizeSmoothLoop(stroke)) {
+        RDEBUG("return least-squares circle or ellipse");
+        return smooth;
     }
 
     return nullptr;
