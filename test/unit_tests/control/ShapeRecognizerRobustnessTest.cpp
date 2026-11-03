@@ -210,3 +210,35 @@ TEST(ShapeRecognizerRobustness, LegacyCircleRejectsOpenCWithoutClosingIt) {
     ellipse(input, 45.0, 45.0, 20.0, 20.0, 0.0, 1.65 * PI, 0.12);
     EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
 }
+
+TEST(ShapeRecognizerRobustness, SmoothLoopRejectsNonFiniteSamples) {
+    // Exercise the least-squares entry point directly, not just the legacy
+    // inertia path. Invalid points must never reach cached bounds or the fit.
+    for (double invalid: {std::numeric_limits<double>::quiet_NaN(),
+                          std::numeric_limits<double>::infinity(),
+                          -std::numeric_limits<double>::infinity()}) {
+        for (int badIndex: {0, 45, 90}) {
+            SCOPED_TRACE(badIndex);
+            Stroke reference;
+            ellipse(reference, 50.0, 50.0, 12.0, 8.0, 0.42);
+            Stroke input;
+            const auto& points = reference.getPointVector();
+            for (size_t i = 0; i < points.size(); ++i) {
+                const Point& p = points[i];
+                input.addPoint({static_cast<int>(i) == badIndex ? invalid : p.x, p.y});
+            }
+            EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+        }
+    }
+}
+
+TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingFinitePathLength) {
+    // Every input coordinate is finite, but their differences and path
+    // length can overflow. Do not feed infinite values into least squares.
+    Stroke input;
+    for (int i = 0; i < 30; ++i) {
+        input.addPoint({i % 2 ? 1e308 : -1e308,
+                        i % 3 ? 1e308 : -1e308});
+    }
+    EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+}
