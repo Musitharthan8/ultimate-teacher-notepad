@@ -1163,6 +1163,39 @@ window.utnShell .utn-quick-blank:checked label {
     color: #ffffff;
 }
 
+/* App-bar classroom capsule family. The three existing controls remain independent GTK widgets,
+   so their established Freeze/Blank/Student View actions, focus order and privacy gates are preserved.
+   Round them consistently; never override state-specific backgrounds or active borders. */
+window.utnShell #tbTop1 .utn-sv-pill,
+window.utnShell #tbTop1 .utn-present-btn,
+window.utnShell #tbTop1 .utn-sv-quick button {
+    border-radius: 999px;
+    min-height: 32px;
+}
+window.utnShell.utnTouch #tbTop1 .utn-sv-pill,
+window.utnShell.utnTouch #tbTop1 .utn-present-btn,
+window.utnShell.utnTouch #tbTop1 .utn-sv-quick button {
+    min-height: 44px;
+    min-width: 44px;
+}
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-pill,
+window.utnShell.utnHighContrast #tbTop1 .utn-present-btn,
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-quick button {
+    border: 2px solid @utn_hc_fg;
+    color: @utn_hc_fg;
+}
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-quick button:checked,
+window.utnShell.utnHighContrast #tbTop1 .utn-present-btn.utn-present-active {
+    border-color: @utn_hc_focus;
+    border-width: 3px;
+}
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-quick button:focus,
+window.utnShell.utnHighContrast #tbTop1 .utn-present-btn:focus,
+window.utnShell.utnHighContrast #tbTop1 .utn-sv-pill:focus {
+    outline: 2px solid @utn_hc_focus;
+    outline-offset: 2px;
+}
+
 /* Present button while Spotlight or Curtain is on: the page is changed, so the button says so */
 window.utnShell .utn-present-active {
     background-image: none;
@@ -1668,6 +1701,11 @@ window.utnShell .utn-pop-link {
     color: @utn_paper_accent;
     font-weight: 600;
     padding: 2px 4px;
+}
+/* The footer is also an action: do not leave Pin to side smaller than the swatches on a touch display. */
+window.utnShell.utnTouch .utn-pop-link {
+    min-height: 44px;
+    min-width: 44px;
 }
 window.utnShell.darkMode .utn-pop-hint,
 window.utnShell.darkMode .utn-pop-caption {
