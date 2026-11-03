@@ -259,3 +259,70 @@ Choosing a done step undoes back to before it; choosing an undone step redoes up
 - Draw a few strokes, add an Annotation Bank tick, move and recolour a selection, add a page: the list follows at once; jump back three steps and forward again; the title's unsaved marker matches.
 - Open the History, then raise Blank (single display, not fullscreen): the popover closes and stays closed.
 - NVDA: row names, the status line announcement after a jump, the greyed Redo reason.
+
+
+## Phase 6: ChatGPT cloud handoff (2026-11-03, review required)
+
+**Never treat this section as a verified Windows build.** All commits below were created through the
+GitHub connector and reviewed statically. No CMake/Ninja, C++ unit suite, GTK integration suite,
+Windows UCRT64 test, native screen capture or real-profile hash check ran. The affected
+`wip/` branches have **not** been merged into `feature/utn-teacher-ux-program`.
+
+The source ancestry is
+`fe54f0749` → original unfinished `wip/phase6-palette-redesign` (`b7c2720`) →
+`wip/phase6-chatgpt-palette-accessibility` →
+`wip/phase6-chatgpt-smart-shape` →
+`wip/phase6-chatgpt-classroom-capsule` →
+`wip/phase6-chatgpt-design-system`.
+Review the **head of the last branch** for the cumulative changes. Never force-push or
+rewrite the integration branch. GitHub comparison was used to confirm ancestry and
+changed-file scope; line-ending equivalence still needs checking in the Windows worktree.
+
+### What to review before cherry-picking
+
+1. **Palette**: carries forward the incomplete concept UI from `b7c2720`. Follow-up work
+   fixes accessible labels, routes Tool Profiles through `ToolHandler::setDisplayedColor`,
+   preserves translucent highlighter opacity, increases palette touch targets to 44 px,
+   and adds the selected swatch High Contrast cue. The `Colours` rail indicator now
+   preserves its label-bearing GTK box instead of replacing the entire child.
+   `test/gtk_tests/toolbar/ClassroomWorkflowTest.cpp` includes a mapped-and-allocated
+   caption regression assertion. Check visual popover mapping at 800/1024/1280 and
+   both DPIs, and the existing `interfaceModesChange...` and `workspaceMenuLabelChoicesDriveTheRailCaptions` tests.
+2. **Smart Shape**: the only found `Smallest shape` UI slider was removed from
+   `ToolUtnContextBar.cpp`. The recogniser now ignores a legacy saved
+   `strokeRecognizerMinSize` and applies an 8 page-unit minimum. It compares
+   endpoint gaps to drawn perimeter, attempts a conservative three/four-corner
+   Douglas–Peucker fallback, and then attempts circle/ellipse least-squares fitting
+   after the original recogniser. Review algebra, pathological small strokes,
+   result accuracy and line/handwriting false positives. New GTK-free GTests are in
+   `test/unit_tests/control/ShapeRecognizerRobustnessTest.cpp`. **These tests have
+   not been compiled or executed; do not assume they pass.**
+3. **Classroom**: new profiles enable the existing bottom ink dock by default;
+   an explicit saved value wins. The app-bar presentation label is
+   `Spotlight & Curtain`; the existing Students, Freeze, Blank and presentation
+   actions remain distinct widgets with a consistent rounded appearance.
+   High Contrast and touch CSS have additional rules. Ink dock callbacks and
+   visibility re-check `ToolUtnContextBar::toolControlsReachable`, with a new GTK
+   regression scenario for Blank and hidden Present. The test reacquires toolbar
+   controls after workspace changes to avoid stale pointers.
+4. **Documentation**: `UTN_DESIGN_SYSTEM.md` now records the real eight ink/four
+   highlighter choices, selection tick + ring, GTK3 colour tokens, 44 px touch
+   targets, appearance defaults, gate, and limitations. Verify the stated
+   CSS minimums against mapped GTK allocations.
+
+### Required verification before merging
+
+From an isolated MSYS2 UCRT64 worktree, check line endings
+(`git diff --ignore-cr-at-eol --stat` versus `git diff --stat`), configure
+Debug with tests, build `all`, run unit tests and GTK tests at 96 and 120 DPI,
+and check the real `%LOCALAPPDATA%\\utn\\settings.xml` SHA-256 and mtime remain unchanged.
+Validate Student View audience filtering, Blank/Freeze, Present hidden tools,
+High Contrast, dark title bar, stylus, touch, keyboard, and NVDA.
+Test each new recogniser case and inspect representative drawn outlines;
+reject the changes if they create false-positive shapes from handwriting.
+Update this handoff with **actual** exit codes and test counts before declaring a phase complete.
+
+**Known product limitation remains**: Saved Classroom Themes (Marking, Corrections,
+Presentation, Student View Safe) are not implemented or mapped to existing workspaces.
+Only the existing Red marking, Blue explanation and Yellow highlighter pen presets exist.
+No theme engine, settings redesign or document-format migration was added here.
