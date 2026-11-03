@@ -217,6 +217,13 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
     if (points.size() < 12) {
         return nullptr;
     }
+    // Check the raw samples before asking Stroke for cached bounds. A NaN or
+    // infinity can otherwise enter the bounds cache before the fit rejects it.
+    for (const Point& p: points) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y)) {
+            return nullptr;
+        }
+    }
     const auto bounds = stroke->getSnappedBounds();
     const double diagonal = std::hypot(bounds.width, bounds.height);
     if (!std::isfinite(diagonal) || diagonal < MIN_LOOP_DIAGONAL ||
@@ -237,7 +244,9 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
         }
     }
     const double gap = std::hypot(points.back().x - points.front().x, points.back().y - points.front().y);
-    if (length <= 0 || gap > MAX_GAP_FRACTION * length || gap > 0.45 * diagonal) {
+    if (!std::isfinite(length) || !std::isfinite(gap) || !std::isfinite(meanX) ||
+        !std::isfinite(meanY) || length <= 0 || gap > MAX_GAP_FRACTION * length ||
+        gap > 0.45 * diagonal) {
         return nullptr;
     }
     meanX /= points.size();
