@@ -1792,3 +1792,38 @@ window.utnShell.utnHighContrast toolbar .utn-sv-quick button.utn-needs-student-v
     color: #a0a0a0;
     border: 1px dashed #a0a0a0;
 }
+
+/* UTN classroom capsule. Existing Student View/Freeze/Blank/overlay actions share one responsive header group. */
+window.utnShell .utn-classroom-capsule {
+    background-color: @utn_paper_surface;
+    border: 1px solid @utn_paper_hairline;
+    border-radius: 12px;
+    padding: 2px;
+    min-height: 36px;
+}
+window.utnShell .utn-classroom-capsule .utn-capsule-students,
+window.utnShell .utn-classroom-capsule .utn-capsule-overlays {
+    border: 0;
+    border-radius: 7px;
+}
+window.utnShell .utn-classroom-capsule .utn-capsule-quick {
+    border-left: 1px solid @utn_paper_hairline;
+    border-right: 1px solid @utn_paper_hairline;
+    padding: 0 3px;
+    margin: 0 3px;
+}
+window.utnShell.darkMode .utn-classroom-capsule {
+    background-color: @utn_paper_dark_surface;
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.darkMode .utn-classroom-capsule .utn-capsule-quick {
+    border-color: @utn_paper_dark_hairline;
+}
+window.utnShell.utnHighContrast .utn-classroom-capsule {
+    background-color: @utn_hc_bg;
+    border: 2px solid @utn_hc_fg;
+}
+window.utnShell.utnHighContrast .utn-classroom-capsule .utn-capsule-quick {
+    border-color: @utn_hc_fg;
+}
+window.utnShell.utnTouch .utn-classroom-capsule button { min-height: 44px; }

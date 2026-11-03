@@ -9280,7 +9280,7 @@ TEST_F(ClassroomWorkflow, classroomTogglesExposeTheirStateAndTheBlankCoverIsAnAl
     settle();
     auto* students = window->getToolMenuHandler()->getStudentView();
     ASSERT_NE(students, nullptr);
-    GtkWidget* menuButton = menuButtonAccessibleNamed(window->getWindow(), "Classroom controls");
+    GtkWidget* menuButton = menuButtonAccessibleNamed(window->getWindow(), "Spotlight & Curtain");
     ASSERT_NE(menuButton, nullptr);
     auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menuButton)));
     GtkWidget* status = widgetNamed(popover, "utnClassroomStatus");
@@ -9457,4 +9457,40 @@ TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRef
     window->toolbarSelected("UTN Teacher");
     settle();
     tools->setColor(previousHighlighter, false);
+}
+
+// The app bar keeps the existing student and screen controls in one real mapped capsule.
+TEST_F(ClassroomWorkflow, classroomHeaderCapsuleAndBottomQuickBarAreActuallyVisible) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    GtkWidget* capsule = nullptr;
+    std::function<void(GtkWidget*)> find = [&](GtkWidget* root) {
+        if (gtk_style_context_has_class(gtk_widget_get_style_context(root), "utn-classroom-capsule")) {
+            capsule = root;
+            return;
+        }
+        if (!GTK_IS_CONTAINER(root)) return;
+        GList* children = gtk_container_get_children(GTK_CONTAINER(root));
+        for (GList* item = children; item && !capsule; item = item->next) find(GTK_WIDGET(item->data));
+        g_list_free(children);
+    };
+    find(window->get("tbTop1"));
+    ASSERT_NE(capsule, nullptr);
+    ASSERT_TRUE(gtk_widget_get_mapped(capsule));
+    EXPECT_GT(gtk_widget_get_allocated_width(capsule), 0);
+    EXPECT_GT(gtk_widget_get_allocated_height(capsule), 0);
+    auto* screen = menuButtonAccessibleNamed(capsule, "Spotlight & Curtain");
+    ASSERT_NE(screen, nullptr);
+    EXPECT_TRUE(gtk_widget_get_mapped(screen));
+    for (const char* label: {"Freeze", "Blank"}) {
+        GtkWidget* button = buttonNamed(capsule, label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(gtk_widget_get_mapped(button)) << label;
+        EXPECT_GT(gtk_widget_get_allocated_width(button), 0) << label;
+    }
+    GtkWidget* bottom = window->get("tbBottom1");
+    ASSERT_NE(bottom, nullptr);
+    EXPECT_TRUE(gtk_widget_get_mapped(bottom));
+    EXPECT_GT(gtk_widget_get_allocated_height(bottom), 0);
 }

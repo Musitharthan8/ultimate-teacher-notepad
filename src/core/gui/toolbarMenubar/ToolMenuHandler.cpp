@@ -808,6 +808,38 @@ private:
     Control* control;
 };
 
+// One app-bar surface for the projector-facing controls. Each child is the existing action widget:
+ // the capsule is layout only and cannot diverge from Student View / presentation state.
+class ToolClassroomCapsule final: public AbstractToolItem {
+public:
+    ToolClassroomCapsule(std::string id, ToolStudentView& studentView, ToolPresentationKit& presentation):
+            AbstractToolItem(std::move(id), Category::NAVIGATION), students(studentView), presentation(presentation) {}
+
+    xoj::util::WidgetSPtr createItem(bool horizontal) override {
+        GtkWidget* capsule = gtk_box_new(horizontal ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_add_css_class(capsule, "utn-classroom-capsule");
+        auto student = students.createItem(horizontal);
+        auto quick = students.createQuickControls(horizontal);
+        auto overlays = presentation.createItem(horizontal);
+        gtk_widget_add_css_class(student.get(), "utn-capsule-students");
+        gtk_widget_add_css_class(quick.get(), "utn-capsule-quick");
+        gtk_widget_add_css_class(overlays.get(), "utn-capsule-overlays");
+        gtk_box_append(GTK_BOX(capsule), student.release());
+        gtk_box_append(GTK_BOX(capsule), quick.release());
+        gtk_box_append(GTK_BOX(capsule), overlays.release());
+        gtk_widget_show_all(capsule);
+        return xoj::util::WidgetSPtr(capsule, xoj::util::adopt);
+    }
+
+    std::string getToolDisplayName() const override { return _("Student and classroom controls"); }
+    GtkWidget* getNewToolIcon() const override {
+        return gtk_image_new_from_icon_name("utn-presentation", GTK_ICON_SIZE_LARGE_TOOLBAR);
+    }
+private:
+    ToolStudentView& students;
+    ToolPresentationKit& presentation;
+};
+
 class UtnBrandItem: public AbstractToolItem {
 public:
     UtnBrandItem(): AbstractToolItem("UTN_BRAND", Category::MISC) {}
@@ -1453,7 +1485,8 @@ void ToolMenuHandler::initToolItems() {
     emplaceItem<ToolStudentQuick>("STUDENT_QUICK", students);
 
     // UTN classroom presentation tools
-    emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper, &students);
+    auto& presentation = emplaceItem<ToolPresentationKit>("PRESENTATION_KIT", control, iconNameHelper, &students);
+    emplaceItem<ToolClassroomCapsule>("CLASSROOM_CAPSULE", students, presentation);
 
     // UTN consolidated shapes, STEM and classroom utilities
     emplaceItem<ToolTeachingKit>("TEACHING_KIT", control, iconNameHelper);
