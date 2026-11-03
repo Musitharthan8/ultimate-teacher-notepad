@@ -4,10 +4,12 @@
  */
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "control/shaperecognizer/CircleRecognizer.h"
 #include "control/shaperecognizer/ShapeRecognizer.h"
 #include "model/Point.h"
 #include "model/Stroke.h"
@@ -181,4 +183,26 @@ TEST(ShapeRecognizerRobustness, HandwritingLikeLoopWithStemAndCrossbarStaysInk) 
     }
     ShapeRecognizer recognizer;
     EXPECT_EQ(recognizer.recognizePatterns(&input, 60.0), nullptr);
+}
+
+TEST(ShapeRecognizerRobustness, LegacyCircleRejectsNonFinitePoints) {
+    // The direct legacy entry point must reject invalid coordinates before
+    // bounding-box and inertia calculations, including a NaN at an endpoint.
+    for (double invalid: {std::numeric_limits<double>::quiet_NaN(),
+                          std::numeric_limits<double>::infinity()}) {
+        SCOPED_TRACE(invalid);
+        for (int badIndex: {0, 17, 90}) {
+            Stroke input;
+            ellipse(input, 50.0, 50.0, 12.0, 12.0, 0.0);
+            auto& points = input.getPointVector();
+            points[badIndex].x = invalid;
+            EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
+        }
+    }
+}
+
+TEST(ShapeRecognizerRobustness, LegacyCircleRejectsOpenCWithoutClosingIt) {
+    Stroke input;
+    ellipse(input, 45.0, 45.0, 20.0, 20.0, 0.0, 1.65 * PI, 0.12);
+    EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
 }
