@@ -438,6 +438,41 @@ void expectCaptions(GtkWidget* rail, bool expectVisible, const std::string& cont
     }
 }
 
+// The rail's selected-colour icon is repainted when the tool colour changes. That repaint must not replace the
+// icon-and-caption box or make the visible Colours label disappear (Beginner and Show modes need both).
+TEST_F(ClassroomWorkflow, changingPenColourPreservesTheMappedColoursRailCaption) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->setToolLabelMode(utn::layout::LABELS_SHOW);
+    settle();
+
+    GtkWidget* rail = window->get("tbLeft1");
+    auto requireCaption = [&] {
+        GtkWidget* caption = railLabel(rail, "Colours");
+        ASSERT_NE(caption, nullptr) << "The colour-dot refresh must keep the rail's icon-and-caption box";
+        EXPECT_TRUE(gtk_widget_get_visible(caption));
+        EXPECT_TRUE(gtk_widget_get_mapped(caption));
+        EXPECT_GT(gtk_widget_get_allocated_width(caption), 0);
+        EXPECT_GT(gtk_widget_get_allocated_height(caption), 0);
+    };
+
+    control->selectTool(TOOL_PEN);
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getTool(TOOL_PEN).getColor();
+    requireCaption();
+
+    tools->setColor(Color{0x1EU, 0x5BU, 0xD8U}, false);
+    settle();
+    requireCaption();
+    tools->setColor(Color{0xD3U, 0x2FU, 0x2FU}, false);
+    settle();
+    requireCaption();
+    tools->setColor(previous, false);
+    settle();
+    requireCaption();
+}
+
 /// Run the event loop until the toplevel allocation stops changing, and return it. A desktop smaller than the
 /// request (the 1024 px GitHub Windows runner) clamps the window, so the caller must read what was really allocated.
 int allocatedWidthAfterResize(GtkWidget* window, int requested) {
