@@ -22,6 +22,9 @@ private:
 
 public:
     static auto recognize(Stroke* s) -> std::unique_ptr<Stroke>;
+    // A conservative, scale-invariant least-squares fallback for noisy/gapped round loops and ellipses.
+    // Never called until the polygon recogniser has had first refusal.
+    static auto recognizeSmoothLoop(Stroke* s) -> std::unique_ptr<Stroke>;
 
 private:
     static auto makeCircleShape(Stroke* originalStroke, Inertia& inertia) -> std::unique_ptr<Stroke>;
