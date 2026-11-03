@@ -263,7 +263,7 @@ Code-confirmed non-colour cues:
 | --- | --- | --- |
 | Selected rail tool | inset 3 px left bar (`box-shadow: inset 3px 0 0`) | CSS `#tbLeft1 button:checked` |
 | High Contrast selected rail tool | 3 px frame instead of 1 px | CSS `utnHighContrast #tbLeft1 button:checked` |
-| Selected swatch | border colour change and, in High Contrast, 3 px border; also sets the GTK `CHECKED` state flag | CSS `.utn-swatch-selected`; `UW::setSwatchSelected` 302-309 |
+| Selected swatch | 3 px selected ring, a tick inside the dot and GTK `CHECKED` state; the ring survives in High Contrast | CSS `.utn-swatch-selected`; `UW::setSwatchSelected` |
 | Eraser / shape mode | border-width 2-3 px in High Contrast | CSS |
 | Current page in Lesson Navigator | bold 700 text and 4 px left border | CSS `button.utn-current-page`; `ToolLessonNavigator.cpp` 483 |
 | Student View state | written label ("Freeze" / "Resume live", "Blank" / "Show page") and a dot glyph | CSS comments; `.utn-sv-dot` |
@@ -272,7 +272,7 @@ Code-confirmed non-colour cues:
 | Disabled (High Contrast, destructive) | dashed border | CSS |
 | Inspector divider | colour change on hover/focus only | CSS `#utnInspectorPaned separator:hover` |
 
-Not covered by a non-colour cue in the stylesheet: selected swatch in light and dark themes outside High Contrast (border colour only; border width stays 2 px); original-shell checked state on app bar buttons. **Not yet defined.**
+Not covered by a non-colour cue in the stylesheet: the original-shell checked state on some app-bar buttons. The Phase 6 palette now has a thicker ring, an interior tick and checked semantics in light, dark and High Contrast themes.
 
 The Document status CSS comment says "a word and a shape as well as a colour". No shape or glyph for document status was found in CSS or `MainWindow.cpp`; only the words and a weight step. The Student View pill does use a dot glyph label (`ToolStudentView.cpp` 738).
 
@@ -337,8 +337,37 @@ The earlier doc is prescriptive prose. Where it disagrees with code, code is rec
 8. Pressed state; disabled state outside High Contrast and destructive buttons.
 9. Motion tokens and reduced-motion handling.
 10. Verified contrast ratios other than the stated 4.5:1 for status colours; focus-ring 3:1.
-11. Non-colour selected cue for swatches in light/dark.
+11. Original-shell checked cues on some app-bar buttons (the Phase 6 palette swatch cue is defined).
 12. Window minimum size.
 13. Duplicated/overridden rules (for example swatch size 34 then 26, two accent families, rail padding set four times) are unresolved; the effective value is the last rule that matches.
 14. Text-scaling behaviour.
 15. Dialog styling beyond `.utn-dialog` focus ring.
+
+## 16. Teacher Annotation Palette, Phase 6 WIP (3 November 2026)
+
+Source of truth: `src/core/model/TeacherPalette.h`, `src/core/gui/toolbarMenubar/ToolMenuHandler.cpp`,
+`src/core/gui/toolbarMenubar/UtnWidgets.cpp` and `ui/xournalpp.css`. These are **code observations, not Windows verification**.
+
+- **Swatches:** ink tools use Black `#000000`, Blue `#1E5BD8`, Red `#D32F2F`, Green `#2E7D32`,
+  Purple `#6A1B9A`, Orange `#EF6C00`, Teal `#00897B` and Pink `#D63384`.
+  The Highlighter has Yellow `#FFEB3B`, Pink `#FF7EB6`, Cyan `#00D5E8` and Green `#8BE04E`.
+  Its opacity remains the active Highlighter tool's alpha. Custom colours use the existing chooser.
+- **Selection:** `.utn-swatch.utn-swatch-selected` has a 3 px ring plus a tick in the colour dot and the GTK checked
+  state. The ring is `@utn_accent_strong` in light theme, `@utn_accent_dark` in dark theme and `@utn_hc_fg`
+  in High Contrast. No new swatch-token family was created.
+- **Existing tokens reused:** `@utn_paper_accent` / `@utn_paper_dark_accent` for active controls,
+  `@utn_paper_accent_soft` / `@utn_paper_dark_accent_soft` for checked stroke-tile fills,
+  `@utn_paper_desk` / `@utn_paper_dark_desk` for previews, and `@utn_hc_fg/bg/focus` for High Contrast.
+  GTK3 `@define-color` names are not CSS variables.
+- **Sizes:** rail palette swatches request at least 30 x 30 px for mouse and 44 x 44 px for touch.
+  Stroke tiles request at least 24 x 36 px for mouse and 44 x 44 px for touch. Palette tabs request at least
+  24 px height for mouse and 44 px for touch. The footer link requests 24 px height for mouse and 44 px for touch;
+  the touch switch and width slider request at least 44 px height.
+- **Single colour source:** the rail dot, popover, context settings and presets are driven by
+  `ToolHandler::getDisplayedColor()` and the existing colour-application path. The palette does not store an
+  independent selected colour.
+- **Smart Shape UI:** the context-panel minimum-size slider and the older Settings-dialog spin control were
+  removed from the WIP code. The existing saved recognition setting remains supported internally for compatibility.
+  This change is **not** evidence that the recognition algorithm has improved.
+- **Outstanding verification:** compile/UCRT64, 96/120 DPI, large fonts, touch/stylus, High Contrast,
+  dark mode, mapped target allocations, keyboard/NVDA, Blank/Freeze and Student View privacy.
