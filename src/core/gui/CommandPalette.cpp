@@ -254,11 +254,12 @@ void CommandPalette::buildEntries() {
             Action::CLASSROOM_SPOTLIGHT);
     overlay("classroom.curtain", _("Curtain"), "cover reveal hide lower presentation", Action::CLASSROOM_CURTAIN);
     overlay("classroom.exit-overlay", _("Exit Spotlight or Curtain"), "stop leave", Action::CLASSROOM_EXIT_OVERLAY);
-    auto student = [&](const char* id, const std::string& title, const char* keywords, bool needsWindow,
+    auto student = [&](const char* id, std::function<std::string()> title, const char* keywords, bool needsWindow,
                        std::function<void()> run) {
         Entry e;
         e.meta.id = id;
-        e.meta.title = title;
+        e.titleNow = std::move(title);
+        e.meta.title = e.titleNow();
         e.meta.category = classroom;
         e.meta.keywords = keywords;
         e.meta.priority = PRIORITY_CLASSROOM;
@@ -268,13 +269,22 @@ void CommandPalette::buildEntries() {
         add(std::move(e));
     };
     student("classroom.freeze",
-            students && students->isFrozen() ? _("Show the page to students again") : _("Freeze students' screen"),
+            [students]() {
+                return std::string(students && students->isFrozen() ? _("Show the page to students again") :
+                                                                _("Freeze students' screen"));
+            },
             "pause hold still students", true, [students]() { students->setFrozen(!students->isFrozen()); });
     student("classroom.blank",
-            students && students->isBlanked() ? _("Show the page to students again") : _("Blank students' screen"),
+            [students]() {
+                return std::string(students && students->isBlanked() ? _("Show the page to students again") :
+                                                                _("Blank students' screen"));
+            },
             "hide black cover students", false, [students]() { students->setBlanked(!students->isBlanked()); });
     student("classroom.student-view",
-            students && students->isWindowOpen() ? _("Close Student View") : _("Open Student View on the projector"),
+            [students]() {
+                return std::string(students && students->isWindowOpen() ? _("Close Student View") :
+                                                                  _("Open Student View on the projector"));
+            },
             "projector class screen second display", false, [students]() {
                 if (students->isWindowOpen()) {
                     students->closeStudentView();
@@ -304,7 +314,10 @@ void CommandPalette::buildEntries() {
     {
         Entry sidebar;
         sidebar.meta.id = "view.sidebar";
-        sidebar.meta.title = control->getSettings()->isSidebarVisible() ? _("Hide sidebar") : _("Show sidebar");
+        sidebar.titleNow = [this]() {
+            return std::string(control->getSettings()->isSidebarVisible() ? _("Hide sidebar") : _("Show sidebar"));
+        };
+        sidebar.meta.title = sidebar.titleNow();
         sidebar.meta.category = view;
         sidebar.meta.keywords = "pages thumbnails panel";
         sidebar.meta.priority = PRIORITY_VIEW;
@@ -327,6 +340,9 @@ void CommandPalette::buildEntries() {
 void CommandPalette::refreshAvailability() {
     // What can run changes while the palette is open (a save starts, a page changes): read it again at every listing
     for (auto& e: entries) {
+        if (e.titleNow) {  // Student View may have been closed or blanked from elsewhere since the entries were made
+            e.meta.title = e.titleNow();
+        }
         e.meta.enabled = e.available();
         e.meta.unavailableReason = reasonFor(e);
     }
@@ -392,7 +408,15 @@ void CommandPalette::open() {
     gtk_window_set_decorated(GTK_WINDOW(dialog), false);
     gtk_window_set_type_hint(GTK_WINDOW(dialog), GDK_WINDOW_TYPE_HINT_DIALOG);
     gtk_window_set_position(GTK_WINDOW(dialog), GTK_WIN_POS_CENTER_ON_PARENT);
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 560, 380);
+    {
+        // Never wider than the window it sits over: at a narrow window the rows wrap instead of running off screen
+        int width = 560;
+        const int parentWidth = gtk_widget_get_allocated_width(main);
+        if (parentWidth > 1) {
+            width = std::clamp(parentWidth - 32, 280, width);
+        }
+        gtk_window_set_default_size(GTK_WINDOW(dialog), width, 380);
+    }
     gtk_widget_set_name(dialog, "utnCommandPalette");
     utn::setAccessibleName(dialog, _("Command Palette"));
 
@@ -402,7 +426,7 @@ void CommandPalette::open() {
 
     search = gtk_search_entry_new();
     gtk_widget_set_name(search, "utnPaletteSearch");
-    gtk_entry_set_placeholder_text(GTK_ENTRY(search), _("Type a command, a tool or a page number"));
+    gtk_entry_set_placeholder_text(GTK_ENTRY(search), _("Search commands: type a command, a tool or a page number"));
     utn::setAccessibleName(search, _("Search commands"));
     gtk_box_pack_start(GTK_BOX(box), search, FALSE, FALSE, 0);
 
@@ -426,6 +450,10 @@ void CommandPalette::open() {
     gtk_widget_set_name(status, "utnPaletteStatus");
     gtk_widget_set_halign(status, GTK_ALIGN_START);
     gtk_style_context_add_class(gtk_widget_get_style_context(status), "utn-context-hint");
+    gtk_label_set_line_wrap(GTK_LABEL(status), true);  // a reason is never cut off at a narrow width
+    gtk_label_set_line_wrap_mode(GTK_LABEL(status), PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_xalign(GTK_LABEL(status), 0);
+    gtk_label_set_max_width_chars(GTK_LABEL(status), 40);
     gtk_box_pack_start(GTK_BOX(box), status, FALSE, FALSE, 0);
 
     g_signal_connect(search, "search-changed", G_CALLBACK(+[](GtkSearchEntry*, gpointer data) {
@@ -527,8 +555,13 @@ void CommandPalette::filter() {
         shown.push_back(&entries[i]);
     }
 
+    // A row that has the keyboard (a mouse click, Tab) is about to be destroyed: keep the keyboard in the search box,
+    // where typing continues, instead of losing it to nowhere
+    GtkWidget* focused = gtk_window_get_focus(GTK_WINDOW(dialog));
+    const bool focusWasInList = focused && focused != list && gtk_widget_is_ancestor(focused, list);
+
     gtk_container_foreach(
-            GTK_CONTAINER(list), +[](GtkWidget* row, gpointer list) { gtk_container_remove(GTK_CONTAINER(list), row); },
+            GTK_CONTAINER(list),+[](GtkWidget* row, gpointer list) { gtk_container_remove(GTK_CONTAINER(list), row); },
             list);
 
     GtkListBoxRow* first = nullptr;
@@ -540,16 +573,20 @@ void CommandPalette::filter() {
 
         GtkWidget* title = gtk_label_new(e->meta.title.c_str());
         gtk_label_set_xalign(GTK_LABEL(title), 0);
+        gtk_label_set_ellipsize(GTK_LABEL(title), PANGO_ELLIPSIZE_END);  // narrow width: cut the name, never the reason
+        gtk_label_set_width_chars(GTK_LABEL(title), 6);
+        gtk_widget_set_tooltip_text(title, e->meta.title.c_str());
         gtk_widget_set_hexpand(title, true);
         gtk_box_pack_start(GTK_BOX(line), title, TRUE, TRUE, 0);
 
         // What it is, or why it does not work now: said in words, never by dimming alone
-        std::string detail = e->meta.enabled ? e->meta.category :
-                                               std::string(_("Unavailable")) + ": " + e->meta.unavailableReason;
-        if (e->meta.enabled && !e->meta.shortcut.empty()) {
-            detail += "   " + e->meta.shortcut;
-        }
+        const std::string detail = utn::visibleDetail(e->meta, _("Unavailable"));
         GtkWidget* info = gtk_label_new(detail.c_str());
+        gtk_label_set_line_wrap(GTK_LABEL(info), true);  // the reason wraps at a narrow width; it is never ellipsized
+        gtk_label_set_line_wrap_mode(GTK_LABEL(info), PANGO_WRAP_WORD_CHAR);
+        gtk_label_set_max_width_chars(GTK_LABEL(info), 30);
+        gtk_label_set_xalign(GTK_LABEL(info), 1);
+        gtk_label_set_justify(GTK_LABEL(info), GTK_JUSTIFY_RIGHT);
         gtk_style_context_add_class(gtk_widget_get_style_context(info), "utn-context-hint");
         gtk_box_pack_end(GTK_BOX(line), info, FALSE, FALSE, 0);
 
@@ -579,6 +616,9 @@ void CommandPalette::filter() {
     gtk_label_set_text(GTK_LABEL(status), hint.c_str());
     if (first) {
         gtk_list_box_select_row(GTK_LIST_BOX(list), first);
+    }
+    if (focusWasInList && search) {
+        gtk_entry_grab_focus_without_selecting(GTK_ENTRY(search));  // typing goes on after the typed text, not over it
     }
 }
 

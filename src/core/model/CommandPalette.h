@@ -36,6 +36,10 @@ struct PaletteCommand {
  */
 std::vector<size_t> rankCommands(const std::vector<PaletteCommand>& commands, std::string_view query);
 
+/// The words shown on the right of a row: category and shortcut, or "<unavailableWord>: reason" when it cannot run.
+/// accessibleLabel() must always contain these, so what is read out matches what is seen.
+std::string visibleDetail(const PaletteCommand& command, std::string_view unavailableWord);
+
 /// "Next page, Page, shortcut Page Down" or "Delete page, Page, unavailable: Only one page"
 std::string accessibleLabel(const PaletteCommand& command);
 
