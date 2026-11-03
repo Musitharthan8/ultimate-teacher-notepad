@@ -132,15 +132,24 @@ std::unique_ptr<Stroke> jitteredSquare(double side, double amplitude) {
     return stroke;
 }
 
-// The full pipeline reports a circle as a fitted outline of at least 25 points (see the test above).
+// Smooth circles AND ellipses have 25+ points; distinguish them by principal-axis ratio.
 bool pipelineGivesCircle(const Stroke& input) {
     auto copy = std::make_unique<Stroke>();
-    for (const Point& p: input.getPointVector()) {
-        copy->addPoint(p);
-    }
+    for (const Point& p: input.getPointVector()) copy->addPoint(p);
     ShapeRecognizer recognizer;
     auto result = recognizer.recognizePatterns(copy.get(), 0.0);
-    return result && result->getPointCount() >= 25U;
+    if (!result || result->getPointCount() < 25U) return false;
+    const auto& points = result->getPointVector();
+    double x = 0, y = 0;
+    for (const Point& p: points) { x += p.x; y += p.y; }
+    x /= points.size(); y /= points.size();
+    double xx = 0, yy = 0, xy = 0;
+    for (const Point& p: points) {
+        const double a = p.x - x, b = p.y - y;
+        xx += a*a; yy += b*b; xy += a*b;
+    }
+    const double delta = std::hypot(xx - yy, 2*xy), sum = xx + yy;
+    return sum > delta && std::sqrt((sum - delta) / (sum + delta)) >= 0.88;
 }
 }  // namespace
 

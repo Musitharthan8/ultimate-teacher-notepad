@@ -16,6 +16,7 @@
 #include "util/safe_casts.h"                                // for as_unsigned
 
 #include "CircleRecognizer.h"  // for CircleRec...
+#include "ClosedStrokeFit.h"  // scale-aware closed contours
 #include "Inertia.h"           // for Inertia
 #include "config-debug.h"      // for DEBUG_REC...
 
@@ -396,6 +397,22 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double strokeMinSize) ->
 
     if (!isStrokeLargeEnough(stroke, strokeMinSize)) {
         return nullptr;
+    }
+
+    // Before the legacy multi-stroke pipeline, try a conservative fit for a single, almost closed contour.
+    // Its relative residual and sweep/closure checks leave ambiguous handwriting and open ink untouched.
+    std::vector<utn::smartshape::Point2> points;
+    points.reserve(stroke->getPointCount());
+    for (const Point& p: stroke->getPointVector()) {
+        points.push_back({p.x, p.y});
+    }
+    if (auto fitted = utn::smartshape::fitClosedStroke(points)) {
+        auto tidy = std::make_unique<Stroke>();
+        tidy->applyStyleFrom(stroke);
+        for (const auto& p: fitted->outline) {
+            tidy->addPoint(Point(p.x, p.y));
+        }
+        return tidy;
     }
 
     Inertia ss[4];

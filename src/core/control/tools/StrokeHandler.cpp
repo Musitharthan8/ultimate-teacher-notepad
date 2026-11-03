@@ -200,7 +200,9 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
         std::unique_ptr<Stroke> recognized;
         {
             utn::perf::ScopedTimer recognizerTimer(utn::perf::Metric::Recognizer);
-            recognized = reco.recognizePatterns(stroke.get(), control->getSettings()->getStrokeRecognizerMinSize());
+            // Do not let a saved legacy slider threshold (8..80) silently reject small shapes.
+            // The old setting is retained for settings-file compatibility, not used in drawing.
+            recognized = reco.recognizePatterns(stroke.get(), 7.0);
         }
 
         if (recognized) {
