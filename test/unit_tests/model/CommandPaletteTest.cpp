@@ -6,6 +6,7 @@
  * Based on Xournal++ GPLv2+
  */
 
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -97,4 +98,75 @@ TEST(CommandPalette, aTypedPageNumberOffersToGoThere) {
     EXPECT_FALSE(pageNumberFromQuery("page 21", 20));
     EXPECT_FALSE(pageNumberFromQuery("pen 3", 20));
     EXPECT_FALSE(pageNumberFromQuery("page", 20));
+}
+
+namespace {
+std::string lowered(std::string s) {
+    for (auto& c: s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return s;
+}
+
+bool nameContains(const PaletteCommand& c, const std::string& visible) {
+    return lowered(accessibleLabel(c)).find(lowered(visible)) != std::string::npos;
+}
+}  // namespace
+
+TEST(CommandPalette, theVisibleDetailIsCategoryAndShortcutOrTheUnavailableReason) {
+    auto on = cmd("a", "Next page", "Page");
+    EXPECT_EQ(visibleDetail(on, "Unavailable"), "Page");
+    on.shortcut = "Page Down";
+    EXPECT_EQ(visibleDetail(on, "Unavailable"), "Page   Page Down");
+    auto off = cmd("b", "Delete page", "Page", "", false);
+    off.shortcut = "Ctrl+D";
+    off.unavailableReason = "Only one page";
+    EXPECT_EQ(visibleDetail(off, "Unavailable"), "Unavailable: Only one page") << "no shortcut offered for a row that cannot run";
+    off.unavailableReason.clear();
+    EXPECT_EQ(visibleDetail(off, "Unavailable"), "Unavailable: ");
+}
+
+// Label in name: whatever a row shows, a screen reader or voice control user can say or hear
+TEST(CommandPalette, theAccessibleNameAlwaysContainsTheTitleAndEverythingTheRowShows) {
+    auto on = cmd("a", "Next page", "Page");
+    on.shortcut = "Page Down";
+    auto off = cmd("b", "Delete page", "Page", "", false);
+    off.unavailableReason = "Only one page";
+    auto busy = cmd("c", "Save", "File", "", false);
+    busy.unavailableReason = "Busy saving or exporting";
+    for (const auto& c: {on, off, busy}) {
+        EXPECT_TRUE(nameContains(c, c.title)) << c.id;
+        EXPECT_TRUE(nameContains(c, c.category)) << c.id;
+        if (c.enabled) {
+            EXPECT_TRUE(nameContains(c, c.shortcut)) << c.id;
+        } else {
+            EXPECT_TRUE(nameContains(c, visibleDetail(c, "Unavailable"))) << c.id;
+        }
+    }
+}
+
+TEST(CommandPalette, anUnavailableCommandIsFoundByItsNameAndKeepsItsReasonWhateverTheQuery) {
+    auto off = cmd("del", "Delete page", "Page", "remove", false);
+    off.unavailableReason = "Only one page";
+    const std::vector<PaletteCommand> all{off};
+    for (const char* query: {"delete", "remove", "PAGE", "del pag"}) {
+        const auto hit = rankCommands(all, query);
+        ASSERT_EQ(hit.size(), 1u) << query;
+        EXPECT_EQ(all[hit[0]].unavailableReason, "Only one page") << query;
+    }
+}
+
+// The palette lists command names only, never page labels or text, so nothing private is shown on a shared screen
+TEST(CommandPalette, aQueryNeverMatchesTextThatIsNotACommandSoPageLabelsCannotAppear) {
+    const std::vector<PaletteCommand> all{cmd("next", "Next page", "Page", "forward down"),
+                                          cmd("blank", "Blank students' screen", "Classroom", "hide black cover")};
+    EXPECT_TRUE(rankCommands(all, "Algebra test answers").empty());
+    EXPECT_EQ(rankCommands(all, "hide").size(), 1u);
+}
+
+TEST(CommandPalette, aPageNumberThatIsNotInTheDocumentOffersNothing) {
+    EXPECT_FALSE(pageNumberFromQuery("0", 20));
+    EXPECT_FALSE(pageNumberFromQuery("go to page 99", 20));
+    EXPECT_FALSE(pageNumberFromQuery("12", 0));
+    EXPECT_FALSE(pageNumberFromQuery("", 20));
 }

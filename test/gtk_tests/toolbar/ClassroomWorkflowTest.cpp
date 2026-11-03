@@ -6105,6 +6105,39 @@ TEST_F(ClassroomWorkflow, paletteUnavailableRowsCanBeChosenWithDownAndSayWhyAndE
     settle();
 }
 
+// Label in name for the search box, long rows at a narrow width, and the keyboard after the list is rebuilt.
+TEST_F(ClassroomWorkflow, paletteSearchNameIsInItsVisibleHintRowsCanShrinkAndTheKeyboardSurvivesARebuild) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    window->openCommandPalette();
+    auto* palette = window->getCommandPalette();
+    ASSERT_TRUE(palette->isOpen());
+    GtkWidget* search = widgetNamed(palette->getWidget(), "utnPaletteSearch");
+    ASSERT_NE(search, nullptr);
+    const std::string hint = gtk_entry_get_placeholder_text(GTK_ENTRY(search));
+    EXPECT_NE(hint.find(accessibleName(search)), std::string::npos)
+            << "the name a screen reader or voice control uses is part of the words on screen";
+
+    // The rows can shrink: a long command name is cut with a tooltip, the status line wraps its reason
+    GtkWidget* status = widgetNamed(palette->getWidget(), "utnPaletteStatus");
+    EXPECT_TRUE(gtk_label_get_line_wrap(GTK_LABEL(status)));
+    GtkWidget* firstRow = GTK_WIDGET(gtk_list_box_get_row_at_index(
+            GTK_LIST_BOX(widgetNamed(palette->getWidget(), "utnPaletteList")), 0));
+    ASSERT_NE(firstRow, nullptr);
+    int minimum = 0;
+    gtk_widget_get_preferred_width(firstRow, &minimum, nullptr);
+    EXPECT_LT(minimum, 480) << "a row must fit a narrow palette";
+
+    // A row that holds the keyboard when the list is rebuilt hands it back to the search box
+    gtk_widget_grab_focus(firstRow);
+    settle();
+    typeInPalette(palette, "pen");
+    EXPECT_EQ(gtk_window_get_focus(GTK_WINDOW(palette->getWidget())), search);
+    palette->close();
+    settle();
+}
+
 // While the Blank cover is up the toolbar and tools behind it are hidden but would still take Tab, so a keyboard user
 // could press a button they cannot see.
 TEST_F(ClassroomWorkflow, theBlankCoverHoldsTheKeyboardWhileUpAndFocusAndSensitivityComeBackWhenItGoesDown) {

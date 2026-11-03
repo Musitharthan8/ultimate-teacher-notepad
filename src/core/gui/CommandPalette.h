@@ -46,6 +46,8 @@ private:
         std::function<bool()> available;
         std::function<void()> run;
         std::string reason;  // why it is unavailable for its own sake, when it is
+        /// Set for a command whose name follows a state ("Hide sidebar" / "Show sidebar"): read again at every listing
+        std::function<std::string()> titleNow;
     };
 
     void buildEntries();

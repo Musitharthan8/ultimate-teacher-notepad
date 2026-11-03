@@ -97,6 +97,17 @@ std::vector<size_t> rankCommands(const std::vector<PaletteCommand>& commands, st
     return out;
 }
 
+std::string visibleDetail(const PaletteCommand& command, std::string_view unavailableWord) {
+    if (!command.enabled) {
+        return std::string(unavailableWord) + ": " + command.unavailableReason;
+    }
+    std::string out = command.category;
+    if (!command.shortcut.empty()) {
+        out += "   " + command.shortcut;
+    }
+    return out;
+}
+
 std::string accessibleLabel(const PaletteCommand& command) {
     std::string out = command.title;
     if (!command.category.empty()) {
