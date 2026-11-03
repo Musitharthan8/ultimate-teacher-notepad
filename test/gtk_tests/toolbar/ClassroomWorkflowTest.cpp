@@ -7980,6 +7980,170 @@ TEST_F(ClassroomWorkflow, undoHistoryJumpStopsAtAFailedStepAChangedHistoryAndWhi
     control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});  // as closing a document does
 }
 
+namespace {
+/// A step whose undo puts another step on the history, as a listener or a nested main loop might
+class MeddlingUndoAction: public UndoAction {
+public:
+    explicit MeddlingUndoAction(UndoRedoHandler* handler): UndoAction("MeddlingUndoAction"), handler(handler) {}
+    bool undo(Control*) override {
+        handler->addUndoAction(std::make_unique<WordyUndoAction>("Meddled"));
+        return true;
+    }
+    bool redo(Control*) override { return true; }
+    std::string getText() override { return "Meddling step"; }
+
+private:
+    UndoRedoHandler* handler;
+};
+}  // namespace
+
+// Equal step counts are not the same history: one step undone and another drawn between two steps of a jump leaves
+// the counts as they were, and the jump must still stop instead of undoing the new stroke.
+TEST_F(ClassroomWorkflow, undoHistoryJumpStopsWhenAReplacedStepLeavesTheCountsEqual) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    drawStep(control.get(), layer, 500);
+    drawStep(control.get(), layer, 600);
+    settle();
+    ASSERT_EQ(handler->undoCount(), 2U);
+    g_signal_emit_by_name(historyList(panel), "row-activated", historyRow(panel, 2));  // two steps, none run yet
+    ASSERT_TRUE(utn::isUndoHistoryJumping(panel));
+    const uint64_t before = handler->revision();
+    handler->undo();
+    drawStep(control.get(), layer, 700);  // before the first step of the jump runs
+    ASSERT_EQ(handler->undoCount(), 2U);
+    ASSERT_EQ(handler->redoCount(), 0U) << "the same counts as when the jump was chosen";
+    ASSERT_NE(handler->revision(), before);
+    const size_t elements = layer->getElements().size();
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(historyStatus(panel).rfind("Stopped after 0 of 2 steps: the history changed", 0), 0U)
+            << historyStatus(panel);
+    EXPECT_EQ(layer->getElements().size(), elements) << "the new stroke was not undone";
+    EXPECT_EQ(handler->undoCount(), 2U);
+    handler->clearContents();
+    handler->fireUpdateUndoRedoButtons({});
+}
+
+// The one-step Undo and Redo buttons say what happened: a step that fails, or one that leaves the history other than
+// one step moved, is not announced as undone.
+TEST_F(ClassroomWorkflow, undoHistoryOneStepButtonsAnnounceAFailedOrUnmovedStepHonestly) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    drawStep(control.get(), layer, 100);
+    GtkWidget* undo = widgetNamed(panel, "utnUndoHistoryUndo");
+    GtkWidget* redo = widgetNamed(panel, "utnUndoHistoryRedo");
+    settle();
+
+    gtk_button_clicked(GTK_BUTTON(undo));
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Undid: Draw stroke.", 0), 0U) << historyStatus(panel);
+    gtk_button_clicked(GTK_BUTTON(redo));
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Redid: Draw stroke.", 0), 0U) << historyStatus(panel);
+
+    handler->addUndoAction(std::make_unique<FailingUndoAction>());
+    settle();
+    gtk_button_clicked(GTK_BUTTON(undo));
+    closeMessageDialogs();  // the history's own "Could not undo" message
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Could not undo: Failing step.", 0), 0U) << historyStatus(panel);
+    EXPECT_EQ(historyStatus(panel).find("Undid"), std::string::npos) << historyStatus(panel);
+
+    handler->clearContents();
+    handler->addUndoAction(std::make_unique<MeddlingUndoAction>(handler));
+    settle();
+    gtk_button_clicked(GTK_BUTTON(undo));
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Undo did not complete: the history changed.", 0), 0U)
+            << historyStatus(panel);
+    handler->clearContents();
+    handler->fireUpdateUndoRedoButtons({});
+}
+
+// A save or export that starts or ends is told to an open panel at once: it does not wait for the next step.
+TEST_F(ClassroomWorkflow, undoHistoryFollowsTheApplicationBecomingBusyAndFreeWithoutAnyStep) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    drawStep(control.get(), layer, 100);
+    settle();
+    GtkWidget* undo = widgetNamed(panel, "utnUndoHistoryUndo");
+    EXPECT_EQ(historyStatus(panel).rfind("Undo takes away", 0), 0U) << historyStatus(panel);
+    EXPECT_NE(std::string(atk_object_get_description(gtk_widget_get_accessible(undo))).rfind("Unavailable", 0), 0U);
+
+    control->block("test");
+    control->block("test again");  // a second job: only the first and the last change anything
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Unavailable while UTN is busy", 0), 0U) << historyStatus(panel);
+    EXPECT_EQ(std::string(atk_object_get_description(gtk_widget_get_accessible(undo))).rfind("Unavailable", 0), 0U);
+    control->unblock();
+    control->unblock();
+    settle();
+    EXPECT_EQ(historyStatus(panel).rfind("Undo takes away", 0), 0U) << "free again: " << historyStatus(panel);
+    EXPECT_NE(std::string(atk_object_get_description(gtk_widget_get_accessible(undo))).rfind("Unavailable", 0), 0U);
+    control->getUndoRedoHandler()->clearContents();
+    control->getUndoRedoHandler()->fireUpdateUndoRedoButtons({});
+}
+
+// Closing the document through Control empties the open panel, and a jump that was queued does nothing to the new one.
+TEST_F(ClassroomWorkflow, undoHistoryFollowsTheRealDocumentCloseAndStopsAQueuedJump) {
+    GtkWidget* panel = openHistoryInTeach(control.get(), window.get());
+    ASSERT_NE(panel, nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    drawStep(control.get(), layer, 100);
+    drawStep(control.get(), layer, 200);
+    handler->documentAutosaved();
+    drawStep(control.get(), layer, 300);
+    settle();
+    ASSERT_EQ(historyRows(panel).size(), 4U);
+    ASSERT_TRUE(handler->isChangedAutosave());
+    g_signal_emit_by_name(historyList(panel), "row-activated", historyRow(panel, 3));  // three steps, none run yet
+    ASSERT_TRUE(utn::isUndoHistoryJumping(panel));
+
+    bool closed = false;
+    control->close([&closed](bool ok) { closed = ok; }, true, true, true);  // Control::closeDocument, as closing does
+    ASSERT_TRUE(closed);
+    ASSERT_TRUE(waitForJump(panel));
+    EXPECT_EQ(handler->undoCount(), 0U);
+    EXPECT_EQ(handler->redoCount(), 0U);
+    EXPECT_EQ(historyRows(panel),
+              (std::vector<std::string>{"No steps yet. What you change on the pages is listed here."}));
+    EXPECT_EQ(historyStatus(panel).rfind("Stopped after 0 of 3 steps", 0), 0U) << historyStatus(panel);
+    EXPECT_FALSE(handler->isChangedAutosave()) << "the autosave point went with the history";
+    EXPECT_FALSE(handler->isChanged());
+}
+
+// A panel destroyed while a jump is queued takes the jump with it: the history is left as it was and nothing is told
+// to a listener that is gone.
+TEST_F(ClassroomWorkflow, undoHistoryPanelDestroyedWithAQueuedJumpLeavesTheHistoryAlone) {
+    ASSERT_NE(openHistoryInTeach(control.get(), window.get()), nullptr);
+    auto* handler = control->getUndoRedoHandler();
+    Layer* layer = control->getCurrentPage()->getSelectedLayer();
+    drawStep(control.get(), layer, 100);
+    drawStep(control.get(), layer, 200);
+    settle();
+    const size_t elements = layer->getElements().size();
+    {
+        HostedHistory hosted(control.get());
+        g_signal_emit_by_name(historyList(hosted.panel), "row-activated", historyRow(hosted.panel, 2));
+        ASSERT_TRUE(utn::isUndoHistoryJumping(hosted.panel));
+    }  // destroyed before the first step ran
+    settle();
+    EXPECT_EQ(handler->undoCount(), 2U);
+    EXPECT_EQ(handler->redoCount(), 0U);
+    EXPECT_EQ(layer->getElements().size(), elements);
+    drawStep(control.get(), layer, 300);  // told to the listeners that remain, not to the gone panel
+    settle();
+    EXPECT_EQ(handler->undoCount(), 3U);
+    handler->clearContents();
+    handler->fireUpdateUndoRedoButtons({});
+}
+
 // Under the Blank cover and in Present while its tools are put away no step is listed: an open panel puts its list
 // away and its popover closes, the palette cannot open it, and Present has no Classroom popover at all.
 TEST_F(ClassroomWorkflow, undoHistoryIsNeverShownUnderTheBlankCoverOrInQuietPresent) {

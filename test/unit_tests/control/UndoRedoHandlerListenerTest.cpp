@@ -81,7 +81,7 @@ TEST(UndoRedoHandlerListeners, aListenerRemovingALaterOneBeforeItsTurnSparesItTh
     EXPECT_EQ(third.changed, 1);
 }
 
-TEST(UndoRedoHandlerListeners, aListenerAddedWhileTheyAreToldIsToldFromThenOnWithoutDisturbingTheOthers) {
+TEST(UndoRedoHandlerListeners, aListenerAddedWhileTheyAreToldHearsOfTheNextChangeAndTheOthersAreNotDisturbed) {
     UndoRedoHandler handler(nullptr);
     ActingListener first;
     CountingListener added;
@@ -95,7 +95,7 @@ TEST(UndoRedoHandlerListeners, aListenerAddedWhileTheyAreToldIsToldFromThenOnWit
     EXPECT_EQ(last.changed, 1);
 
     handler.fireUpdateUndoRedoButtons({});
-    EXPECT_EQ(added.changed, 2) << "told in the same round (it was appended) and in the next";
+    EXPECT_EQ(added.changed, 1) << "not told in the round that added it, told in the next";
     EXPECT_EQ(first.changed, 2);
     EXPECT_EQ(last.changed, 2);
 }
@@ -154,4 +154,127 @@ TEST(UndoRedoHandlerListeners, theCountsAndTextsFollowUndoAndRedoOneStepAtATime)
     handler.undo();
     handler.addUndoAction(std::make_unique<FakeStep>("D"));
     EXPECT_EQ(handler.redoCount(), 0U) << "a new step drops what Redo could bring back";
+}
+
+TEST(UndoRedoHandlerListeners, aListenerThatAddsAnotherEveryTimeCannotKeepTheTellingGoing) {
+    UndoRedoHandler handler(nullptr);
+    std::vector<std::unique_ptr<CountingListener>> made;
+    struct Breeder: CountingListener {
+        UndoRedoHandler* handler = nullptr;
+        std::vector<std::unique_ptr<CountingListener>>* made = nullptr;
+        void undoRedoChanged() override {
+            ++changed;
+            made->push_back(std::make_unique<CountingListener>());
+            handler->addUndoRedoListener(made->back().get());
+        }
+    } breeder;
+    breeder.handler = &handler;
+    breeder.made = &made;
+    handler.addUndoRedoListener(&breeder);
+    handler.fireUpdateUndoRedoButtons({});
+    EXPECT_EQ(breeder.changed, 1);
+    EXPECT_EQ(made.size(), 1U) << "the listener it made was not told in the same round, so no more were made";
+}
+
+TEST(UndoRedoHandlerListeners, registeringTwiceStillTellsOnceAndOneRemovalDropsIt) {
+    UndoRedoHandler handler(nullptr);
+    CountingListener once;
+    handler.addUndoRedoListener(&once);
+    handler.addUndoRedoListener(&once);
+    handler.addUndoRedoListener(nullptr);
+    handler.fireUpdateUndoRedoButtons({});
+    EXPECT_EQ(once.changed, 1);
+    handler.removeUndoRedoListener(&once);
+    handler.fireUpdateUndoRedoButtons({});
+    EXPECT_EQ(once.changed, 1);
+}
+
+TEST(UndoRedoHandlerListeners, aListenerRemovedAndAddedAgainWhileToldIsToldAgainOnlyFromTheNextChange) {
+    UndoRedoHandler handler(nullptr);
+    ActingListener first;
+    CountingListener second;
+    first.whenTold = [&] {
+        handler.removeUndoRedoListener(&second);
+        handler.addUndoRedoListener(&second);
+    };
+    handler.addUndoRedoListener(&first);
+    handler.addUndoRedoListener(&second);
+    handler.fireUpdateUndoRedoButtons({});
+    EXPECT_EQ(second.changed, 0) << "its old slot was blanked before its turn, the new one is past the snapshot";
+    handler.fireUpdateUndoRedoButtons({});
+    EXPECT_EQ(second.changed, 1);
+}
+
+TEST(UndoRedoHandlerListeners, theRevisionCountsEveryChangeSoAReplacedStepIsNotTheSameHistory) {
+    UndoRedoHandler handler(nullptr);
+    const auto start = handler.revision();
+    handler.addUndoAction(std::make_unique<FakeStep>("A"));
+    const auto afterAdd = handler.revision();
+    EXPECT_NE(afterAdd, start);
+    handler.undo();
+    const auto afterUndo = handler.revision();
+    EXPECT_NE(afterUndo, afterAdd);
+    handler.redo();
+    const auto afterRedo = handler.revision();
+    EXPECT_NE(afterRedo, afterUndo);
+    handler.undo();
+    EXPECT_NE(handler.revision(), afterRedo);
+
+    // Same counts, different history: one step undone, then a new one in its place
+    handler.clearContents();
+    handler.addUndoAction(std::make_unique<FakeStep>("A"));
+    handler.addUndoAction(std::make_unique<FakeStep>("B"));
+    const auto undoCount = handler.undoCount();
+    const auto redoCount = handler.redoCount();
+    const auto before = handler.revision();
+    handler.undo();
+    handler.addUndoAction(std::make_unique<FakeStep>("C"));
+    EXPECT_EQ(handler.undoCount(), undoCount);
+    EXPECT_EQ(handler.redoCount(), redoCount);
+    EXPECT_NE(handler.revision(), before) << "equal counts, another history";
+
+    const auto beforeClear = handler.revision();
+    handler.clearContents();
+    EXPECT_NE(handler.revision(), beforeClear);
+    handler.addUndoAction(nullptr);
+    EXPECT_EQ(handler.revision(), beforeClear + 1) << "adding nothing changes nothing";
+    handler.undo();
+    EXPECT_EQ(handler.revision(), beforeClear + 1) << "undo with nothing to undo changes nothing";
+}
+
+TEST(UndoRedoHandlerListeners, theAutosavePointFollowsTheNewestStepAndSurvivesUndoAndRedoOnly) {
+    UndoRedoHandler handler(nullptr);
+    EXPECT_FALSE(handler.isChangedAutosave());
+    handler.addUndoAction(std::make_unique<FakeStep>("A"));
+    EXPECT_TRUE(handler.isChangedAutosave());
+    handler.documentAutosaved();
+    EXPECT_FALSE(handler.isChangedAutosave());
+    EXPECT_TRUE(handler.isChanged()) << "autosaving is not saving";
+    handler.addUndoAction(std::make_unique<FakeStep>("B"));
+    EXPECT_TRUE(handler.isChangedAutosave());
+    handler.undo();
+    EXPECT_FALSE(handler.isChangedAutosave()) << "back at the autosaved step";
+    handler.documentSaved();
+    EXPECT_FALSE(handler.isChanged());
+    handler.undo();
+    EXPECT_TRUE(handler.isChanged());
+    EXPECT_TRUE(handler.isChangedAutosave());
+    handler.clearContents();
+    EXPECT_FALSE(handler.isChangedAutosave());
+    EXPECT_FALSE(handler.isChanged());
+}
+
+TEST(UndoRedoHandlerListeners, busyChangesAreToldOnlyToListenersThatAskAndNeverAsAHistoryChange) {
+    UndoRedoHandler handler(nullptr);
+    struct BusyListener: CountingListener {
+        int busy = 0;
+        void undoRedoBusyChanged() override { ++busy; }
+    } busyAware;
+    CountingListener plain;
+    handler.addUndoRedoListener(&busyAware);
+    handler.addUndoRedoListener(&plain);
+    handler.fireBusyChanged();
+    EXPECT_EQ(busyAware.busy, 1);
+    EXPECT_EQ(busyAware.changed, 0);
+    EXPECT_EQ(plain.changed, 0);
 }

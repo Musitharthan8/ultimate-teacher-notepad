@@ -2362,6 +2362,7 @@ void Control::block(const string& name) {
     this->maxState = 100;
     this->blockDepth = 1;
     win->updateSelectionToolbar();  // its buttons would act on a document a job is working on
+    this->undoRedo->fireBusyChanged();  // an open Undo History panel says it is busy
 }
 
 void Control::unblock() {
@@ -2379,6 +2380,7 @@ void Control::unblock() {
 
     gtk_widget_hide(this->statusbar);
     win->updateSelectionToolbar();
+    this->undoRedo->fireBusyChanged();  // an open Undo History panel can be used again
 }
 
 void Control::setMaximumState(size_t max) { this->maxState = max; }

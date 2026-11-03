@@ -2,6 +2,7 @@
 
 #include <algorithm>  // for max, min
 #include <cstddef>   // for size_t
+#include <cstdint>   // for uint64_t
 #include <memory>    // for shared_ptr
 #include <optional>  // for optional
 #include <string>    // for string
@@ -33,6 +34,8 @@ struct Jump {
     /// The history as the last step left it: anything else at the next step means it was changed meanwhile
     std::size_t undoCount = 0;
     std::size_t redoCount = 0;
+    /// The history's revision as the last step left it. Equal counts are not enough: a step replaced by another keeps them.
+    std::uint64_t revision = 0;
 };
 
 /// Everything a panel needs, alive exactly as long as the panel
@@ -77,6 +80,8 @@ struct PanelState final: UndoRedoListener {
 
     void undoRedoChanged() override { scheduleRefresh(); }
     void undoRedoPageChanged(PageRef) override {}
+    /// A save or export started or ended: what can run changed, the history did not
+    void undoRedoBusyChanged() override { scheduleRefresh(); }
 
     /// Coalesced, and outside the handler's own call: the rows may be the widgets that started the change
     void scheduleRefresh() {
@@ -215,7 +220,8 @@ gboolean jumpTick(gpointer data) {
     const auto alive = s->alive;
     const std::size_t undoBefore = handler->undoCount();
     const std::size_t redoBefore = handler->redoCount();
-    if (undoBefore != j.undoCount || redoBefore != j.redoCount) {
+    const std::uint64_t revisionBefore = handler->revision();
+    if (undoBefore != j.undoCount || redoBefore != j.redoCount || revisionBefore != j.revision) {
         // A step was made, undone or cleared between two of ours: the step the teacher chose is not where it was
         s->jumpSource = 0;
         stopJump(s, _("the history changed"));
@@ -227,9 +233,11 @@ gboolean jumpTick(gpointer data) {
     if (!*alive || !s->jump || s->jumpSource != thisSource) {
         return G_SOURCE_REMOVE;
     }
-    const bool moved = j.side == HistorySide::Undo ?
-                               handler->undoCount() + 1 == undoBefore && handler->redoCount() == redoBefore + 1 :
-                               handler->redoCount() + 1 == redoBefore && handler->undoCount() == undoBefore + 1;
+    // Exactly one step moved across: counts as expected and the revision up by the one change that made it
+    const bool moved = handler->revision() == revisionBefore + 1 &&
+                       (j.side == HistorySide::Undo ?
+                                handler->undoCount() + 1 == undoBefore && handler->redoCount() == redoBefore + 1 :
+                                handler->redoCount() + 1 == redoBefore && handler->undoCount() == undoBefore + 1);
     if (!moved || !handler->lastStepSucceeded()) {
         s->jumpSource = 0;
         stopJump(s, moved ? _("a step could not be completed") : _("the history changed"));
@@ -238,6 +246,7 @@ gboolean jumpTick(gpointer data) {
     ++j.done;
     j.undoCount = handler->undoCount();
     j.redoCount = handler->redoCount();
+    j.revision = handler->revision();
     if (j.done < j.total) {
         setStatus(s, FS(_F("{1} of {2} steps…") % j.done % j.total));
         return G_SOURCE_CONTINUE;
@@ -274,7 +283,7 @@ void startJump(PanelState* s, HistorySide side, std::size_t steps) {
         refreshUndoHistoryPanel(s->panel);  // the list was out of date
         return;
     }
-    s->jump = Jump{side, steps, 0, handler->undoCount(), handler->redoCount()};
+    s->jump = Jump{side, steps, 0, handler->undoCount(), handler->redoCount(), handler->revision()};
     s->message.clear();
     setStatus(s, side == HistorySide::Undo ? FS(_F("Undoing {1} steps…") % steps) : FS(_F("Redoing {1} steps…") % steps));
     // One step per main loop turn: the page is redrawn and the window kept up to date between steps, as between key
@@ -370,11 +379,26 @@ void stepClicked(PanelState* s, HistorySide side) {
     const auto texts = side == HistorySide::Undo ? handler->undoTexts(1) : handler->redoTexts(1);
     const std::string what = texts.empty() ? std::string() : stepText(texts.front());
     const auto alive = s->alive;
+    const std::size_t undoBefore = handler->undoCount();
+    const std::size_t redoBefore = handler->redoCount();
+    const std::uint64_t revisionBefore = handler->revision();
     s->control->getActionDatabase()->fireActivateAction(action);
     if (!*alive) {
         return;  // the panel went away while the step ran (a nested main loop)
     }
-    say(s, side == HistorySide::Undo ? FS(_F("Undid: {1}.") % what) : FS(_F("Redid: {1}.") % what));
+    // Said only when one step really moved across and reported no failure: the same check as a jump makes
+    const bool moved = handler->revision() == revisionBefore + 1 &&
+                       (side == HistorySide::Undo ?
+                                handler->undoCount() + 1 == undoBefore && handler->redoCount() == redoBefore + 1 :
+                                handler->redoCount() + 1 == redoBefore && handler->undoCount() == undoBefore + 1);
+    if (!moved) {
+        say(s, side == HistorySide::Undo ? _("Undo did not complete: the history changed.") :
+                                           _("Redo did not complete: the history changed."));
+    } else if (!handler->lastStepSucceeded()) {
+        say(s, side == HistorySide::Undo ? FS(_F("Could not undo: {1}.") % what) : FS(_F("Could not redo: {1}.") % what));
+    } else {
+        say(s, side == HistorySide::Undo ? FS(_F("Undid: {1}.") % what) : FS(_F("Redid: {1}.") % what));
+    }
     refreshUndoHistoryPanel(s->panel);
 }
 

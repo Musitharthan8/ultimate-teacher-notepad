@@ -80,6 +80,7 @@ void UndoRedoHandler::clearContents() {
 
     undoList.clear();
     clearRedo();
+    ++this->historyRevision;
 
     this->savedUndo = nullptr;
     this->autosavedUndo = nullptr;
@@ -107,6 +108,7 @@ void UndoRedoHandler::undo() {
     auto& undoAction = *this->undoList.back();
     this->redoList.emplace_back(std::move(this->undoList.back()));
     this->undoList.pop_back();
+    ++this->historyRevision;
 
     bool undoResult = undoAction.undo(this->control);
     this->lastStepOk = undoResult;
@@ -134,6 +136,7 @@ void UndoRedoHandler::redo() {
 
     this->undoList.emplace_back(std::move(this->redoList.back()));
     this->redoList.pop_back();
+    ++this->historyRevision;
 
     bool redoResult = redoAction.redo(this->control);
     this->lastStepOk = redoResult;
@@ -164,6 +167,7 @@ void UndoRedoHandler::addUndoAction(UndoActionPtr action) {
 
     this->undoList.emplace_back(std::move(action));
     clearRedo();
+    ++this->historyRevision;
     fireUpdateUndoRedoButtons(this->undoList.back()->getPages());
 
     printContents();
@@ -175,6 +179,7 @@ auto UndoRedoHandler::takeLastUndoAction() -> UndoActionPtr {
     }
     UndoActionPtr last = std::move(this->undoList.back());
     this->undoList.pop_back();
+    ++this->historyRevision;
     return last;
 }
 
@@ -203,9 +208,12 @@ auto UndoRedoHandler::redoDescription() -> string {
 }
 
 void UndoRedoHandler::fireUpdateUndoRedoButtons(const std::vector<PageRef>& pages) {
-    // By index, skipping blanked slots: a listener may be added or removed while the others are told
+    // By index, skipping blanked slots: a listener may be added or removed while the others are told. Only the
+    // listeners there were when telling began are told: one added meanwhile hears of the next change, so a listener
+    // that adds another cannot keep the telling going.
     ++this->firing;
-    for (size_t i = 0; i < this->listener.size(); ++i) {
+    const size_t count = this->listener.size();
+    for (size_t i = 0; i < count && i < this->listener.size(); ++i) {
         if (auto* l = this->listener[i]) {
             l->undoRedoChanged();
         }
@@ -216,7 +224,7 @@ void UndoRedoHandler::fireUpdateUndoRedoButtons(const std::vector<PageRef>& page
             continue;
         }
 
-        for (size_t i = 0; i < this->listener.size(); ++i) {
+        for (size_t i = 0; i < count && i < this->listener.size(); ++i) {
             if (auto* l = this->listener[i]) {
                 l->undoRedoPageChanged(page);
             }
@@ -227,7 +235,25 @@ void UndoRedoHandler::fireUpdateUndoRedoButtons(const std::vector<PageRef>& page
     }
 }
 
-void UndoRedoHandler::addUndoRedoListener(UndoRedoListener* listener) { this->listener.emplace_back(listener); }
+void UndoRedoHandler::fireBusyChanged() {
+    ++this->firing;
+    const size_t count = this->listener.size();
+    for (size_t i = 0; i < count && i < this->listener.size(); ++i) {
+        if (auto* l = this->listener[i]) {
+            l->undoRedoBusyChanged();
+        }
+    }
+    if (--this->firing == 0) {
+        this->listener.erase(std::remove(this->listener.begin(), this->listener.end(), nullptr), this->listener.end());
+    }
+}
+
+void UndoRedoHandler::addUndoRedoListener(UndoRedoListener* listener) {
+    if (!listener || std::find(this->listener.begin(), this->listener.end(), listener) != this->listener.end()) {
+        return;  // told once per change, however often it registers
+    }
+    this->listener.emplace_back(listener);
+}
 
 void UndoRedoHandler::removeUndoRedoListener(UndoRedoListener* listener) {
     for (auto& l: this->listener) {
@@ -261,6 +287,8 @@ auto UndoRedoHandler::redoTexts(size_t max) -> std::vector<std::string> {
 }
 
 auto UndoRedoHandler::lastStepSucceeded() const -> bool { return this->lastStepOk; }
+
+auto UndoRedoHandler::revision() const -> uint64_t { return this->historyRevision; }
 
 auto UndoRedoHandler::isChanged() -> bool {
     if (this->undoList.empty()) {
