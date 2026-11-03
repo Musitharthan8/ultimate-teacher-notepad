@@ -102,7 +102,26 @@ void teacherApplyColour(Control* ctrl, Color selected, int expectedKind = -1) {
 
 /// The rail's colour dot. The colour it shows is also kept on the button ("utn-rail-colour", 0xAARRGGBB) for tests.
 void showRailColour(GtkWidget* menu, Color current) {
-    gtk_button_set_child(GTK_BUTTON(menu), ColorIcon::newGtkImage(current, 22, true));
+    GtkWidget* image = ColorIcon::newGtkImage(current, 22, true);
+    GtkWidget* child = gtk_bin_get_child(GTK_BIN(menu));
+    if (GTK_IS_BOX(child)) {
+        // appendTeacherCaption wraps the icon and its visible label in one box. Replacing the entire button child
+        // on a colour update deleted the "Colours" label and broke Beginner/Show rail-caption visibility.
+        GList* children = gtk_container_get_children(GTK_CONTAINER(child));
+        for (GList* node = children; node; node = node->next) {
+            if (GTK_IS_IMAGE(node->data)) {
+                gtk_container_remove(GTK_CONTAINER(child), GTK_WIDGET(node->data));
+                break;
+            }
+        }
+        g_list_free(children);
+        gtk_box_pack_start(GTK_BOX(child), image, FALSE, FALSE, 0);
+        gtk_box_reorder_child(GTK_BOX(child), image, 0);
+        gtk_widget_show(image);
+    } else {
+        // Initial render, before the rail captions have been attached.
+        gtk_button_set_child(GTK_BUTTON(menu), image);
+    }
     g_object_set_data(G_OBJECT(menu), "utn-rail-colour", GUINT_TO_POINTER(static_cast<uint32_t>(current)));
 }
 
