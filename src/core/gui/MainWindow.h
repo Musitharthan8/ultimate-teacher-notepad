@@ -294,7 +294,7 @@ private:
     bool applyingPanelPolicy = false;
     bool thumbnailsManualChoice = false;  ///< the teacher chose since the last width crossing: the policy must not undo it
     bool inspectorManualChoice = false;
-    bool inkDockEnabled = false;
+    bool inkDockEnabled = true;  ///< new-profile default; an existing utn/inkDockEnabled choice still overrides it
     bool syncingInkDock = false;
     bool panelPolicyPending = false;
     bool focusFixPending = false;
