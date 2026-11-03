@@ -8684,6 +8684,36 @@ TEST_F(ClassroomWorkflow, theOpenedAnnotationPaletteReallyShowsItsSwatchesAndRow
     control->selectTool(TOOL_PEN);
 }
 
+// Touch density is a layout contract, not merely larger icons. Inspect mapped controls in a real GTK popover;
+// testing CSS properties or gtk_widget_get_visible() alone would miss an allocated 0x0 or an unmapped swatch.
+TEST_F(ClassroomWorkflow, annotationPaletteTouchTargetsAreMappedAndAtLeast44Square) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    GtkStyleContext* style = gtk_widget_get_style_context(window->getWindow());
+    gtk_style_context_add_class(style, "utnTouch");  // presentation-only; never changes the saved profile
+    control->selectTool(TOOL_PEN);
+    settle();
+
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    GtkWidget* popover = openedPalette(rail);
+    ASSERT_TRUE(gtk_widget_get_mapped(popover));
+
+    GtkWidget* swatch = buttonAccessibleNamed(popover, "Blue");
+    GtkWidget* stroke = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-stroke-0"));
+    GtkWidget* tab = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-tab-0"));
+    GtkWidget* pin = buttonAccessibleNamed(popover, "Pin to side");
+    for (GtkWidget* target: {swatch, stroke, tab, pin}) {
+        ASSERT_NE(target, nullptr);
+        EXPECT_TRUE(gtk_widget_get_mapped(target)) << G_OBJECT_TYPE_NAME(target);
+        EXPECT_GE(gtk_widget_get_allocated_width(target), 44) << G_OBJECT_TYPE_NAME(target);
+        EXPECT_GE(gtk_widget_get_allocated_height(target), 44) << G_OBJECT_TYPE_NAME(target);
+    }
+
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    gtk_style_context_remove_class(style, "utnTouch");
+}
+
 TEST_F(ClassroomWorkflow, shapesAndTextColoursStayInStepWithTheRailAndThePalette) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
