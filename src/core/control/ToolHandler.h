@@ -473,6 +473,7 @@ protected:
     void initTools();
 
 private:
+    void notifyTeacherTextColour();
     std::array<std::unique_ptr<Tool>, TOOL_COUNT> tools;
 
     // UTN: continuous eraser size

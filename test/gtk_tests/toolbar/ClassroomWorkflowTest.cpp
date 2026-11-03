@@ -960,7 +960,7 @@ TEST_F(ClassroomWorkflow, applyingAPresetSetsTheRealToolAndOnlyThenIsItSelected)
 
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
     EXPECT_EQ(tools->getToolType(), TOOL_PEN);
-    EXPECT_EQ(toolRgb(control.get()), 0xD93025u);
+    EXPECT_EQ(toolRgb(control.get()), 0xD32F2Fu);
     EXPECT_EQ(tools->getColor().alpha, 255);
     EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_MEDIUM);
     EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::RED_MARKING_ID);
@@ -971,7 +971,7 @@ TEST_F(ClassroomWorkflow, applyingAPresetSetsTheRealToolAndOnlyThenIsItSelected)
     // A highlighter preset switches the tool and carries its opacity
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID));
     EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER);
-    EXPECT_EQ(toolRgb(control.get()), 0xFFE94Au);
+    EXPECT_EQ(toolRgb(control.get()), 0xFFEB3Bu);
     EXPECT_EQ(tools->getColor().alpha, 128);
     EXPECT_EQ(tools->getHighlighterSize(), TOOL_SIZE_THICK);
     EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
@@ -8108,7 +8108,7 @@ TEST_F(ClassroomWorkflow, colourRailIndicatorFollowsAPresetThatChangesThePenColo
     control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
     settle();
-    EXPECT_EQ(railColour(rail), 0xD93025U) << "the rail must show the colour the preset gave the pen";
+    EXPECT_EQ(railColour(rail), 0xD32F2FU) << "the rail must show the colour the preset gave the pen";
 
     tools->setColor(previous, false);
 }
@@ -8150,20 +8150,21 @@ TEST_F(ClassroomWorkflow, everyColourSurfaceFollowsTheOneToolColourWhoeverChange
     EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Blue"), 1) << "the context panel marks Blue";
     EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Red"), 0);
 
-    // Not a palette swatch (a Favourite Pen Preset's red is near Red): no swatch may keep claiming the pen
+    // A Favourite Pen Preset is a palette colour: every surface marks it
     control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
     settle();
-    EXPECT_EQ(toolRgb(control.get()), 0xD93025U) << "the real pen";
-    EXPECT_EQ(railColour(rail), 0xD93025U);
+    EXPECT_EQ(toolRgb(control.get()), 0xD32F2FU) << "the real pen";
+    EXPECT_EQ(railColour(rail), 0xD32F2FU);
     EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Blue"), 0) << "the context panel no longer marks Blue";
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Red"), 1) << "the context panel marks the preset's Red";
 
     // A palette colour chosen anywhere moves every mark
-    tools->setColor(Color{0xD3U, 0x2FU, 0x2FU}, false);
+    tools->setColor(Color{0x2EU, 0x7DU, 0x32U}, false);
     settle();
-    EXPECT_EQ(railColour(rail), 0xD32F2FU);
-    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Red"), 1);
-    EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Blue"), 0);
+    EXPECT_EQ(railColour(rail), 0x2E7D32U);
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Green"), 1);
+    EXPECT_EQ(selectedSwatchesNamed(contextPanel.get(), "Red"), 0);
 
     tools->setColor(previous, false);
 }
@@ -8199,4 +8200,151 @@ TEST_F(ClassroomWorkflow, theHighlighterShowsItsOwnSeeThroughColoursAndKeepsItsO
     EXPECT_EQ(buttonAccessibleNamed(popover, "Brown"), nullptr) << "no colour outside the palette";
 
     tools->setColor(previous, false);
+}
+
+namespace {
+GtkWidget* paletteTab(GtkWidget* popover, int index) {
+    return GTK_WIDGET(g_object_get_data(G_OBJECT(popover), ("utn-tab-" + std::to_string(index)).c_str()));
+}
+
+int activePaletteTab(GtkWidget* popover) {
+    for (int i = 0; i < 4; ++i) {
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(paletteTab(popover, i)))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/// Show the palette as opening it does: its "map" handler is what reads the tool state
+GtkWidget* refreshedPalette(GtkWidget* rail) {
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(rail)));
+    g_signal_emit_by_name(popover, "map");
+    return popover;
+}
+
+bool swatchShown(GtkWidget* popover, const char* name) {
+    GtkWidget* swatch = buttonAccessibleNamed(popover, name);
+    return swatch && gtk_widget_get_visible(gtk_widget_get_parent(swatch));
+}
+
+std::string indicatorText(GtkWidget* popover) {
+    auto* label = GTK_LABEL(g_object_get_data(G_OBJECT(popover), "utn-indicator"));
+    return gtk_label_get_text(label);
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, theAnnotationPaletteTabsFollowTheToolAndChoosingATabChoosesIt) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+
+    control->selectTool(TOOL_PEN);
+    control->setToolDrawingType(DRAWING_TYPE_DEFAULT);
+    GtkWidget* popover = refreshedPalette(rail);
+    EXPECT_EQ(activePaletteTab(popover), 0);
+    EXPECT_TRUE(swatchShown(popover, "Orange"));
+    EXPECT_FALSE(swatchShown(popover, "Cyan")) << "the pen does not offer the highlighter colours";
+
+    control->selectTool(TOOL_HIGHLIGHTER);
+    popover = refreshedPalette(rail);
+    EXPECT_EQ(activePaletteTab(popover), 1);
+    EXPECT_TRUE(swatchShown(popover, "Cyan"));
+    EXPECT_FALSE(swatchShown(popover, "Orange"));
+    EXPECT_NE(accessibleNamed(popover, "Opacity"), nullptr) << "opacity is the highlighter's own slider";
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(paletteTab(popover, 3)), true);
+    settle();
+    EXPECT_EQ(tools->getToolType(), TOOL_TEXT);
+    EXPECT_NE(accessibleNamed(popover, "Text size"), nullptr);
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(paletteTab(popover, 2)), true);
+    settle();
+    EXPECT_EQ(tools->getToolType(), TOOL_PEN);
+    EXPECT_NE(tools->getDrawingType(), DRAWING_TYPE_DEFAULT) << "Shapes draws a shape";
+    EXPECT_EQ(activePaletteTab(popover), 2);
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(paletteTab(popover, 0)), true);
+    settle();
+    EXPECT_EQ(tools->getToolType(), TOOL_PEN);
+    EXPECT_EQ(tools->getDrawingType(), DRAWING_TYPE_DEFAULT);
+    control->selectTool(TOOL_PEN);
+}
+
+TEST_F(ClassroomWorkflow, shapesAndTextColoursStayInStepWithTheRailAndThePalette) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previousPen = tools->getTool(TOOL_PEN).getColor();
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    ToolUtnContextBar contextBar("UTN_CONTEXT_TEST", control.get(), true);
+    xoj::util::WidgetSPtr contextPanel = contextBar.createItem(false);
+    gtk_widget_show_all(contextPanel.get());
+
+    // Shapes: the pen with a shape type; the picker lists the existing shapes
+    control->selectTool(TOOL_PEN);
+    control->setToolDrawingType(DRAWING_TYPE_ELLIPSE);
+    settle();
+    tools->setColor(Color{0xEFU, 0x6CU, 0x00U}, false);  // the palette's Orange
+    settle();
+    EXPECT_EQ(railColour(rail), 0xEF6C00U);
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Orange"), 1);
+    GtkWidget* popover = refreshedPalette(rail);
+    EXPECT_EQ(activePaletteTab(popover), 2);
+    EXPECT_NE(buttonAccessibleNamed(popover, "Ellipse"), nullptr) << "the existing shape types";
+    EXPECT_EQ(indicatorText(popover).rfind("Orange", 0), 0U) << indicatorText(popover);
+    GtkWidget* orange = buttonAccessibleNamed(popover, "Orange");
+    ASSERT_NE(orange, nullptr);
+    EXPECT_TRUE(gtk_widget_get_state_flags(orange) & GTK_STATE_FLAG_CHECKED);
+
+    // Text: Feedback text has its own colour; changing it must reach the rail and the marks
+    const Color previousStamp = tools->getTeacherStampColor();
+    control->selectTool(TOOL_TEXT);
+    control->selectTextMode(TextMode::Feedback, "Well done");
+    settle();
+    tools->setTeacherStampColor(Color{0x6AU, 0x1BU, 0x9AU});  // the palette's Purple
+    settle();
+    EXPECT_EQ(railColour(rail), 0x6A1B9AU) << "the dot follows the Feedback colour";
+    EXPECT_GE(selectedSwatchesNamed(contextPanel.get(), "Purple"), 1);
+
+    control->selectTextMode(TextMode::Plain);
+    tools->setTeacherStampColor(previousStamp);
+    tools->setColor(previousPen, false);
+}
+
+TEST_F(ClassroomWorkflow, theAnnotationPaletteCannotBeUsedWhileBusyOrWhenPresentKeepsToolsAway) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTool(TOOL_PEN);
+    GtkWidget* rail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    ASSERT_NE(rail, nullptr);
+    GtkWidget* popover = refreshedPalette(rail);
+    GtkWidget* grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
+    EXPECT_TRUE(gtk_widget_get_sensitive(grid));
+    EXPECT_TRUE(gtk_widget_get_sensitive(paletteTab(popover, 1)));
+
+    control->block("palette test");
+    popover = refreshedPalette(rail);
+    EXPECT_FALSE(gtk_widget_get_sensitive(grid)) << "busy";
+    EXPECT_FALSE(gtk_widget_get_sensitive(paletteTab(popover, 1)));
+    control->unblock();
+    settle();
+
+    window->toolbarSelected("UTN Present");
+    settle();
+    ASSERT_TRUE(window->presentKeepsToolsAway());
+    GtkWidget* presentRail = menuButtonAccessibleNamed(window->getWindow(), "Colours");
+    if (presentRail) {
+        popover = refreshedPalette(presentRail);
+        grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
+        EXPECT_FALSE(gtk_widget_get_sensitive(grid)) << "Present with its tools away";
+    }
+    window->toolbarSelected("UTN Teacher");
+    settle();
 }

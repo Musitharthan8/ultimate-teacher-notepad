@@ -1617,6 +1617,9 @@ void Control::toolSizeChanged() {
     }
 
     this->actionDB->setActionState(Action::TOOL_SIZE, toolHandler->getSize());
+    if (this->win) {
+        this->win->toolLookChanged();
+    }
 
     getCursor()->updateCursor();
 }
@@ -1674,7 +1677,20 @@ auto Control::getLineStyleToSelect() -> std::optional<string> const {
 }
 
 void Control::toolColorChanged() {
-    this->actionDB->setActionState(Action::TOOL_COLOR, getToolHandler()->getColorMaskAlpha());
+    // Feedback and Answer Box text have their own colour; it is the one the teacher sees, so it is the shown state
+    Color shown = getToolHandler()->getColorMaskAlpha();
+    if (getToolHandler()->getToolType() == TOOL_TEXT) {
+        if (getToolHandler()->getTextMode() == TextMode::Feedback) {
+            shown = getToolHandler()->getTeacherStampColor();
+        } else if (getToolHandler()->getTextMode() == TextMode::AnswerBox) {
+            shown = getToolHandler()->getAnswerBoxTextColor();
+        }
+        shown.alpha = 0xff;
+    }
+    this->actionDB->setActionState(Action::TOOL_COLOR, shown);
+    if (this->win) {
+        this->win->toolLookChanged();
+    }
     getCursor()->updateCursor();
 }
 

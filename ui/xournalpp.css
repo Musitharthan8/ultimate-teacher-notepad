@@ -1566,3 +1566,30 @@ button.utn-current-page {
     font-weight: 700;
     border-left: 4px solid currentColor;
 }
+
+/* Teacher Annotation Palette (the rail's Colours popover): tabs, large named swatches, thickness row */
+window.utnShell .utn-palette-tabs button {
+    min-height: 32px;
+    padding: 4px 10px;
+}
+window.utnShell .utn-palette-tabs button:checked {
+    font-weight: bold;
+    border-bottom: 3px solid @utn_accent_strong;  /* the active tab is also bold and underlined, not only coloured */
+}
+window.utnShell.utnHighContrast .utn-palette-tabs button:checked {
+    border: 3px solid @utn_hc_fg;
+}
+window.utnShell .utn-palette-grid .utn-swatch {
+    min-width: 34px;
+    min-height: 34px;
+}
+window.utnShell.utnTouch .utn-palette-grid .utn-swatch {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell .utn-palette-caption {
+    font-size: 90%;
+}
+window.utnShell .utn-palette-indicator {
+    font-weight: bold;
+}

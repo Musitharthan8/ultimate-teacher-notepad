@@ -498,6 +498,40 @@ auto ToolUtnContextBar::createTextSettingsPanel(Control* control) -> GtkWidget* 
     return panel;
 }
 
+auto ToolUtnContextBar::createPaletteSection(Control* control, PaletteTab tab) -> GtkWidget* {
+    // A short-lived builder, like the text settings panel: every callback holds only the Control, so it may go at once
+    ToolUtnContextBar builder("UTN_PALETTE_SECTION", control, false);
+    GtkWidget* panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_add_css_class(panel, "utn-context-panel");
+    builder.box = GTK_BOX(panel);
+    auto* tools = control->getToolHandler();
+    switch (tab) {
+        case PaletteTab::Pen:
+            builder.appendSizeControls(TOOL_PEN);
+            break;
+        case PaletteTab::Highlighter:
+            builder.appendSizeControls(TOOL_HIGHLIGHTER);
+            builder.appendOpacityControl();
+            break;
+        case PaletteTab::Shapes:
+            builder.appendShapePicker(tools->getDrawingType());
+            builder.appendSizeControls(TOOL_PEN);
+            break;
+        case PaletteTab::Text:
+            if (tools->getTextMode() == TextMode::Plain) {
+                GtkWidget* title = gtk_label_new(_("Text size"));
+                gtk_widget_set_halign(title, GTK_ALIGN_START);
+                gtk_widget_add_css_class(title, "utn-context-title");
+                gtk_box_append(builder.box, title);
+                builder.appendTextSizeControl(currentTextFont(control));
+            }
+            break;
+    }
+    builder.box = nullptr;
+    gtk_widget_show_all(panel);
+    return panel;
+}
+
 void ToolUtnContextBar::rebuild(ToolType tool) {
     if (box == nullptr) {
         return;
@@ -906,12 +940,7 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
     }
 }
 
-void ToolUtnContextBar::appendHighlightControls() {
-    gtk_box_append(box, utn::createPresetsMenuButton(control));  // first, for the same reason as the pen's
-    appendColourControls(Palette::Highlight);
-    appendSizeControls(TOOL_HIGHLIGHTER);
-    appendSeparator();
-
+void ToolUtnContextBar::appendOpacityControl() {
     Color colour = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();
     GtkWidget* opacity = newScale(10.0, 100.0, 5.0, 100.0 * static_cast<double>(colour.alpha) / 255.0, 0);
     gtk_widget_set_size_request(opacity, 110, -1);
@@ -929,6 +958,30 @@ void ToolUtnContextBar::appendHighlightControls() {
     gtk_widget_add_css_class(opacityLabel, "utn-context-title");
     gtk_box_append(box, opacityLabel);
     gtk_box_append(box, opacity);
+}
+
+void ToolUtnContextBar::appendTextSizeControl(const XojFont& current) {
+    GtkWidget* size = gtk_spin_button_new_with_range(6.0, 96.0, 1.0);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(size), current.getSize());
+    gtk_widget_set_tooltip_text(size, _("Text size"));
+    utn::setAccessibleName(size, _("Text size"));
+    g_signal_connect(size, "value-changed", G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
+                         auto* ctrl = static_cast<Control*>(data);
+                         XojFont font = currentTextFont(ctrl);
+                         font.setSize(gtk_spin_button_get_value(spin));
+                         applyTextFont(ctrl, font);
+                     }),
+                     control);
+    gtk_box_append(box, size);
+}
+
+void ToolUtnContextBar::appendHighlightControls() {
+    gtk_box_append(box, utn::createPresetsMenuButton(control));  // first, for the same reason as the pen's
+    appendColourControls(Palette::Highlight);
+    appendSizeControls(TOOL_HIGHLIGHTER);
+    appendSeparator();
+
+    appendOpacityControl();
 
     appendSeparator();
     GtkWidget* mode = gtk_combo_box_text_new();
@@ -1088,18 +1141,7 @@ void ToolUtnContextBar::appendTextControls() {
                      control);
     gtk_box_append(box, fontButton);
 
-    GtkWidget* size = gtk_spin_button_new_with_range(6.0, 96.0, 1.0);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(size), current.getSize());
-    gtk_widget_set_tooltip_text(size, _("Text size"));
-    utn::setAccessibleName(size, _("Text size"));
-    g_signal_connect(size, "value-changed", G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
-                         auto* ctrl = static_cast<Control*>(data);
-                         XojFont font = currentTextFont(ctrl);
-                         font.setSize(gtk_spin_button_get_value(spin));
-                         applyTextFont(ctrl, font);
-                     }),
-                     control);
-    gtk_box_append(box, size);
+    appendTextSizeControl(current);
 
     // B I U S: the familiar word-processor row
     PangoFontDescription* desc = pango_font_description_from_string(current.asString().c_str());

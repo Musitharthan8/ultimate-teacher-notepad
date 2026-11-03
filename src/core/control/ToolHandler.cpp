@@ -439,6 +439,7 @@ auto ToolHandler::getAnswerBoxTextColor() const -> Color {
 
 void ToolHandler::setAnswerBoxTextColor(Color color) {
     this->answerBoxTextColor = color;
+    notifyTeacherTextColour();
 }
 
 auto ToolHandler::getAnswerBoxBackgroundColor() const -> Color {
@@ -502,6 +503,14 @@ auto ToolHandler::getTeacherStampColor() const -> Color {
 
 void ToolHandler::setTeacherStampColor(Color color) {
     this->teacherStampColor = color;
+    notifyTeacherTextColour();
+}
+
+void ToolHandler::notifyTeacherTextColour() {
+    // The colour the teacher sees for Feedback and Answer Box text is the tool colour state too: tell every surface
+    if (this->stateChangeListener && this->activeTool && this->activeTool->type == TOOL_TEXT) {
+        this->stateChangeListener->toolColorChanged();
+    }
 }
 
 void ToolHandler::clearTeacherStamp() {

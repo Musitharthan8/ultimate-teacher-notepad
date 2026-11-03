@@ -117,6 +117,8 @@ public:
     /// UTN: Present hides the tool dock to give the page the room; this brings it back until Present is left
     bool isPresentToolsRevealed() const { return presentToolsRevealed; }
     void setPresentToolsRevealed(bool revealed);
+    /// The tool colour or size changed: the surfaces of this window that show them follow (the pen card of paper layouts)
+    void toolLookChanged();
     /// UTN: in Present with its tools put away (the command palette stays shut then)
     bool presentKeepsToolsAway() const;
     /**

@@ -19,6 +19,7 @@
 #include "AbstractToolItem.h"
 
 class Control;
+class XojFont;
 
 class ToolUtnContextBar: public AbstractToolItem {
 public:
@@ -45,6 +46,11 @@ public:
     /// The panel is built once with the toolbar; call this whenever it is about to be shown.
     static void refreshTextSettingsPanel(Control* control, GtkWidget* panel);
 
+    /// What the Teacher Annotation Palette adds under its colours for one tab: stroke width, highlighter opacity, shape
+    /// types or text size. The same controls (and the same tool state) as the properties bar.
+    enum class PaletteTab { Pen, Highlighter, Shapes, Text };
+    static GtkWidget* createPaletteSection(Control* control, PaletteTab tab);
+
 private:
     static void populateTextSettingsPanel(Control* control, GtkBox* panel);
     enum class Palette { Ink, Highlight };
@@ -57,6 +63,9 @@ private:
     void appendColourControls(Palette palette);
     void appendSizeControls(ToolType tool);
     void appendSeparator();
+    /// The highlighter's opacity slider: the tool's own alpha, nothing else
+    void appendOpacityControl();
+    void appendTextSizeControl(const XojFont& current);
     void appendHint(const char* text);
     GtkWidget* appendButton(const char* label, const char* hint);
 

@@ -2396,3 +2396,5 @@ void MainWindow::applyPanelPolicy() {
     }
     applyingPanelPolicy = false;
 }
+
+void MainWindow::toolLookChanged() { updateInkDock(); }

@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include "model/PenPresets.h"
 #include "model/TeacherPalette.h"
 
 using namespace utn::palette;
@@ -60,7 +61,7 @@ TEST(TeacherPalette, FindMatchesTheHueOnlySoOpacityNeverHidesTheSwatch) {
 }
 
 TEST(TeacherPalette, AnythingElseIsCustomAndPalettesDoNotLeakIntoEachOther) {
-    EXPECT_FALSE(find(Kind::Ink, 0xFFD93025U).has_value()) << "the red marking preset is near Red, not Red";
+    EXPECT_FALSE(find(Kind::Ink, 0xFFD93025U).has_value()) << "a near-red the palette does not offer is Custom";
     EXPECT_FALSE(find(Kind::Ink, 0xFF1E5BD9U).has_value()) << "one step off is a different colour";
     EXPECT_FALSE(find(Kind::Ink, 0xFFFFEB3BU).has_value()) << "highlighter yellow is not an ink swatch";
     EXPECT_FALSE(find(Kind::Highlighter, 0xFF2E7D32U).has_value()) << "ink green is not highlighter green";
@@ -79,4 +80,15 @@ TEST(TeacherPalette, CustomColoursAreNamedByAStrictUpperCaseHexCode) {
 TEST(TeacherPalette, ANewHueKeepsTheToolsOpacity) {
     EXPECT_EQ(withOpacityOf(0xFF00D5E8U, 0x80FFEB3BU), 0x8000D5E8U) << "highlighter stays half see-through";
     EXPECT_EQ(withOpacityOf(0x001E5BD8U, 0xFF000000U), 0xFF1E5BD8U) << "a pen stays opaque";
+}
+
+TEST(TeacherPalette, TheBuiltInPenPresetsUseSwatchesSoThePaletteShowsThemSelected) {
+    const utn::PenPresetStore store;
+    const utn::PenPreset* red = store.find(utn::PenPresetStore::RED_MARKING_ID);
+    const utn::PenPreset* blue = store.find(utn::PenPresetStore::BLUE_EXPLANATION_ID);
+    const utn::PenPreset* yellow = store.find(utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
+    ASSERT_TRUE(red && blue && yellow);
+    EXPECT_STREQ(nameOf(Kind::Ink, red->rgb), "Red");
+    EXPECT_STREQ(nameOf(Kind::Ink, blue->rgb), "Blue");
+    EXPECT_STREQ(nameOf(Kind::Highlighter, yellow->rgb), "Yellow");
 }
