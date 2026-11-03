@@ -86,6 +86,9 @@ TEST(ShapeRecognizerRobustness, SmallNoisyGappedCircleUsesScaleNotSavedLargeThre
     ASSERT_NE(result, nullptr);
     EXPECT_GE(result->getPointCount(), 24U);
     expectClosed(*result);
+    const auto bounds = result->getSnappedBounds();
+    EXPECT_NEAR(bounds.width, 13.0, 1.5);
+    EXPECT_NEAR(bounds.height, 13.0, 1.5);
 }
 
 TEST(ShapeRecognizerRobustness, SmallRotatedRectangleWhoseStrokeStartsMidEdge) {
@@ -128,6 +131,9 @@ TEST(ShapeRecognizerRobustness, RotatedGappedEllipseNotMistakenForACircle) {
     EXPECT_GE(result->getPointCount(), 24U);
     expectClosed(*result);
     const auto bounds = result->getSnappedBounds();
+    const auto inputBounds = input.getSnappedBounds();
+    EXPECT_NEAR(bounds.width, inputBounds.width, 2.5);
+    EXPECT_NEAR(bounds.height, inputBounds.height, 2.5);
     EXPECT_GT(bounds.width, 30.0);
     EXPECT_GT(bounds.height, 20.0);
 }
