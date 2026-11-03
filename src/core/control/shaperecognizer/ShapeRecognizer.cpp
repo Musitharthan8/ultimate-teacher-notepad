@@ -431,10 +431,12 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
         return nullptr;
     }
     const auto& points = restarted->getPointVector();
-    if (points.size() < 12) {
+    // Douglas-Peucker's recursive worst case is quadratic. Dense stylus scribbles must
+    // never monopolise the UI thread or exhaust its stack; leave them as ordinary ink.
+    if (points.size() < 12 || points.size() > 4096) {
         return nullptr;
     }
-    const size_t n = points.size() - 1; // the restart already repeats the first point
+    const size_t n = points.size() - 1;  // the restart already repeats the first point
     const size_t window = std::max<size_t>(2, n / 20);
     const Point& before = points[n - window];
     const Point& here = points[0];
