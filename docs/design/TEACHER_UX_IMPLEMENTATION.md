@@ -326,3 +326,14 @@ Update this handoff with **actual** exit codes and test counts before declaring 
 Presentation, Student View Safe) are not implemented or mapped to existing workspaces.
 Only the existing Red marking, Blue explanation and Yellow highlighter pen presets exist.
 No theme engine, settings redesign or document-format migration was added here.
+
+
+### Phase 6 follow-up: static hardening
+
+The isolated `wip/phase6-chatgpt-hardening` branch continues from `wip/phase6-chatgpt-design-system` (not merged). Changes:
+- Polygon closure now permits a modest 18% gap relative to drawn length; circle closure remains at 14% to avoid converting open C-like handwriting into a loop. The *legacy* inertia-circle path now also checks closure, which previously only the new least-squares path checked.
+- Synthetic tests cover a scaled small gapped triangle (0.5x/1x/4x), open-C negative case, and fitted circle/ellipse bounds. The Douglas–Peucker fallback declines contours longer than 4096 points, avoiding pathological recursive work during dense stylus input.
+- `Control::applyDisplayedColour` now gives an open TextEditor the **effective** `ToolHandler::getDisplayedColor()` after a swatch change rather than the raw swatch input. This preserves Feedback/Answer Box alpha. A GTK regression case edits an Answer Box with alpha `0x70`.
+- Independent Python geometry sanity check, *not a C++ project test*: for the current synthetic fixtures, endpoint gap / drawn length was 6.16% (small gapped circle), 3.43% (rotated ellipse), 16.89% (gapped triangle), 17.09% (its 0.5x/1x/4x variants), and 20.13% (open C). These satisfy the intended 18% polygon/14% circle gates. No claim that any recogniser GTest has passed.
+- Required before integration: run the Windows UCRT64 build and full hermetic unit/GTK tests, verify geometry output and handwriting negatives, and inspect legacy-call compatibility with the stricter circle closure. Verify the live Answer Box text colour/alpha test and ensure no regression in existing TextEditor interactions.
+
