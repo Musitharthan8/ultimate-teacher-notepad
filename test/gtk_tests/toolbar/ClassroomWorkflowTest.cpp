@@ -6993,6 +6993,68 @@ TEST_F(ClassroomWorkflow, selectionToolbarIsPlacedAgainstTheCanvasWhenTheScrollb
     settle();
 }
 
+// The dock now appears by default on a new profile. The classroom gate must still win over
+// colours and widths, including stale clicks queued before Blank or quiet Present was raised.
+TEST_F(ClassroomWorkflow, inkDockCannotAlterThePenUnderBlankCoverOrQuietPresent) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTool(TOOL_PEN);
+
+    GtkWidget* dock = widgetNamed(window->get("mainOverlay"), "utnInkDock");
+    ASSERT_NE(dock, nullptr);
+    GtkWidget* trigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(trigger));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(trigger)));
+    GtkWidget* dockToggle = buttonNamed(popover, "Show ink dock");
+    ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(dockToggle));
+    const bool previouslyOn = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dockToggle));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), true);
+    settle();
+    EXPECT_TRUE(gtk_widget_get_mapped(dock));
+    EXPECT_GT(gtk_widget_get_allocated_width(dock), 0);
+    EXPECT_GT(gtk_widget_get_allocated_height(dock), 0);
+
+    GtkWidget* red = buttonAccessibleNamed(dock, "Red");
+    GtkWidget* thick = buttonNamed(dock, "XL");
+    ASSERT_NE(red, nullptr);
+    ASSERT_NE(thick, nullptr);
+    auto* tools = control->getToolHandler();
+    const Color earlierColour = tools->getTool(TOOL_PEN).getColor();
+    const ToolSize earlierSize = tools->getPenSize();
+
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    students->setBlanked(true);
+    students->showTeacherBlankCover(true);
+    settle();
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+    gtk_button_clicked(GTK_BUTTON(red));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(thick), true);
+    settle();
+    EXPECT_EQ(tools->getTool(TOOL_PEN).getColor(), earlierColour);
+    EXPECT_EQ(tools->getPenSize(), earlierSize);
+    students->showTeacherBlankCover(false);
+    students->setBlanked(false);
+    settle();
+
+    window->toolbarSelected("UTN Present");
+    settle();
+    EXPECT_TRUE(window->presentKeepsToolsAway());
+    EXPECT_FALSE(gtk_widget_get_visible(dock));
+    gtk_button_clicked(GTK_BUTTON(red));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(thick), false);
+    settle();
+    EXPECT_EQ(tools->getTool(TOOL_PEN).getColor(), earlierColour);
+    EXPECT_EQ(tools->getPenSize(), earlierSize);
+
+    window->toolbarSelected("UTN Teacher");
+    tools->setColor(earlierColour, false);
+    tools->setPenSize(earlierSize);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), previouslyOn);
+    settle();
+}
+
 // The ink dock and the Spotlight banner (with its Exit button) stay above the selection toolbar in the overlay, so the
 // toolbar can never cover them.
 TEST_F(ClassroomWorkflow, selectionToolbarLiesBelowTheInkDockAndTheBannerInTheOverlay) {
