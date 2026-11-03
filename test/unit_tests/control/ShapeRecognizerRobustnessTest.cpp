@@ -40,6 +40,26 @@ void polygon(Stroke& stroke, const std::vector<Point>& corners, int samplesPerEd
     }
 }
 
+void rectangleStartingMidEdge(Stroke& stroke, const std::vector<Point>& corners) {
+    // Start halfway along edge 0 and finish a quarter of the way along it.
+    // The endpoints leave a genuine gap on the middle of an edge, not at a corner.
+    const auto add = [&](const Point& a, const Point& b, double t) {
+        const double wobble = 0.13 * std::sin(stroke.getPointCount() * 2.37);
+        stroke.addPoint({a.x + (b.x - a.x) * t + wobble, a.y + (b.y - a.y) * t - 0.7 * wobble});
+    };
+    for (int i = 0; i <= 12; ++i) {
+        add(corners[0], corners[1], 0.5 + 0.5 * i / 12.0);
+    }
+    for (size_t edge = 1; edge < 4; ++edge) {
+        for (int i = 1; i <= 18; ++i) {
+            add(corners[edge], corners[(edge + 1) % 4], i / 18.0);
+        }
+    }
+    for (int i = 1; i <= 6; ++i) {
+        add(corners[0], corners[1], 0.25 * i / 6.0);
+    }
+}
+
 void ellipse(Stroke& stroke, double cx, double cy, double rx, double ry, double rotation,
              double arc = 2.0 * PI, double jitter = 0.0) {
     for (int i = 0; i <= 90; ++i) {
@@ -76,7 +96,7 @@ TEST(ShapeRecognizerRobustness, SmallRotatedRectangleWhoseStrokeStartsMidEdge) {
         corners.emplace_back(rotated.x + 40.0, rotated.y + 35.0);
     }
     Stroke input;
-    polygon(input, corners, 18, true, 0.15);
+    rectangleStartingMidEdge(input, corners);
     ShapeRecognizer recognizer;
     auto result = recognizer.recognizePatterns(&input, 60.0);
     ASSERT_NE(result, nullptr);
