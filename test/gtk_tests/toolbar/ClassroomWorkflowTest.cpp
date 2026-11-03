@@ -7051,7 +7051,13 @@ TEST_F(ClassroomWorkflow, inkDockCannotAlterThePenUnderBlankCoverOrQuietPresent)
     window->toolbarSelected("UTN Teacher");
     tools->setColor(earlierColour, false);
     tools->setPenSize(earlierSize);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), previouslyOn);
+    // Switching layouts can rebuild toolbar items. Never hold a pointer to the old menu button.
+    GtkWidget* restoredTrigger = widgetNamed(window->getWindow(), "utnPenSettingsButton");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(restoredTrigger));
+    auto* restoredPopover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(restoredTrigger));
+    GtkWidget* restoredToggle = buttonNamed(GTK_WIDGET(restoredPopover), "Show ink dock");
+    ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(restoredToggle));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(restoredToggle), previouslyOn);
     settle();
 }
 
