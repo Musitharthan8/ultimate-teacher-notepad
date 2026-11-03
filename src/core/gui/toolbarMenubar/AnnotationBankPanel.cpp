@@ -23,6 +23,11 @@ constexpr const char* RESTORE_KEY = "utn-restore";
 constexpr const char* CONFIRMING_KEY = "utn-confirming";
 constexpr const char* INDEX_KEY = "utn-index";
 constexpr const char* KIND_KEY = "utn-kind";  ///< "insert" or "remove" on the entry buttons
+/// Messages wrap at about this many characters, so a long one never widens the popover
+constexpr int TEXT_WIDTH_CHARS = 32;
+/// Width of the entry list in pixels: a steady width, never wider than a narrow window
+constexpr int LIST_MIN_WIDTH = 260;
+constexpr int LIST_MAX_WIDTH = 380;
 
 Control* controlOf(GtkWidget* panel) { return static_cast<Control*>(g_object_get_data(G_OBJECT(panel), CONTROL_KEY)); }
 
@@ -163,6 +168,12 @@ void setRestoreConfirming(GtkWidget* panel, bool confirming) {
     g_object_set_data(G_OBJECT(restore), CONFIRMING_KEY, GINT_TO_POINTER(confirming ? 1 : 0));
     const char* label = confirming ? _("Confirm restore") : _("Restore defaults");
     gtk_button_set_label(GTK_BUTTON(restore), label);
+    // Not colour alone (the words change too): the danger style says the next click throws the comments away
+    if (confirming) {
+        gtk_widget_add_css_class(restore, "destructive-action");
+    } else {
+        gtk_widget_remove_css_class(restore, "destructive-action");
+    }
     utn::setAccessibleName(restore, label);
 }
 
@@ -179,6 +190,15 @@ void restoreClicked(GtkWidget* panel) {
     gtk_widget_grab_focus(restore);
     setStatus(panel, _("Defaults restored."));
 }
+
+/// Asking is forgotten when the keyboard leaves the button, so a later click never replaces the bank by surprise
+gboolean restoreFocusOut(GtkWidget* restore, GdkEvent*, gpointer panel) {
+    if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(restore), CONFIRMING_KEY))) {
+        setRestoreConfirming(GTK_WIDGET(panel), false);
+        showDefaultStatus(GTK_WIDGET(panel));
+    }
+    return GDK_EVENT_PROPAGATE;
+}
 }  // namespace
 
 GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
@@ -194,6 +214,7 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     GtkWidget* status = gtk_label_new(nullptr);
     gtk_widget_set_name(status, "utnAnnotationBankStatus");
     gtk_label_set_line_wrap(GTK_LABEL(status), true);
+    gtk_label_set_max_width_chars(GTK_LABEL(status), TEXT_WIDTH_CHARS);
     gtk_label_set_xalign(GTK_LABEL(status), 0);
     // Read out when it changes, like a status bar
     atk_object_set_role(gtk_widget_get_accessible(status), ATK_ROLE_STATUSBAR);
@@ -203,6 +224,10 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroller), 96);
+    // A steady width: long entries are cut with "..." (the tooltip has the whole text) instead of stretching the popover
+    gtk_scrolled_window_set_min_content_width(GTK_SCROLLED_WINDOW(scroller), LIST_MIN_WIDTH);
+    gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(scroller), LIST_MAX_WIDTH);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroller), true);
     gtk_widget_set_vexpand(scroller, true);
     GtkWidget* entries = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_widget_set_name(entries, "utnAnnotationBankEntries");
@@ -239,6 +264,7 @@ GtkWidget* createAnnotationBankPanel(Control* control, GtkPopover* popover) {
     gtk_box_append(GTK_BOX(panel), restore);
     g_object_set_data(G_OBJECT(panel), RESTORE_KEY, restore);
     g_signal_connect_swapped(restore, "clicked", G_CALLBACK(restoreClicked), panel);
+    g_signal_connect(restore, "focus-out-event", G_CALLBACK(restoreFocusOut), panel);
 
     // Rebuilt whenever the popover opens: the bank may have changed, and inserting may have become (un)available
     g_signal_connect_object(popover, "show", G_CALLBACK(+[](GtkWidget*, gpointer panel) {
@@ -278,6 +304,11 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
                 gtk_widget_add_css_class(label, "dim-label");
             }
         }
+        if (!reason.empty()) {
+            // Still focusable, so the reason can be heard, but it must not look ready: the stylesheet draws a dashed
+            // border, which does not depend on colour
+            gtk_widget_add_css_class(insert, "utn-bank-unavailable");
+        }
         utn::setAccessibleName(insert, a.label.c_str());  // exactly what it reads
         atk_object_set_description(gtk_widget_get_accessible(insert), hint.c_str());
         // The whole label too: a long one is cut short on the button
@@ -301,6 +332,7 @@ void refreshAnnotationBankPanel(GtkWidget* panel) {
     if (bank.empty()) {
         GtkWidget* empty = gtk_label_new(_("The bank is empty. Add a comment below or restore the defaults."));
         gtk_label_set_line_wrap(GTK_LABEL(empty), true);
+        gtk_label_set_max_width_chars(GTK_LABEL(empty), TEXT_WIDTH_CHARS);
         gtk_label_set_xalign(GTK_LABEL(empty), 0);
         gtk_box_append(GTK_BOX(entries), empty);
     }
