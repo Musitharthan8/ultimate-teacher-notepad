@@ -1277,6 +1277,10 @@ void MainWindow::appendPenSettingsMenu() {
         g_signal_connect(swatch, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
                              auto* colour = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-property-colour"));
+                             if (!ToolUtnContextBar::toolControlsReachable(self->control) ||
+                                 self->control->getToolHandler()->getToolType() != TOOL_PEN) {
+                                 return;
+                             }
                              self->control->applyDisplayedColour(*colour);
                              self->updateInkDock();
                          }), this);
@@ -1443,6 +1447,10 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
         g_signal_connect(swatch, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* self = static_cast<MainWindow*>(data);
                              auto* colour = static_cast<Color*>(g_object_get_data(G_OBJECT(button), "utn-ink-colour"));
+                             if (!ToolUtnContextBar::toolControlsReachable(self->control) ||
+                                 self->control->getToolHandler()->getToolType() != TOOL_PEN) {
+                                 return;
+                             }
                              self->control->applyDisplayedColour(*colour);
                              self->updateInkDock();
                          }), this);
@@ -1467,7 +1475,8 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
         g_signal_connect(size, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
                              if (!gtk_toggle_button_get_active(button)) return;
                              auto* self = static_cast<MainWindow*>(data);
-                             if (self->syncingInkDock) return;
+                             if (self->syncingInkDock || !ToolUtnContextBar::toolControlsReachable(self->control) ||
+                                 self->control->getToolHandler()->getToolType() != TOOL_PEN) return;
                              const auto value = static_cast<ToolSize>(GPOINTER_TO_INT(
                                      g_object_get_data(G_OBJECT(button), "utn-ink-size")));
                              // The first radio may become active while the window is being
@@ -1486,7 +1495,7 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     utn::setAccessibleName(inkDockSettingsButton, _("Open pen properties"));
     g_signal_connect(inkDockSettingsButton, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
-                         if (self->penSettingsPopover) {
+                         if (ToolUtnContextBar::toolControlsReachable(self->control) && self->penSettingsPopover) {
                              self->penSettingsFocusAnchor = self->inkDockSettingsButton;
                              gtk_popover_set_relative_to(GTK_POPOVER(self->penSettingsPopover),
                                                          self->inkDockSettingsButton);
@@ -1517,6 +1526,9 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
 }
 
 void MainWindow::updateSelectionToolbar() {
+    // The Blank cover and quiet Present can change without a tool-change signal.
+    // Keep the always-on ink dock behind the same classroom gate as the palette.
+    updateInkDock();
     if (toolbar) {
         toolbar->refreshColourPalettes();  // busy, Blank and Present change what the palette may do
     }
@@ -1544,7 +1556,8 @@ void MainWindow::updateInkDock() {
     }
     const bool pen = tools->getToolType() == TOOL_PEN;
     const bool teacher = selectedToolbar && utn::isTeacherLayout(selectedToolbar->getId());
-    gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher);
+    gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher &&
+                                           ToolUtnContextBar::toolControlsReachable(control));
     const Color active = tools->getTool(TOOL_PEN).getColor();
     const std::array<Color, 8> propertyColours{{Color{0x20U, 0x25U, 0x2BU}, Color{0x1EU, 0x5BU, 0xD8U},
                                                 Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
