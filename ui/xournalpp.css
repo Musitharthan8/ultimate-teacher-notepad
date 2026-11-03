@@ -1014,7 +1014,7 @@ window.utnShell.utnHighContrast .utn-swatch {
     border-color: @utn_hc_fg;  /* black ink swatch must stay visible on the black High Contrast background */
 }
 window.utnShell.utnHighContrast .utn-swatch.utn-swatch-selected {
-    border-color: @utn_hc_fg;
+    border-color: @utn_hc_focus; /* distinct ring + the existing tick, including on black swatches */
     border-width: 3px;
 }
 window.utnShell.utnTouch .utn-swatch {
@@ -1605,8 +1605,8 @@ window.utnShell .utn-palette-grid .utn-swatch {
     min-height: 30px;
 }
 window.utnShell.utnTouch .utn-palette-grid .utn-swatch {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 44px;
+    min-height: 44px;
 }
 window.utnShell .utn-palette-caption {
     font-size: 90%;
@@ -1656,6 +1656,13 @@ window.utnShell .utn-stroke-tile {
 window.utnShell .utn-stroke-tile:checked {
     background-color: @utn_paper_accent_soft;
     border: 2px solid @utn_paper_accent;  /* a ring as well as the tint: the chosen stroke is not shown by colour alone */
+}
+window.utnShell.utnTouch .utn-stroke-tile {
+    min-height: 44px;
+    min-width: 44px;
+}
+window.utnShell.utnTouch .utn-palette-tabs button {
+    min-height: 44px;
 }
 window.utnShell .utn-pop-link {
     color: @utn_paper_accent;
