@@ -9200,6 +9200,39 @@ TEST_F(ClassroomWorkflow, aQueuedSwatchOrCustomColourEventForAnotherToolChangesN
     tools->setColor(previousHighlighter, false);
 }
 
+// Colour from the palette is opaque by default. Answer Box and Feedback text may have
+// a previously chosen alpha; an open text editor must receive the effective ToolHandler
+// colour, not the raw palette swatch. Otherwise the on-page edit differs from the tool.
+TEST_F(ClassroomWorkflow, editingAnAnswerBoxKeepsDisplayedColourAndExistingAlpha) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    const Color previous = tools->getAnswerBoxTextColor();
+    control->startAnswersLayer();
+    auto* page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("answer colour");
+    box->setBoxEnabled(true);
+    box->setColor(Color{0x20U, 0x25U, 0x2BU, 0x70U});
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::AnswerBox);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+    tools->setAnswerBoxTextColor(Color{0x20U, 0x25U, 0x2BU, 0x70U});
+
+    control->applyDisplayedColour(Color{0xD3U, 0x2FU, 0x2FU});
+    const Color effective = tools->getDisplayedColor();
+    EXPECT_EQ(effective.alpha, 0x70U);
+    EXPECT_EQ(editor->getTextElement()->getColor(), effective)
+            << "the edit must use the effective colour, including its alpha";
+
+    control->clearSelectionEndText();
+    control->selectTextMode(TextMode::Plain);
+    tools->setAnswerBoxTextColor(previous);
+}
+
 // Review round A1: ending an Answer Box edit publishes the colour the toolbar shows (the box's own), not the plain text
 // tool's.
 TEST_F(ClassroomWorkflow, finishingAnAnswerBoxEditKeepsTheToolbarColourOfTheAnswerBox) {
