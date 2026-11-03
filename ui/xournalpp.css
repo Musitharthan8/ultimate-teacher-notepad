@@ -1586,10 +1586,12 @@ button.utn-current-page {
     border-left: 4px solid currentColor;
 }
 
-/* Teacher Annotation Palette (the rail's Colours popover): tabs, large named swatches, thickness row */
+/* Teacher Annotation Palette (the rail's Colours popover), shaped as the concept's Pen popover: a header with the tool and
+   what a change applies to, COLOUR / WIDTH / STROKE sections, a footer. The tool tabs are a small secondary control. */
 window.utnShell .utn-palette-tabs button {
-    min-height: 32px;
-    padding: 4px 10px;
+    min-height: 24px;
+    padding: 2px 6px;
+    font-size: 90%;
 }
 window.utnShell .utn-palette-tabs button:checked {
     font-weight: bold;
@@ -1599,18 +1601,97 @@ window.utnShell.utnHighContrast .utn-palette-tabs button:checked {
     border: 3px solid @utn_hc_fg;
 }
 window.utnShell .utn-palette-grid .utn-swatch {
-    min-width: 34px;
-    min-height: 34px;
+    min-width: 30px;
+    min-height: 30px;
 }
 window.utnShell.utnTouch .utn-palette-grid .utn-swatch {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 36px;
+    min-height: 36px;
 }
 window.utnShell .utn-palette-caption {
     font-size: 90%;
 }
 window.utnShell .utn-palette-indicator {
     font-weight: bold;
+    font-size: 90%;
+}
+window.utnShell .utn-pop-name {
+    font-size: 15px;
+    font-weight: 600;
+}
+window.utnShell .utn-pop-hint {
+    font-size: 85%;
+    color: @utn_paper_muted;
+}
+window.utnShell .utn-pop-caption {
+    font-size: 78%;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: @utn_paper_muted;
+}
+window.utnShell .utn-pop-value {
+    min-width: 54px;
+    font-weight: 600;
+}
+window.utnShell .utn-pop-wave {
+    background-color: @utn_paper_desk;
+    border-radius: 9px;
+}
+window.utnShell .utn-pop-slider trough {
+    min-height: 4px;
+}
+window.utnShell .utn-pop-slider highlight {
+    background-color: @utn_paper_accent;
+}
+window.utnShell .utn-stroke-tile {
+    min-width: 0;
+    min-height: 36px;
+    padding: 2px;
+    border-radius: 8px;
+    background-image: none;
+    background-color: @utn_paper_desk;
+    border: 1px solid transparent;
+    box-shadow: none;
+}
+window.utnShell .utn-stroke-tile:checked {
+    background-color: @utn_paper_accent_soft;
+    border: 2px solid @utn_paper_accent;  /* a ring as well as the tint: the chosen stroke is not shown by colour alone */
+}
+window.utnShell .utn-pop-link {
+    color: @utn_paper_accent;
+    font-weight: 600;
+    padding: 2px 4px;
+}
+window.utnShell.darkMode .utn-pop-hint,
+window.utnShell.darkMode .utn-pop-caption {
+    color: @utn_paper_dark_muted;
+}
+window.utnShell.darkMode .utn-pop-wave,
+window.utnShell.darkMode .utn-stroke-tile {
+    background-color: @utn_paper_dark_desk;
+}
+window.utnShell.darkMode .utn-stroke-tile:checked {
+    background-color: @utn_paper_dark_accent_soft;
+    border-color: @utn_paper_dark_accent;
+}
+window.utnShell.darkMode .utn-pop-slider highlight {
+    background-color: @utn_paper_dark_accent;
+}
+window.utnShell.darkMode .utn-pop-link {
+    color: @utn_paper_dark_accent;
+}
+window.utnShell.utnHighContrast .utn-pop-hint,
+window.utnShell.utnHighContrast .utn-pop-caption,
+window.utnShell.utnHighContrast .utn-pop-link {
+    color: @utn_hc_fg;
+}
+window.utnShell.utnHighContrast .utn-pop-wave,
+window.utnShell.utnHighContrast .utn-stroke-tile {
+    background-color: @utn_hc_bg;
+    border: 2px solid @utn_hc_fg;
+}
+window.utnShell.utnHighContrast .utn-stroke-tile:checked {
+    border: 4px solid @utn_hc_focus;
 }
 
 /* Annotation Bank (Feedback popover). Entries that cannot be used right now (Blank, Present with tools put away, busy)

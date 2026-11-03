@@ -516,15 +516,10 @@ auto ToolUtnContextBar::createPaletteSection(Control* control, PaletteTab tab) -
     auto* tools = control->getToolHandler();
     switch (tab) {
         case PaletteTab::Pen:
-            builder.appendSizeControls(TOOL_PEN);
-            break;
-        case PaletteTab::Highlighter:
-            builder.appendSizeControls(TOOL_HIGHLIGHTER);
-            builder.appendOpacityControl();
-            break;
         case PaletteTab::Shapes:
-            builder.appendShapePicker(tools->getDrawingType());
-            builder.appendSizeControls(TOOL_PEN);
+            break;  // width, stroke and snap are the palette's own rows, which follow the tool in place
+        case PaletteTab::Highlighter:
+            builder.appendOpacityControl();  // the width is the palette's own slider
             break;
         case PaletteTab::Text:
             if (tools->getTextMode() == TextMode::Plain) {

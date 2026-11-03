@@ -13,6 +13,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "model/TeacherPalette.h"  // for the Pen profile's Blue
 #include "util/Color.h"
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
@@ -47,7 +48,7 @@ void applyProfile(Control* control, Profile profile) {
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_MEDIUM);
-            tools->setColor(Colors::xopp_royalblue, false);
+            tools->setColor(Color{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Ink, 1).rgb}, false);
             break;
         case Profile::Pencil:
             tools->selectTool(TOOL_PEN);

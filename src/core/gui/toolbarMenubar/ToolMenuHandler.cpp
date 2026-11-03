@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>  // for max
+#include <cstdio>   // for snprintf
 #include <sstream>    // for istringstream
 
 #include "control/Control.h"                         // for Control
@@ -109,6 +110,16 @@ void showRailColour(GtkWidget* menu, Color current) {
 /// are kept away (the same rules as the Command Palette and the selection toolbar)
 bool paletteReachable(Control* ctrl) { return ToolUtnContextBar::toolControlsReachable(ctrl); }
 
+/// A small upper-case section caption of the popover (COLOUR, WIDTH, STROKE)
+GtkWidget* sectionCaption(const char* text) {
+    gchar* upper = g_utf8_strup(text, -1);
+    GtkWidget* label = gtk_label_new(upper);
+    g_free(upper);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_widget_add_css_class(label, "utn-pop-caption");
+    return label;
+}
+
 /// Which tab of the Teacher Annotation Palette stands for the active tool; -1 for a tool the palette does not paint
 int paletteTabOf(ToolHandler* tools) {
     switch (tools->getToolType()) {
@@ -140,6 +151,55 @@ const char* sizeWords(ToolSize size) {
     }
 }
 
+/// What the section under the swatches is built for: the tab and the text mode. Thickness, shape and snap controls live
+/// in the palette for good and follow the tool in place, so a slider being dragged is never destroyed by the change it
+/// causes.
+std::string paletteSectionSignature(Control* ctrl) {
+    auto* tools = ctrl->getToolHandler();
+    return std::to_string(paletteTabOf(tools)) + "/" + std::to_string(static_cast<int>(tools->getTextMode()));
+}
+
+/// The pen or highlighter size the palette's width slider shows, or TOOL_SIZE_NONE for a tool that has no width here
+ToolSize paletteSize(ToolHandler* tools) {
+    return tools->getToolType() == TOOL_HIGHLIGHTER ? tools->getHighlighterSize() :
+           tools->getToolType() == TOOL_PEN         ? tools->getPenSize() :
+                                                      TOOL_SIZE_NONE;
+}
+
+/// The thickness in points that @p size writes with for the active tool
+double paletteThicknessPt(ToolHandler* tools, ToolSize size) {
+    return tools->getTool(tools->getToolType() == TOOL_HIGHLIGHTER ? TOOL_HIGHLIGHTER : TOOL_PEN).getThickness(size);
+}
+
+/// "2.5 pt"
+std::string widthWords(double thickness) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.1f", thickness);
+    return std::string(text) + " " + _("pt");
+}
+
+/// Show the tool's size on the width slider, its words and the wave preview, without sending the change back
+void syncPaletteWidth(GtkPopover* popover, Control* ctrl) {
+    auto* scale = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-scale"));
+    auto* label = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-label"));
+    auto* preview = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-preview"));
+    if (!scale || !label || !preview) {
+        return;
+    }
+    auto* tools = ctrl->getToolHandler();
+    const ToolSize size = paletteSize(tools);
+    if (size != TOOL_SIZE_NONE) {
+        g_object_set_data(G_OBJECT(popover), "utn-width-syncing", GINT_TO_POINTER(1));
+        gtk_range_set_value(GTK_RANGE(scale), static_cast<double>(size));
+        g_object_set_data(G_OBJECT(popover), "utn-width-syncing", nullptr);
+        const std::string words = widthWords(paletteThicknessPt(tools, size));
+        gtk_label_set_text(GTK_LABEL(label), words.c_str());
+        // The value is spoken with the name, as a slider's step number alone says nothing
+        utn::setAccessibleName(scale, (std::string(_("Stroke width")) + ": " + words).c_str());
+    }
+    gtk_widget_queue_draw(preview);
+}
+
 /// "Red, Medium": the colour and thickness the active tool writes with, in words
 void updatePaletteIndicator(GtkPopover* popover, Control* ctrl) {
     auto* label = GTK_LABEL(g_object_get_data(G_OBJECT(popover), "utn-indicator"));
@@ -160,17 +220,7 @@ void updatePaletteIndicator(GtkPopover* popover, Control* ctrl) {
     gtk_label_set_text(label, words.c_str());
     // The accessible name is the value shown, not a fixed phrase that hides it
     utn::setAccessibleName(GTK_WIDGET(label), (std::string(_("Active colour and thickness")) + ": " + words).c_str());
-}
-
-/// What the section under the swatches is built for: the tab, the shape, the text mode and the thickness. It is
-/// rebuilt only when this changes, so a slider being dragged is not destroyed by the colour change it causes.
-std::string paletteSectionSignature(Control* ctrl) {
-    auto* tools = ctrl->getToolHandler();
-    const ToolSize size = tools->getToolType() == TOOL_HIGHLIGHTER ? tools->getHighlighterSize() :
-                          tools->getToolType() == TOOL_PEN         ? tools->getPenSize() :
-                                                                     TOOL_SIZE_NONE;
-    return std::to_string(paletteTabOf(tools)) + "/" + std::to_string(static_cast<int>(tools->getDrawingType())) + "/" +
-           std::to_string(static_cast<int>(tools->getTextMode())) + "/" + std::to_string(static_cast<int>(size));
+    syncPaletteWidth(popover, ctrl);  // the slider, its words and the preview follow the same size and colour
 }
 
 GtkWidget* findOpacityScale(GtkWidget* widget) {
@@ -218,11 +268,55 @@ void refreshPaletteSection(GtkPopover* popover, Control* ctrl) {
         }
     }
     gtk_widget_set_sensitive(GTK_WIDGET(holder), paletteReachable(ctrl));
-    gtk_widget_set_visible(GTK_WIDGET(holder), tab >= 0);
+    // Only the highlighter (opacity) and text (size) have something here; the pen has its controls in the palette itself
+    gtk_widget_set_visible(GTK_WIDGET(holder), tab == 1 || tab == 3);
+}
+
+/// The words and icon of the header: the tool the palette is painting for
+void syncPaletteHeader(GtkPopover* popover, int tab) {
+    auto* name = GTK_LABEL(g_object_get_data(G_OBJECT(popover), "utn-pop-name"));
+    auto* hint = GTK_LABEL(g_object_get_data(G_OBJECT(popover), "utn-pop-hint"));
+    auto* icon = GTK_IMAGE(g_object_get_data(G_OBJECT(popover), "utn-pop-icon"));
+    if (!name || !hint || !icon) {
+        return;
+    }
+    const char* title = tab == 0 ? _("Pen") : tab == 1 ? _("Highlighter") : tab == 2 ? _("Shapes") : tab == 3 ? _("Text") :
+                                                                                                         _("Colours");
+    const char* iconName = tab == 1 ? "xopp-tool-highlighter" : tab == 2 ? "xopp-shape-recognizer" :
+                           tab == 3 ? "xopp-tool-text" : "xopp-tool-pencil";
+    gtk_label_set_text(name, title);
+    gtk_label_set_text(hint, tab == 3 ? _("Applies to new text") : _("Applies to new strokes"));
+    gtk_image_set_from_icon_name(icon, iconName, GTK_ICON_SIZE_SMALL_TOOLBAR);
+}
+
+/// Width, stroke tiles, snap switch: shown for the tools they change, set to the tool's own state, never sending that
+/// state back as a change
+void syncPaletteBody(GtkPopover* popover, Control* ctrl, int tab, bool usable) {
+    auto* tools = ctrl->getToolHandler();
+    syncPaletteHeader(popover, tab);
+
+    auto* width = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-box"));
+    auto* stroke = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-stroke-box"));
+    gtk_widget_set_visible(width, tab >= 0 && tab <= 2);
+    gtk_widget_set_visible(stroke, tab == 0 || tab == 2);
+    gtk_widget_set_sensitive(width, usable);
+    gtk_widget_set_sensitive(stroke, usable);
+    syncPaletteWidth(popover, ctrl);
+
+    g_object_set_data(G_OBJECT(popover), "utn-syncing", GINT_TO_POINTER(1));
+    for (int i = 0; i < static_cast<int>(utn::SHAPE_CHOICES.size()); ++i) {
+        auto* tile = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), (std::string("utn-stroke-") + std::to_string(i)).c_str()));
+        const auto type = static_cast<DrawingType>(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(tile), "utn-drawing-type")));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tile), tools->getToolType() == TOOL_PEN && type == tools->getDrawingType());
+    }
+    if (auto* snap = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-snap-switch"))) {
+        gtk_switch_set_active(GTK_SWITCH(snap), ctrl->getSettings()->getSnapRecognizedShapesEnabled());
+    }
+    g_object_set_data(G_OBJECT(popover), "utn-syncing", nullptr);
 }
 
 void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
-    auto* grid = GTK_GRID(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
+    auto* grid = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"));
     auto* custom = GTK_COLOR_BUTTON(g_object_get_data(G_OBJECT(popover), "utn-custom-colour"));
     auto* customState = GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-custom-state"));
     const Color current = teacherCurrentColour(ctrl);
@@ -259,19 +353,18 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
 
     gtk_widget_set_sensitive(GTK_WIDGET(grid), usable);
     gtk_widget_set_sensitive(GTK_WIDGET(custom), usable);
-    GList* cells = gtk_container_get_children(GTK_CONTAINER(grid));
-    for (GList* item = cells; item; item = item->next) {
-        GtkWidget* cell = GTK_WIDGET(item->data);
-        auto* swatch = GTK_WIDGET(g_object_get_data(G_OBJECT(cell), "utn-swatch"));
+    GList* swatches = gtk_container_get_children(GTK_CONTAINER(grid));
+    for (GList* item = swatches; item; item = item->next) {
+        auto* swatch = GTK_WIDGET(item->data);
         const auto raw = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(swatch), "utn-classroom-colour"));
         const Color value(raw);
-        const bool ofKind = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(cell), "utn-palette-kind")) ==
+        const bool ofKind = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(swatch), "utn-palette-kind")) ==
                             static_cast<int>(kind);
-        gtk_widget_set_visible(cell, ofKind);
+        gtk_widget_set_visible(swatch, ofKind);
         utn::setSwatchSelected(swatch, available && current.red == value.red && current.green == value.green &&
                                                current.blue == value.blue);
     }
-    g_list_free(cells);
+    g_list_free(swatches);
     // A colour that is no swatch is the teacher's Custom colour; say which, as the swatches cannot show it
     const bool isCustom = available && !utn::palette::find(kind, static_cast<uint32_t>(current));
     const std::string customHint = isCustom ? std::string(_("Custom colour ")) + utn::palette::hex(static_cast<uint32_t>(current)) :
@@ -285,6 +378,7 @@ void refreshClassroomColours(GtkPopover* popover, Control* ctrl) {
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &rgba);
     updatePaletteIndicator(popover, ctrl);
     refreshPaletteSection(popover, ctrl);
+    syncPaletteBody(popover, ctrl, tab, usable);
 }
 
 /// Every Teacher Annotation Palette popover that exists, so a change of the tool or of what may be used reaches the
@@ -358,10 +452,31 @@ public:
             AbstractToolItem("UTN_COLOURS", Category::TOOLS), control(ctrl) {}
 
     xoj::util::WidgetSPtr createItem(bool horizontal) override {
-        auto [popover, panel] = utn::createPopoverPanel(6);
-        utn::appendPopoverHeading(panel, _("Annotation palette"));
+        auto [popover, panel] = utn::createPopoverPanel(8);
+        gtk_widget_add_css_class(GTK_WIDGET(popover), "utn-pen-popover");
+        gtk_widget_add_css_class(GTK_WIDGET(panel), "utn-pen-panel");
+        gtk_widget_set_size_request(GTK_WIDGET(panel), 316, -1);
 
-        // Tabs: a linked radio group, so exactly one is on and it is not shown by colour alone
+        // Header: the tool this palette paints for, and what a change applies to
+        GtkWidget* header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget* headerIcon = gtk_image_new_from_icon_name("xopp-tool-pencil", GTK_ICON_SIZE_SMALL_TOOLBAR);
+        GtkWidget* headerName = gtk_label_new(_("Pen"));
+        gtk_widget_add_css_class(headerName, "utn-pop-name");
+        GtkWidget* headerHint = gtk_label_new(_("Applies to new strokes"));
+        gtk_widget_add_css_class(headerHint, "utn-pop-hint");
+        gtk_widget_set_hexpand(headerHint, true);
+        gtk_widget_set_halign(headerHint, GTK_ALIGN_END);
+        gtk_label_set_ellipsize(GTK_LABEL(headerHint), PANGO_ELLIPSIZE_END);
+        gtk_box_append(GTK_BOX(header), headerIcon);
+        gtk_box_append(GTK_BOX(header), headerName);
+        gtk_box_append(GTK_BOX(header), headerHint);
+        gtk_box_append(panel, header);
+        g_object_set_data(G_OBJECT(popover), "utn-pop-icon", headerIcon);
+        g_object_set_data(G_OBJECT(popover), "utn-pop-name", headerName);
+        g_object_set_data(G_OBJECT(popover), "utn-pop-hint", headerHint);
+
+        // The tools of the palette, as a small secondary control that follows the active tool: a linked radio group, so
+        // exactly one is on and it is not shown by colour alone. Highlighter, Shapes and Text stay reachable through it.
         GtkWidget* tabs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_widget_add_css_class(tabs, "linked");
         gtk_widget_add_css_class(tabs, "utn-palette-tabs");
@@ -374,6 +489,7 @@ public:
                                         gtk_radio_button_new_with_label(nullptr, _(tabNames[i]));
             firstTab = firstTab ? firstTab : tab;
             gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(tab), false);
+            gtk_widget_set_hexpand(tab, true);
             gtk_widget_set_tooltip_text(tab, _(tabHints[i]));
             utn::setAccessibleName(tab, _(tabNames[i]));
             g_object_set_data(G_OBJECT(tab), "utn-palette-tab", GINT_TO_POINTER(i));
@@ -397,23 +513,29 @@ public:
         }
         gtk_box_append(panel, tabs);
 
+        // COLOUR: the section caption, with the colour and thickness in words beside it
+        GtkWidget* colourHead = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(colourHead), sectionCaption(_("Colour")));
         GtkWidget* indicator = gtk_label_new("");
-        gtk_label_set_xalign(GTK_LABEL(indicator), 0.0F);
+        gtk_label_set_xalign(GTK_LABEL(indicator), 1.0F);
+        gtk_widget_set_hexpand(indicator, true);
+        gtk_widget_set_halign(indicator, GTK_ALIGN_END);
         gtk_widget_add_css_class(indicator, "utn-palette-indicator");
-        gtk_box_append(panel, indicator);
+        gtk_box_append(GTK_BOX(colourHead), indicator);
+        gtk_box_append(panel, colourHead);
         g_object_set_data(G_OBJECT(popover), "utn-indicator", indicator);
 
-        GtkGrid* grid = GTK_GRID(gtk_grid_new());
-        gtk_widget_add_css_class(GTK_WIDGET(grid), "utn-palette-grid");
-        gtk_grid_set_column_spacing(grid, 6);
-        gtk_grid_set_row_spacing(grid, 6);
-        // Ink and highlighter colours share the grid cells; the one that does not fit the tool is hidden (see
-        // refreshClassroomColours)
+        // One row of round swatches, named for screen readers and marked by a ring and a tick, not by hue alone.
+        // Ink and highlighter colours share the row; the ones that do not fit the tool are hidden (see
+        // refreshClassroomColours).
+        GtkWidget* grid = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_add_css_class(grid, "utn-palette-grid");
         for (const utn::palette::Kind kind: {utn::palette::Kind::Ink, utn::palette::Kind::Highlighter}) {
             for (size_t i = 0; i < utn::palette::count(kind); ++i) {
                 const auto& entry = utn::palette::swatch(kind, i);
                 const Color value{0xFF000000U | entry.rgb};
                 GtkWidget* button = utn::createColourSwatch(value, _(entry.name));
+                gtk_widget_set_tooltip_text(button, _(entry.name));
                 g_object_set_data(G_OBJECT(button), "utn-classroom-colour", GUINT_TO_POINTER(static_cast<uint32_t>(value)));
                 g_object_set_data(G_OBJECT(button), "utn-popover", popover);
                 g_object_set_data(G_OBJECT(button), "utn-palette-kind", GINT_TO_POINTER(static_cast<int>(kind)));
@@ -427,25 +549,17 @@ public:
                                      teacherApplyColour(static_cast<Control*>(data), colour,
                                                         GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-palette-kind")));
                                  }), control);
-                // The colour's name is written under it: nobody has to tell the colours apart by looking
-                GtkWidget* cell = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-                gtk_box_append(GTK_BOX(cell), button);
-                GtkWidget* caption = gtk_label_new(_(entry.name));
-                gtk_widget_add_css_class(caption, "utn-palette-caption");
-                gtk_box_append(GTK_BOX(cell), caption);
-                g_object_set_data(G_OBJECT(cell), "utn-swatch", button);
-                g_object_set_data(G_OBJECT(cell), "utn-palette-kind", GINT_TO_POINTER(static_cast<int>(kind)));
-                // The cell is shown or hidden as a whole by the refresh; its parts must already be shown, because
-                // no_show_all also stops the panel's show_all from reaching them
-                gtk_widget_show_all(cell);
-                gtk_widget_set_no_show_all(cell, true);
-                gtk_grid_attach(grid, cell, static_cast<int>(i % 3), static_cast<int>(i / 3), 1, 1);
+                // The row is shown whole by show_all; the refresh shows or hides each swatch for the tool
+                gtk_widget_show(button);
+                gtk_widget_set_no_show_all(button, true);
+                gtk_box_append(GTK_BOX(grid), button);
             }
         }
-        gtk_box_append(panel, GTK_WIDGET(grid));
+        gtk_box_append(panel, grid);
 
         GtkBox* customRow = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8));
         GtkWidget* customLabel = gtk_label_new(_("Custom colour"));
+        gtk_widget_add_css_class(customLabel, "utn-palette-caption");
         GtkWidget* custom = gtk_color_button_new();
         g_object_set_data(G_OBJECT(custom), "utn-popover", popover);
         gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(custom), false);
@@ -470,10 +584,186 @@ public:
         gtk_box_append(customRow, customState);
         gtk_box_append(panel, GTK_WIDGET(customRow));
 
-        // What this kind of mark also needs: thickness, opacity, shape types or text size. Rebuilt for the tool.
+        // WIDTH: the pen's or highlighter's existing size steps as a slider, with the thickness in points and a wave
+        // drawn in the colour and thickness it writes with
+        GtkWidget* widthBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_box_append(GTK_BOX(widthBox), sectionCaption(_("Width")));
+        GtkWidget* widthRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+        GtkWidget* widthScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK, 1);
+        gtk_scale_set_draw_value(GTK_SCALE(widthScale), false);
+        gtk_widget_set_hexpand(widthScale, true);
+        gtk_widget_add_css_class(widthScale, "utn-pop-slider");
+        gtk_widget_set_focus_on_click(widthScale, false);  // keyboard users can still Tab to it
+        utn::setAccessibleName(widthScale, _("Stroke width"));
+        g_object_set_data(G_OBJECT(widthScale), "utn-popover", popover);
+        g_signal_connect(widthScale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                             auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(range), "utn-popover"));
+                             if (g_object_get_data(G_OBJECT(popup), "utn-width-syncing")) {
+                                 return;
+                             }
+                             auto* ctrl = static_cast<Control*>(data);
+                             auto* tools = ctrl->getToolHandler();
+                             const ToolType type = tools->getToolType();
+                             if (!paletteReachable(ctrl) || (type != TOOL_PEN && type != TOOL_HIGHLIGHTER)) {
+                                 syncPaletteWidth(popup, ctrl);  // gone busy, covered or another tool: show what it still has
+                                 return;
+                             }
+                             const auto size = static_cast<ToolSize>(std::clamp(
+                                     static_cast<int>(std::lround(gtk_range_get_value(range))),
+                                     static_cast<int>(TOOL_SIZE_VERY_FINE), static_cast<int>(TOOL_SIZE_VERY_THICK)));
+                             if (type == TOOL_HIGHLIGHTER) {
+                                 tools->setHighlighterSize(size);
+                             } else {
+                                 tools->setPenSize(size);
+                             }
+                             syncPaletteWidth(popup, ctrl);
+                         }), control);
+        GtkWidget* widthValue = gtk_label_new("");
+        gtk_label_set_xalign(GTK_LABEL(widthValue), 1.0F);
+        gtk_widget_add_css_class(widthValue, "utn-pop-value");
+        gtk_box_append(GTK_BOX(widthRow), widthScale);
+        gtk_box_append(GTK_BOX(widthRow), widthValue);
+        gtk_box_append(GTK_BOX(widthBox), widthRow);
+        GtkWidget* wave = gtk_drawing_area_new();
+        gtk_widget_set_size_request(wave, -1, 52);
+        gtk_widget_add_css_class(wave, "utn-pop-wave");
+        gtk_widget_set_tooltip_text(wave, _("Preview of the selected colour and width"));
+        utn::setAccessibleName(wave, _("Preview of the selected colour and width"));
+        gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(wave),
+                                       +[](GtkDrawingArea*, cairo_t* cr, int width, int height, gpointer data) {
+                                           auto* ctrl = static_cast<Control*>(data);
+                                           auto* tools = ctrl->getToolHandler();
+                                           const Color colour = teacherCurrentColour(ctrl);
+                                           GdkRGBA rgba = Util::argb_to_GdkRGBA(colour);
+                                           const bool marker = tools->getToolType() == TOOL_HIGHLIGHTER;
+                                           if (!marker) {
+                                               rgba.alpha = 1.0;
+                                           }
+                                           const double thickness = paletteThicknessPt(tools, paletteSize(tools));
+                                           cairo_set_source_rgba(cr, rgba.red, rgba.green, rgba.blue, rgba.alpha);
+                                           cairo_set_line_width(cr, marker ? std::clamp(thickness * 0.9, 3.0, 18.0) :
+                                                                             std::clamp(thickness * 1.6, 1.4, 12.0));
+                                           cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+                                           cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                                           cairo_move_to(cr, width * 0.08, height * 0.55);
+                                           cairo_curve_to(cr, width * 0.22, height * 0.20, width * 0.34, height * 0.20,
+                                                          width * 0.48, height * 0.52);
+                                           cairo_curve_to(cr, width * 0.60, height * 0.80, width * 0.76, height * 0.24,
+                                                          width * 0.92, height * 0.45);
+                                           cairo_stroke(cr);
+                                       }, control, nullptr);
+        gtk_box_append(GTK_BOX(widthBox), wave);
+        gtk_widget_show_all(widthBox);
+        gtk_widget_set_no_show_all(widthBox, true);
+        gtk_box_append(panel, widthBox);
+        g_object_set_data(G_OBJECT(popover), "utn-width-box", widthBox);
+        g_object_set_data(G_OBJECT(popover), "utn-width-scale", widthScale);
+        g_object_set_data(G_OBJECT(popover), "utn-width-label", widthValue);
+        g_object_set_data(G_OBJECT(popover), "utn-width-preview", wave);
+
+        // STROKE: the pen's existing shape types as icon tiles, and the existing Smart Shape grid-snap setting
+        GtkWidget* strokeBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_box_append(GTK_BOX(strokeBox), sectionCaption(_("Stroke")));
+        GtkWidget* tileRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_box_set_homogeneous(GTK_BOX(tileRow), true);
+        struct StrokeTile {
+            std::size_t choice;  // index into utn::SHAPE_CHOICES
+            utn::Glyph glyph;
+        };
+        // Freehand, Line, Arrow, Rectangle, Ellipse, Smart Shape: the concept's order
+        const StrokeTile tiles[] = {{0, utn::Glyph::Freehand}, {3, utn::Glyph::Line}, {4, utn::Glyph::Arrow},
+                                    {1, utn::Glyph::Rectangle}, {2, utn::Glyph::Ellipse}, {5, utn::Glyph::SmartShape}};
+        int tileIndex = 0;
+        for (const StrokeTile& entry: tiles) {
+            const auto& choice = utn::SHAPE_CHOICES[entry.choice];
+            GtkWidget* tile = gtk_toggle_button_new();
+            gtk_button_set_child(GTK_BUTTON(tile), utn::createGlyph(entry.glyph));
+            gtk_widget_show_all(tile);
+            gtk_widget_add_css_class(tile, "utn-stroke-tile");
+            gtk_widget_set_focus_on_click(tile, false);  // keyboard users can still Tab to it
+            gtk_widget_set_tooltip_text(tile, _(choice.hint));
+            utn::setAccessibleName(tile, _(choice.label));
+            g_object_set_data(G_OBJECT(tile), "utn-drawing-type", GINT_TO_POINTER(static_cast<int>(choice.type)));
+            g_object_set_data(G_OBJECT(tile), "utn-popover", popover);
+            g_object_set_data(G_OBJECT(popover), (std::string("utn-stroke-") + std::to_string(tileIndex++)).c_str(), tile);
+            g_signal_connect(tile, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                                 auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
+                                 if (g_object_get_data(G_OBJECT(popup), "utn-syncing")) {
+                                     return;
+                                 }
+                                 auto* ctrl = static_cast<Control*>(data);
+                                 // Another click on the shape in use keeps it; a gate or another tool puts the tiles back
+                                 if (!gtk_toggle_button_get_active(button) || !paletteReachable(ctrl) ||
+                                     ctrl->getToolHandler()->getToolType() != TOOL_PEN) {
+                                     refreshClassroomColours(popup, ctrl);
+                                     return;
+                                 }
+                                 ctrl->setToolDrawingType(static_cast<DrawingType>(
+                                         GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-drawing-type"))));
+                                 refreshClassroomColours(popup, ctrl);
+                             }), control);
+            gtk_box_append(GTK_BOX(tileRow), tile);
+        }
+        gtk_box_append(GTK_BOX(strokeBox), tileRow);
+        GtkWidget* snapRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget* snapLabel = gtk_label_new(_("Snap shapes to grid"));
+        gtk_widget_set_halign(snapLabel, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(snapLabel, true);
+        GtkWidget* snap = gtk_switch_new();
+        gtk_widget_set_valign(snap, GTK_ALIGN_CENTER);
+        gtk_widget_set_tooltip_text(snap, _("When Smart Shape tidies a shape, place it on the page grid"));
+        utn::setAccessibleName(snap, _("Snap shapes to grid"));
+        g_object_set_data(G_OBJECT(snap), "utn-popover", popover);
+        g_signal_connect(snap, "notify::active", G_CALLBACK(+[](GObject* object, GParamSpec*, gpointer data) {
+                             auto* popup = GTK_POPOVER(g_object_get_data(object, "utn-popover"));
+                             if (g_object_get_data(G_OBJECT(popup), "utn-syncing")) {
+                                 return;
+                             }
+                             auto* ctrl = static_cast<Control*>(data);
+                             if (paletteReachable(ctrl)) {
+                                 ctrl->getSettings()->setSnapRecognizedShapesEnabled(gtk_switch_get_active(GTK_SWITCH(object)));
+                             }
+                             refreshClassroomColours(popup, ctrl);
+                         }), control);
+        gtk_box_append(GTK_BOX(snapRow), snapLabel);
+        gtk_box_append(GTK_BOX(snapRow), snap);
+        gtk_box_append(GTK_BOX(strokeBox), snapRow);
+        gtk_widget_show_all(strokeBox);
+        gtk_widget_set_no_show_all(strokeBox, true);
+        gtk_box_append(panel, strokeBox);
+        g_object_set_data(G_OBJECT(popover), "utn-stroke-box", strokeBox);
+        g_object_set_data(G_OBJECT(popover), "utn-snap-switch", snap);
+
+        // What this kind of mark also needs: highlighter opacity or text size. Rebuilt for the tool.
         GtkWidget* section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
         gtk_widget_set_no_show_all(section, true);
         gtk_box_append(panel, section);
+
+        // Footer: the popover closes with Esc and keeps what was chosen, as every change applies at once. The settings
+        // inspector can be pinned beside the page, as from Pen settings.
+        gtk_box_append(panel, gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+        GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget* escHint = gtk_label_new(_("Esc closes \xC2\xB7 keeps your last choice"));
+        gtk_widget_add_css_class(escHint, "utn-pop-hint");
+        gtk_widget_set_halign(escHint, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(escHint, true);
+        gtk_label_set_xalign(GTK_LABEL(escHint), 0.0F);
+        GtkWidget* pin = gtk_button_new_with_label(_("Pin to side"));
+        gtk_button_set_relief(GTK_BUTTON(pin), GTK_RELIEF_NONE);
+        gtk_widget_add_css_class(pin, "utn-pop-link");
+        gtk_widget_set_tooltip_text(pin, _("Keep the full tool settings panel open beside the worksheet"));
+        utn::setAccessibleName(pin, _("Pin settings to side"));
+        g_object_set_data(G_OBJECT(pin), "utn-popover", popover);
+        g_signal_connect(pin, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             auto* ctrl = static_cast<Control*>(data);
+                             gtk_popover_popdown(GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover")));
+                             if (MainWindow* window = ctrl->getWindow()) {
+                                 window->setTeacherWorkspace(0);
+                             }
+                         }), control);
+        gtk_box_append(GTK_BOX(footer), escHint);
+        gtk_box_append(GTK_BOX(footer), pin);
+        gtk_box_append(panel, footer);
 
         g_object_set_data(G_OBJECT(popover), "utn-colour-grid", grid);
         g_object_set_data(G_OBJECT(popover), "utn-custom-colour", custom);

@@ -13,6 +13,7 @@
 #include "control/actions/ActionDatabase.h"
 #include "control/settings/Settings.h"  // for SElement, Settings
 #include "model/StrokeStyle.h"          // for StrokeStyle
+#include "model/TeacherPalette.h"  // for the default pen colour
 #include "model/StudentVisibility.h"
 #include "model/TextAlignment.h"
 #include "util/Assert.h"
@@ -56,7 +57,9 @@ void ToolHandler::initTools() {
     thickness[TOOL_SIZE_MEDIUM] = 1.41;
     thickness[TOOL_SIZE_THICK] = 2.26;
     thickness[TOOL_SIZE_VERY_THICK] = 5.67;
-    tools[TOOL_PEN - TOOL_PEN] = std::make_unique<Tool>("pen", TOOL_PEN, Colors::xopp_royalblue, thickness);
+    // The classroom Blue, a swatch of the Teacher Annotation Palette (not the old indigo no swatch stood for)
+    const Color penBlue{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Ink, 1).rgb};
+    tools[TOOL_PEN - TOOL_PEN] = std::make_unique<Tool>("pen", TOOL_PEN, penBlue, thickness);
 
     thickness[TOOL_SIZE_VERY_FINE] = 1;
     thickness[TOOL_SIZE_FINE] = 2.83;

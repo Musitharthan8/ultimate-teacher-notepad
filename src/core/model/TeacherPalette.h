@@ -2,7 +2,7 @@
  * Ultimate Teacher Notepad
  *
  * Teacher Annotation Palette: the few named colours each teaching tool offers. Pen, shapes and text share one ink
- * language (Black, Blue, Red, Green, Orange, Purple); the highlighter has see-through classroom colours (Yellow, Pink,
+ * language (Black, Blue, Red, Green, Purple, Orange, Teal, Pink: one row of eight); the highlighter has see-through classroom colours (Yellow, Pink,
  * Cyan, Green). Anything else is the teacher's Custom colour from the existing chooser.
  *
  * This is a list of choices, not a colour state: the tool colour lives in ToolHandler only. Free of GTK so every rule
@@ -33,13 +33,15 @@ struct Swatch {
     uint32_t rgb;      ///< 0xRRGGBB
 };
 
-inline constexpr std::array<Swatch, 6> INK{{
+inline constexpr std::array<Swatch, 8> INK{{
         {N_("Black"), 0x000000U},
         {N_("Blue"), 0x1E5BD8U},
         {N_("Red"), 0xD32F2FU},
         {N_("Green"), 0x2E7D32U},
-        {N_("Orange"), 0xEF6C00U},
         {N_("Purple"), 0x6A1B9AU},
+        {N_("Orange"), 0xEF6C00U},
+        {N_("Teal"), 0x00897BU},
+        {N_("Pink"), 0xD63384U},
 }};
 
 inline constexpr std::array<Swatch, 4> HIGHLIGHTER{{
