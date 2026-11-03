@@ -114,8 +114,25 @@ auto CircleRecognizer::scoreCircle(Stroke* s, Inertia& inertia) -> double {
 }
 
 auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
+    // Legacy inertia scoring measures roundness, not whether the contour closes.
+    // Without a closure check an open letter C can be rounded into an O.
+    const auto& points = stroke->getPointVector();
+    if (points.size() < 3) {
+        return nullptr;
+    }
+    double length = 0.0;
+    for (size_t i = 1; i < points.size(); ++i) {
+        length += std::hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    }
+    const double gap = std::hypot(points.front().x - points.back().x, points.front().y - points.back().y);
+    const auto bounds = stroke->getSnappedBounds();
+    const double diagonal = std::hypot(bounds.width, bounds.height);
+    if (!std::isfinite(length) || !std::isfinite(diagonal) || length <= 0.0 || diagonal <= 0.0 ||
+        gap > 0.14 * length || gap > 0.45 * diagonal) {
+        return nullptr;
+    }
     Inertia s;
-    s.calc(stroke->getPointVector());
+    s.calc(points);
     RDEBUG("Mass=%.0f, Center=(%.1f,%.1f), I=(%.0f,%.0f, %.0f), Rad=%.2f, Det=%.4f", s.getMass(), s.centerX(),
            s.centerY(), s.xx(), s.yy(), s.xy(), s.rad(), s.det());
 
