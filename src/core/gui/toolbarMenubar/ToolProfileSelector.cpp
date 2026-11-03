@@ -13,6 +13,7 @@
 
 #include "control/Control.h"
 #include "control/ToolHandler.h"
+#include "ToolUtnContextBar.h"  // classroom gate shared by colour controls
 #include "model/TeacherPalette.h"  // for the Pen profile's Blue
 #include "util/Color.h"
 #include "util/gtk4_helper.h"
@@ -41,6 +42,9 @@ constexpr std::array<ProfileEntry, 5> PROFILES{{
 }};
 
 void applyProfile(Control* control, Profile profile) {
+    if (!ToolUtnContextBar::toolControlsReachable(control)) {
+        return;  // no tool changes while busy, covered by Blank, or hidden in Present
+    }
     auto* tools = control->getToolHandler();
 
     switch (profile) {
@@ -48,31 +52,34 @@ void applyProfile(Control* control, Profile profile) {
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_MEDIUM);
-            tools->setColor(Color{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Ink, 1).rgb}, false);
+            tools->setDisplayedColor(Color{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Ink, 1).rgb}, false);
             break;
         case Profile::Pencil:
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_VERY_FINE);
-            tools->setColor(Colors::gray, false);
+            tools->setDisplayedColor(Colors::gray, false);
             break;
         case Profile::Brush:
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_THICK);
-            tools->setColor(Colors::black, false);
+            tools->setDisplayedColor(Colors::black, false);
             break;
         case Profile::Marker:
             tools->selectTool(TOOL_PEN);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setPenSize(TOOL_SIZE_THICK);
-            tools->setColor(Colors::xopp_darkorange, false);
+            tools->setDisplayedColor(Colors::xopp_darkorange, false);
             break;
         case Profile::Highlighter:
             tools->selectTool(TOOL_HIGHLIGHTER);
             tools->setDrawingType(DRAWING_TYPE_DEFAULT);
             tools->setHighlighterSize(TOOL_SIZE_MEDIUM);
-            tools->setColor(Colors::yellow, false);
+            // Keep the highlighter\'s own translucency; switching profile changes its hue, not its opacity.
+            Color yellow{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Highlighter, 0).rgb};
+            yellow.alpha = tools->getDisplayedColor().alpha;
+            tools->setDisplayedColor(yellow, false);
             break;
     }
 
