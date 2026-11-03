@@ -64,10 +64,11 @@ bool fitsSquareBetter(const Stroke& stroke, const Inertia& inertia) {
  * Create circle stroke for inertia
  */
 auto CircleRecognizer::makeCircleShape(Stroke* originalStroke, Inertia& inertia) -> std::unique_ptr<Stroke> {
-    int npts = static_cast<int>(2 * inertia.rad());
-    if (npts < 24) {
-        npts = 24;  // min. number of points
-    }
+    // Clamp while still in floating point: converting a huge finite radius
+    // directly to int is undefined when it exceeds the integer range.
+    // A bounded outline also avoids allocating millions of points for a
+    // malformed or extraordinarily large stroke.
+    const int npts = static_cast<int>(std::clamp(2.0 * inertia.rad(), 24.0, 512.0));
 
     auto s = std::make_unique<Stroke>();
     s->applyStyleFrom(originalStroke);
@@ -199,7 +200,9 @@ bool solveThreeByThree(double augmented[3][4], double result[3]) {
 
 auto smoothOutline(Stroke* original, double cx, double cy, double rx, double ry, double angle)
         -> std::unique_ptr<Stroke> {
-    const int segments = std::clamp(static_cast<int>(2.0 * std::max(rx, ry)), 36, 128);
+    // Clamp before the conversion, not after: a finite radius can still be
+    // larger than INT_MAX and make the floating-point-to-int cast undefined.
+    const int segments = static_cast<int>(std::clamp(2.0 * std::max(rx, ry), 36.0, 128.0));
     const double cosine = std::cos(angle), sine = std::sin(angle);
     auto fitted = std::make_unique<Stroke>();
     fitted->applyStyleFrom(original);
