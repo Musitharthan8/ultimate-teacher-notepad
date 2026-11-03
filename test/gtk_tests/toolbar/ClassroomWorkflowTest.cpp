@@ -9331,7 +9331,12 @@ TEST_F(ClassroomWorkflow, classroomTogglesExposeTheirStateAndTheBlankCoverIsAnAl
     settle();
     auto* students = window->getToolMenuHandler()->getStudentView();
     ASSERT_NE(students, nullptr);
-    GtkWidget* menuButton = menuButtonAccessibleNamed(window->getWindow(), "Classroom controls");
+    GtkWidget* menuButton = menuButtonAccessibleNamed(window->getWindow(), "Spotlight & Curtain");
+    // The classroom header is genuinely reachable, not merely a widget assembled off screen.
+    ASSERT_NE(menuButton, nullptr);
+    EXPECT_TRUE(gtk_widget_get_mapped(menuButton));
+    EXPECT_GT(gtk_widget_get_allocated_width(menuButton), 0);
+    EXPECT_GT(gtk_widget_get_allocated_height(menuButton), 0);
     ASSERT_NE(menuButton, nullptr);
     auto* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menuButton)));
     GtkWidget* status = widgetNamed(popover, "utnClassroomStatus");
