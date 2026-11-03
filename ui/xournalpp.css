@@ -1644,7 +1644,7 @@ window.utnShell .utn-pop-slider highlight {
     background-color: @utn_paper_accent;
 }
 window.utnShell .utn-stroke-tile {
-    min-width: 0;
+    min-width: 24px;
     min-height: 36px;
     padding: 2px;
     border-radius: 8px;
@@ -1667,7 +1667,19 @@ window.utnShell.utnTouch .utn-palette-tabs button {
 window.utnShell .utn-pop-link {
     color: @utn_paper_accent;
     font-weight: 600;
+    min-height: 24px;
     padding: 2px 4px;
+}
+window.utnShell.utnTouch .utn-pop-link {
+    min-height: 44px;
+    padding: 4px 8px;
+}
+window.utnShell.utnTouch .utn-pen-panel switch {
+    min-width: 44px;
+    min-height: 44px;
+}
+window.utnShell.utnTouch .utn-pop-slider {
+    min-height: 44px;
 }
 window.utnShell.darkMode .utn-pop-hint,
 window.utnShell.darkMode .utn-pop-caption {
