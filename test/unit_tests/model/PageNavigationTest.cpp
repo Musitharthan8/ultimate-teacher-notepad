@@ -74,6 +74,23 @@ TEST(PageNavigation, recentPagesAreNewestFirstWithoutDuplicatesOrTheCurrentPage)
     EXPECT_EQ(recentPages(newestFirst, 2, 10), (std::vector<size_t>{3, 7, 9}));
 }
 
+TEST(PageNavigation, previousAndNextAreUnavailableAtTheEnds) {
+    EXPECT_FALSE(canGoPrevious(0, 5));
+    EXPECT_TRUE(canGoPrevious(1, 5));
+    EXPECT_TRUE(canGoPrevious(4, 5));
+    EXPECT_TRUE(canGoNext(0, 5));
+    EXPECT_TRUE(canGoNext(3, 5));
+    EXPECT_FALSE(canGoNext(4, 5));
+}
+
+TEST(PageNavigation, anEmptyOrStaleDocumentOffersNoMove) {
+    EXPECT_FALSE(canGoPrevious(0, 0));
+    EXPECT_FALSE(canGoNext(0, 0));
+    // A page index past the end (the count is momentarily behind): never step to a page that is not there
+    EXPECT_FALSE(canGoPrevious(9, 3));
+    EXPECT_FALSE(canGoNext(9, 3));
+}
+
 TEST(PageNavigation, recentPagesAreCapped) {
     const std::vector<size_t> newestFirst{1, 2, 3, 4, 5};
     EXPECT_EQ(recentPages(newestFirst, 0, 3), (std::vector<size_t>{1, 2, 3}));

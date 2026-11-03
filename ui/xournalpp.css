@@ -1623,3 +1623,59 @@ window.utnShell #utnAnnotationBank button.destructive-action {
 window.utnShell.darkMode #utnAnnotationBank button.destructive-action {
     border-color: @utn_danger_dark;
 }
+
+/* Classroom controls, accessibility pass.
+   Freeze with no Student View open still takes a press (it answers with a toast), so it is dimmed and dashed like a
+   disabled button: unavailable must not look the same as ready. The screen reader hears why from its description. */
+window.utnShell toolbar .utn-sv-quick button.utn-needs-student-view:not(:checked):not(:active) {
+    border-style: dashed;
+    opacity: 0.6;
+}
+
+/* High Contrast: the Teach / Mark / Present switch and the Freeze / Blank capsule use the one HC palette. The Paper & Ink
+   rules above name three classes and win over the generic HC button rules, so they are answered here at equal weight.
+   The selected workspace and a pressed Freeze or Blank are yellow with black text AND bold, so state is not colour alone. */
+window.utnShell.utnHighContrast .utnWorkspaceSwitch,
+window.utnShell.utnHighContrast .utn-sv-quick {
+    background-color: @utn_hc_bg;
+    border: 1px solid @utn_hc_fg;
+    box-shadow: none;
+}
+window.utnShell.utnHighContrast .utnWorkspaceSwitch .utnWorkspaceButton,
+window.utnShell.utnHighContrast .utn-sv-quick button {
+    background-image: none;
+    background-color: @utn_hc_bg;
+    color: @utn_hc_fg;
+    border: 1px solid @utn_hc_fg;
+    box-shadow: none;
+}
+window.utnShell.utnHighContrast .utnWorkspaceSwitch .utnWorkspaceButton:hover,
+window.utnShell.utnHighContrast .utn-sv-quick button:hover {
+    background-color: @utn_hc_fg;
+    color: @utn_hc_bg;
+}
+window.utnShell.utnHighContrast .utnWorkspaceSwitch .utnWorkspaceButton:checked,
+window.utnShell.utnHighContrast.utnPresent .utnWorkspaceSwitch .utnWorkspaceButton:checked,
+window.utnShell.utnHighContrast.darkMode.utnPresent .utnWorkspaceSwitch .utnWorkspaceButton:checked,
+window.utnShell.utnHighContrast .utn-sv-quick button.utn-quick-freeze:checked,
+window.utnShell.utnHighContrast .utn-sv-quick button.utn-quick-blank:checked {
+    background-color: @utn_hc_focus;
+    color: @utn_hc_bg;
+    border: 2px solid @utn_hc_fg;
+    font-weight: 800;
+}
+window.utnShell.utnHighContrast .utn-sv-quick button.utn-quick-blank:checked label,
+window.utnShell.utnHighContrast .utn-sv-quick button.utn-quick-freeze:checked label {
+    color: @utn_hc_bg;
+}
+window.utnShell.utnHighContrast .utnWorkspaceSwitch .utnWorkspaceButton:focus,
+window.utnShell.utnHighContrast .utn-sv-quick button:focus {
+    outline: 2px solid #00ffff;
+    outline-offset: 1px;
+}
+/* Unavailable Freeze: same dashed grey as a disabled HC button, and no dimming that would drop its text below contrast */
+window.utnShell.utnHighContrast toolbar .utn-sv-quick button.utn-needs-student-view:not(:checked):not(:active) {
+    opacity: 1;
+    color: #a0a0a0;
+    border: 1px dashed #a0a0a0;
+}

@@ -17,6 +17,11 @@
 
 namespace utn {
 
+/// Whether the Previous and Next page buttons have anywhere to go. At either end a button does nothing, so it must not
+/// look pressable. An empty document, or an index past the end, offers no move.
+bool canGoPrevious(size_t current, size_t pageCount);
+bool canGoNext(size_t current, size_t pageCount);
+
 /// The label a bookmark puts on a page that has none
 inline constexpr const char* BOOKMARK_LABEL = "Bookmark";
 
