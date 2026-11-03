@@ -242,3 +242,25 @@ TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingFinitePathLength) {
     }
     EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
 }
+
+TEST(ShapeRecognizerRobustness, LargeCircleOutlineHasBoundedPointCount) {
+    // The legacy path formerly emitted two points per page-unit radius.
+    // Keep large but ordinary classroom diagrams bounded in memory.
+    Stroke input;
+    ellipse(input, 1500.0, 1500.0, 1000.0, 1000.0, 0.0);
+    auto result = CircleRecognizer::recognize(&input);
+    ASSERT_NE(result, nullptr);
+    EXPECT_GE(result->getPointCount(), 25U);
+    EXPECT_LE(result->getPointCount(), 513U);
+    expectClosed(*result);
+}
+
+TEST(ShapeRecognizerRobustness, LargeSmoothEllipseOutlineHasBoundedPointCount) {
+    Stroke input;
+    ellipse(input, 1500.0, 1500.0, 1000.0, 600.0, 0.31);
+    auto result = CircleRecognizer::recognizeSmoothLoop(&input);
+    ASSERT_NE(result, nullptr);
+    EXPECT_GE(result->getPointCount(), 37U);
+    EXPECT_LE(result->getPointCount(), 129U);
+    expectClosed(*result);
+}
