@@ -7337,6 +7337,18 @@ TEST_F(ClassroomWorkflow, annotationBankAddsRemovesAndRestoresEntriesAndKeepsThe
     gtk_button_clicked(GTK_BUTTON(restore));
     utn::refreshAnnotationBankPanel(panel);
     EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(restore)), "Restore defaults");
+
+    // Asking is also forgotten when the keyboard leaves the button, and it stands out while it is asked
+    gtk_button_clicked(GTK_BUTTON(restore));
+    EXPECT_TRUE(gtk_style_context_has_class(gtk_widget_get_style_context(restore), "destructive-action"));
+    gboolean handled = FALSE;
+    GdkEvent* leave = gdk_event_new(GDK_FOCUS_CHANGE);
+    leave->focus_change.in = FALSE;
+    g_signal_emit_by_name(restore, "focus-out-event", leave, &handled);
+    gdk_event_free(leave);
+    EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(restore)), "Restore defaults");
+    EXPECT_FALSE(gtk_style_context_has_class(gtk_widget_get_style_context(restore), "destructive-action"));
+    EXPECT_EQ(control->getAnnotationBank().all().size(), 5U) << "leaving the button restores nothing";
 }
 
 // The keyboard stays in the panel: after Remove it goes to the next row's Remove (the one before at the end), and an
@@ -7396,6 +7408,8 @@ TEST_F(ClassroomWorkflow, annotationBankKeepsTheKeyboardInThePanelAfterRemoveAnd
     utn::refreshAnnotationBankPanel(panel);
     GtkWidget* tick = buttonAccessibleNamed(panel, "✓ Tick");
     ASSERT_NE(tick, nullptr);
+    EXPECT_TRUE(gtk_style_context_has_class(gtk_widget_get_style_context(tick), "utn-bank-unavailable"))
+            << "an entry that cannot be used does not look ready";
     gtk_widget_grab_focus(tick);
     ASSERT_EQ(gtk_window_get_focus(top), tick) << "sensitive with its ancestors: " << gtk_widget_is_sensitive(tick);
     const size_t before = control->getCurrentPage()->getSelectedLayer()->getElements().size();

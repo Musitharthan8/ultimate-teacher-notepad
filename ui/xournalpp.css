@@ -1593,3 +1593,33 @@ window.utnShell .utn-palette-caption {
 window.utnShell .utn-palette-indicator {
     font-weight: bold;
 }
+
+/* Annotation Bank (Feedback popover). Entries that cannot be used right now (Blank, Present with tools put away, busy)
+   stay focusable so a screen reader says why, so they also get a dashed border: they must not look ready, and the cue
+   does not depend on hue (High Contrast). */
+window.utnShell #utnAnnotationBank button.utn-bank-unavailable {
+    border-style: dashed;
+    box-shadow: none;
+}
+window.utnShell #utnAnnotationBank button.utn-bank-unavailable:hover {
+    background-image: none;
+}
+/* The comment box shows keyboard focus as clearly as the buttons beside it */
+window.utnShell #utnAnnotationBank entry:focus {
+    outline: 2px solid @utn_paper_ring;
+    outline-offset: 1px;
+}
+window.utnShell.darkMode #utnAnnotationBank entry:focus {
+    outline-color: @utn_accent_dark;
+}
+window.utnShell.utnHighContrast #utnAnnotationBank entry:focus {
+    outline-color: @utn_hc_focus;
+}
+/* "Confirm restore" asks for a second click that discards the teacher's own comments */
+window.utnShell #utnAnnotationBank button.destructive-action {
+    border-color: @utn_danger;
+    border-width: 2px;
+}
+window.utnShell.darkMode #utnAnnotationBank button.destructive-action {
+    border-color: @utn_danger_dark;
+}
