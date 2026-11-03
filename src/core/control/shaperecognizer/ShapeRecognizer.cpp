@@ -355,7 +355,7 @@ std::unique_ptr<Stroke> restartAtSharpestCorner(Stroke* original) {
     // The missing gap is a fraction of the outline the teacher actually drew, not a fixed page-unit
     // threshold. This handles small and large gapped boxes consistently without closing open letters.
     const double gap = std::hypot(pts.front().x - pts.back().x, pts.front().y - pts.back().y);
-    if (diagonal <= 0 || drawnLength <= 0 || gap > 0.14 * drawnLength || gap > 0.45 * diagonal) {
+    if (diagonal <= 0 || drawnLength <= 0 || gap > 0.18 * drawnLength || gap > 0.45 * diagonal) {
         return nullptr;  // too open to infer a shape
     }
     const size_t window = std::max<size_t>(2, n / 20);
