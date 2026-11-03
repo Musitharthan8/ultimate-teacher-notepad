@@ -1345,7 +1345,7 @@ void MainWindow::appendPenSettingsMenu() {
 
     GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget* pin = gtk_button_new_with_label(_("Pin to side"));
-    utn::setAccessibleName(pin, _("Pin settings to side"));
+    utn::setAccessibleName(pin, _("Pin to side"));
     gtk_widget_set_tooltip_text(pin, _("Keep the full settings inspector beside the worksheet"));
     g_signal_connect(pin, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
@@ -1356,7 +1356,7 @@ void MainWindow::appendPenSettingsMenu() {
                      }), this);
     GtkWidget* dockToggle = gtk_check_button_new_with_label(_("Show ink dock"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dockToggle), inkDockEnabled);
-    utn::setAccessibleName(dockToggle, _("Show compact ink dock"));
+    utn::setAccessibleName(dockToggle, _("Show ink dock"));
     g_signal_connect(dockToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* toggle, gpointer data) {
                          auto* self = static_cast<MainWindow*>(data);
                          self->inkDockEnabled = gtk_toggle_button_get_active(toggle);
