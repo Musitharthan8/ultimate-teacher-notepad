@@ -115,10 +115,19 @@ auto CircleRecognizer::scoreCircle(Stroke* s, Inertia& inertia) -> double {
          ++pt_2nd, ++pt_1st) {
         double dm = hypot(pt_2nd->x - pt_1st->x, pt_2nd->y - pt_1st->y);
         double deltar = std::max(0.0, std::abs(hypot(pt_1st->x - x0, pt_1st->y - y0) - r0) - allowance);
+        // Finite inertia does not guarantee finite per-segment arithmetic.
+        // An invalid residual must never be interpreted as a good fit.
+        if (!std::isfinite(dm) || !std::isfinite(deltar)) {
+            return std::numeric_limits<double>::infinity();
+        }
         sum += dm * deltar;
+        if (!std::isfinite(sum)) {
+            return std::numeric_limits<double>::infinity();
+        }
     }
 
-    return sum / (divisor);
+    const double score = sum / divisor;
+    return std::isfinite(score) ? score : std::numeric_limits<double>::infinity();
 }
 
 auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
