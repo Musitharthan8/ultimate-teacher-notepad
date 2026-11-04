@@ -311,3 +311,12 @@ TEST(ShapeRecognizerRobustness, LegacyCircleRejectsNonFiniteSegmentLengths) {
     input.addPoint({-1e308, 0.0});
     EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
 }
+
+TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingWindingProducts) {
+    // The sampled coordinates and perimeter are finite, but the cross/dot
+    // products in the winding calculation overflow at this scale.
+    // A non-finite winding must never be treated as a valid single loop.
+    Stroke input;
+    ellipse(input, 0.0, 0.0, 1e155, 6e154, 0.31);
+    EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+}
