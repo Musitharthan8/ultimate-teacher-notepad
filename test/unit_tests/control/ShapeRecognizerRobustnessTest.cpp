@@ -72,6 +72,13 @@ void ellipse(Stroke& stroke, double cx, double cy, double rx, double ry, double 
     }
 }
 
+void expectFiniteVertices(const Stroke& stroke) {
+    for (const Point& p: stroke.getPointVector()) {
+        EXPECT_TRUE(std::isfinite(p.x));
+        EXPECT_TRUE(std::isfinite(p.y));
+    }
+}
+
 void expectClosed(const Stroke& stroke) {
     ASSERT_GT(stroke.getPointCount(), 3U);
     const auto& pts = stroke.getPointVector();
@@ -253,6 +260,7 @@ TEST(ShapeRecognizerRobustness, LargeCircleOutlineHasBoundedPointCount) {
     EXPECT_GE(result->getPointCount(), 25U);
     EXPECT_LE(result->getPointCount(), 513U);
     expectClosed(*result);
+    expectFiniteVertices(*result);
 }
 
 TEST(ShapeRecognizerRobustness, LargeSmoothEllipseOutlineHasBoundedPointCount) {
@@ -263,6 +271,7 @@ TEST(ShapeRecognizerRobustness, LargeSmoothEllipseOutlineHasBoundedPointCount) {
     EXPECT_GE(result->getPointCount(), 37U);
     EXPECT_LE(result->getPointCount(), 129U);
     expectClosed(*result);
+    expectFiniteVertices(*result);
 }
 
 
