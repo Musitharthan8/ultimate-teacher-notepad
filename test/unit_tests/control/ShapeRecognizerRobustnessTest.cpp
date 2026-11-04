@@ -281,3 +281,14 @@ TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingCircleNormalEquation
     ellipse(input, 0.0, 0.0, 1e105, 1e105, 0.0);
     EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
 }
+
+TEST(ShapeRecognizerRobustness, LegacyCircleRejectsOverflowingFiniteInertia) {
+    // All samples and the path length are finite. Weighted inertia products
+    // may nevertheless overflow; never turn their invalid score into a circle.
+    for (double radius: {1e80, 1e105}) {
+        SCOPED_TRACE(radius);
+        Stroke input;
+        ellipse(input, 0.0, 0.0, radius, radius, 0.0);
+        EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
+    }
+}
