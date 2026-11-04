@@ -264,3 +264,20 @@ TEST(ShapeRecognizerRobustness, LargeSmoothEllipseOutlineHasBoundedPointCount) {
     EXPECT_LE(result->getPointCount(), 129U);
     expectClosed(*result);
 }
+
+
+TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingFiniteFitMatrix) {
+    // Coordinates and path length remain finite, but fourth-power ellipse
+    // moments overflow. No NaN outline should escape the recogniser.
+    Stroke input;
+    ellipse(input, 0.0, 0.0, 1e80, 6e79, 0.31);
+    EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+}
+
+TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingCircleNormalEquations) {
+    // This radius overflows x^2 * x in the circle normal equations,
+    // although individual samples, endpoint gap and path length are finite.
+    Stroke input;
+    ellipse(input, 0.0, 0.0, 1e105, 1e105, 0.0);
+    EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+}
