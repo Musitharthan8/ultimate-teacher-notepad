@@ -76,6 +76,11 @@ auto CircleRecognizer::makeCircleShape(Stroke* originalStroke, Inertia& inertia)
     for (int i = 0; i <= npts; i++) {
         double x = inertia.centerX() + inertia.rad() * cos((2 * M_PI * i) / npts);
         double y = inertia.centerY() + inertia.rad() * sin((2 * M_PI * i) / npts);
+        // A finite centre and radius can still overflow when combined.
+        // Never emit a malformed stroke into the document model.
+        if (!std::isfinite(x) || !std::isfinite(y)) {
+            return nullptr;
+        }
         s->addPoint(Point(x, y));
     }
 
@@ -234,7 +239,12 @@ auto smoothOutline(Stroke* original, double cx, double cy, double rx, double ry,
     for (int i = 0; i <= segments; ++i) {
         const double phase = 2.0 * M_PI * i / segments;
         const double x = rx * std::cos(phase), y = ry * std::sin(phase);
-        fitted->addPoint(Point(cx + cosine * x - sine * y, cy + sine * x + cosine * y));
+        const double worldX = cx + cosine * x - sine * y;
+        const double worldY = cy + sine * x + cosine * y;
+        if (!std::isfinite(worldX) || !std::isfinite(worldY)) {
+            return nullptr;
+        }
+        fitted->addPoint(Point(worldX, worldY));
     }
     return fitted;
 }
