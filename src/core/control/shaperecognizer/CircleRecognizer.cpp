@@ -90,8 +90,10 @@ auto CircleRecognizer::scoreCircle(Stroke* s, Inertia& inertia) -> double {
     double divisor = inertia.getMass() * r0;
 
     // Todo: test: std::abs(divisor) <= std::numeric_limits<double>::epsilon()
-    if (divisor == 0) {
-        return 0;
+    if (!std::isfinite(r0) || !std::isfinite(divisor) || divisor <= 0.0 ||
+        !std::isfinite(inertia.centerX()) || !std::isfinite(inertia.centerY())) {
+        // An invalid inertia score must never be interpreted as a perfect circle.
+        return std::numeric_limits<double>::infinity();
     }
 
     double sum = 0.0;
@@ -143,6 +145,17 @@ auto CircleRecognizer::recognize(Stroke* stroke) -> std::unique_ptr<Stroke> {
     s.calc(points);
     RDEBUG("Mass=%.0f, Center=(%.1f,%.1f), I=(%.0f,%.0f, %.0f), Rad=%.2f, Det=%.4f", s.getMass(), s.centerX(),
            s.centerY(), s.xx(), s.yy(), s.xy(), s.rad(), s.det());
+
+    // Finite input coordinates and path length do not guarantee finite
+    // inertia: its weighted products can overflow for extreme coordinates.
+    // In particular, a NaN determinant must never reach the circle generator.
+    if (!std::isfinite(s.getMass()) || !std::isfinite(s.centerX()) ||
+        !std::isfinite(s.centerY()) || !std::isfinite(s.xx()) ||
+        !std::isfinite(s.yy()) || !std::isfinite(s.xy()) ||
+        !std::isfinite(s.rad()) || !std::isfinite(s.det()) ||
+        s.getMass() <= 0.0 || s.rad() <= 0.0) {
+        return nullptr;
+    }
 
     if (s.det() > CIRCLE_MIN_DET) {
         double score = CircleRecognizer::scoreCircle(stroke, s);
