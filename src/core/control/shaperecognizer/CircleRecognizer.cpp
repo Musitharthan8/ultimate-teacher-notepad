@@ -306,9 +306,16 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
         const Point& b = points[(i + 1) % points.size()];
         const double ax = a.x - meanX, ay = a.y - meanY;
         const double bx = b.x - meanX, by = b.y - meanY;
-        winding += std::atan2(ax * by - ay * bx, ax * bx + ay * by);
+        // Finite coordinates can still overflow cross/dot products. A NaN
+        // winding would bypass the tolerance comparison below.
+        const double cross = ax * by - ay * bx;
+        const double dot = ax * bx + ay * by;
+        if (!std::isfinite(cross) || !std::isfinite(dot)) {
+            return nullptr;
+        }
+        winding += std::atan2(cross, dot);
     }
-    if (std::abs(std::abs(winding) - 2.0 * M_PI) > 0.7) {
+    if (!std::isfinite(winding) || std::abs(std::abs(winding) - 2.0 * M_PI) > 0.7) {
         return nullptr;
     }
 
