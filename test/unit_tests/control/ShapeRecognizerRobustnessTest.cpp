@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "control/shaperecognizer/CircleRecognizer.h"
+#include "control/shaperecognizer/Inertia.h"
 #include "control/shaperecognizer/ShapeRecognizer.h"
 #include "model/Point.h"
 #include "model/Stroke.h"
@@ -300,4 +301,23 @@ TEST(ShapeRecognizerRobustness, LegacyCircleRejectsOverflowingFiniteInertia) {
         ellipse(input, 0.0, 0.0, radius, radius, 0.0);
         EXPECT_EQ(CircleRecognizer::recognize(&input), nullptr);
     }
+}
+
+TEST(ShapeRecognizerRobustness, CircleScoreRejectsOverflowingResidualAgainstValidInertia) {
+    // The scoring API can be called with a precomputed inertia. Its mass and
+    // radius may be perfectly valid even when the candidate stroke is not.
+    Stroke reference;
+    ellipse(reference, 50.0, 50.0, 12.0, 12.0, 0.0);
+    Inertia inertia;
+    inertia.calc(reference.getPointVector());
+    ASSERT_TRUE(std::isfinite(inertia.getMass()));
+    ASSERT_GT(inertia.rad(), 0.0);
+
+    Stroke malformed;
+    malformed.addPoint({-1e308, 0.0});
+    malformed.addPoint({1e308, 0.0});
+    malformed.addPoint({-1e308, 0.0});
+    const double score = CircleRecognizer::scoreCircle(&malformed, inertia);
+    EXPECT_TRUE(std::isinf(score));
+    EXPECT_GT(score, 0.0);
 }
