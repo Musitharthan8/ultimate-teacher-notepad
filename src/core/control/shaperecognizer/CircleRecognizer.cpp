@@ -165,6 +165,15 @@ constexpr double ELLIPSE_RELATIVE_RMS = 0.095;
 
 // Partial pivoting avoids introducing a geometry-library dependency. The caller centres its inputs.
 bool solveThreeByThree(double augmented[3][4], double result[3]) {
+    // Finite input points do not guarantee finite normal equations: products
+    // and accumulated fourth powers can overflow before the fit is solved.
+    for (const auto& row : augmented) {
+        for (double value : row) {
+            if (!std::isfinite(value)) {
+                return false;
+            }
+        }
+    }
     for (int col = 0; col < 3; ++col) {
         int pivot = col;
         for (int row = col + 1; row < 3; ++row) {
@@ -172,7 +181,7 @@ bool solveThreeByThree(double augmented[3][4], double result[3]) {
                 pivot = row;
             }
         }
-        if (std::abs(augmented[pivot][col]) < 1e-10) {
+        if (!std::isfinite(augmented[pivot][col]) || std::abs(augmented[pivot][col]) < 1e-10) {
             return false;
         }
         for (int j = col; j < 4; ++j) {
@@ -194,6 +203,9 @@ bool solveThreeByThree(double augmented[3][4], double result[3]) {
     }
     for (int i = 0; i < 3; ++i) {
         result[i] = augmented[i][3];
+        if (!std::isfinite(result[i])) {
+            return false;
+        }
     }
     return true;
 }
@@ -326,12 +338,14 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
         sumV2 += v2;
     }
     const double determinant = sumU4 * sumV4 - sumU2V2 * sumU2V2;
-    if (determinant <= 1e-12 * std::max(1.0, sumU4 * sumV4)) {
+    if (!std::isfinite(determinant) || !std::isfinite(sumU4 * sumV4) ||
+        determinant <= 1e-12 * std::max(1.0, sumU4 * sumV4)) {
         return nullptr;
     }
     const double aInverseSquared = (sumU2 * sumV4 - sumV2 * sumU2V2) / determinant;
     const double bInverseSquared = (sumV2 * sumU4 - sumU2 * sumU2V2) / determinant;
-    if (aInverseSquared <= 0 || bInverseSquared <= 0) {
+    if (!std::isfinite(aInverseSquared) || !std::isfinite(bInverseSquared) ||
+        aInverseSquared <= 0 || bInverseSquared <= 0) {
         return nullptr;
     }
     const double rx = 1.0 / std::sqrt(aInverseSquared);
@@ -350,5 +364,7 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
         relativeSquareError += delta * delta;
     }
     const double rms = std::sqrt(relativeSquareError / points.size());
-    return rms <= ELLIPSE_RELATIVE_RMS ? smoothOutline(stroke, meanX, meanY, rx, ry, angle) : nullptr;
+    return std::isfinite(rms) && rms <= ELLIPSE_RELATIVE_RMS
+                   ? smoothOutline(stroke, meanX, meanY, rx, ry, angle)
+                   : nullptr;
 }
