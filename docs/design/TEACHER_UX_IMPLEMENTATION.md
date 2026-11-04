@@ -366,3 +366,10 @@ On isolated branch `wip/phase6-chatgpt-legacy-inertia-finite-guard`, the legacy 
 ### Phase 6 follow-up: generated-loop finite-vertex validation (2026-11-04)
 
 On isolated branch `wip/phase6-chatgpt-loop-outline-safety`, both legacy and smooth circle/ellipse generators now check the final page-space vertex coordinates before appending them to a `Stroke`. A finite centre and finite radius/axis length do not necessarily yield finite coordinates after rotation and translation, so invalid output must be rejected rather than saved. The existing large-circle and rotated-ellipse regression cases now also assert all output vertices are finite. This branch follows `wip/phase6-chatgpt-legacy-inertia-finite-guard` and does not modify shared integration branches. **No C++ build or executable tests were run.** Before integration, run Windows MSYS2 UCRT64 compilation and `ShapeRecognizerRobustness`, full unit and GTK suites, and manual stylus tests. Review whether the production geometry pipeline can ever supply centre/axes near floating-point limits; this change is a defensive output invariant, not a claim of reproduced user-facing failure.
+
+
+### Phase 6 radial-score finite guard (isolated, unverified)
+
+Branch `wip/phase6-chatgpt-score-finite-guard` extends `wip/phase6-chatgpt-loop-outline-safety`. The legacy `scoreCircle` now returns positive infinity if a per-segment length, radial residual, accumulated error or final normalised score is non-finite. This is defensive validation of the scoring arithmetic, not a change to the normal acceptance threshold. A public-API regression test covers finite endpoint coordinates whose difference overflows segment length. The private scoring API is deliberately **not** invoked by tests.
+
+No Windows compilation or GTest/GTK execution was available during this pass. Before integration, run the full MSYS2 UCRT64 build, `ShapeRecognizerRobustness`, and GTK suite; check that ordinary circles still pass and handwriting negatives remain ink. The public-API test overlaps the earlier input-length guard and is not proof that the new scoring branch was executed.
