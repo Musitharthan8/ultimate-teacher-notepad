@@ -2,6 +2,8 @@
 
 Status: derived from code at `origin/feature/utn-teacher-ux-program` (5ac036b1f). This file records what the repo does today. It does not propose values. Where the code defines nothing, the entry says **not yet defined**.
 
+> **Provenance update 2026-11-05.** Section 16 describes the source of `wip/phase6-chatgpt-design-system`. That stack is now integrated and was built and GTK-tested on Windows (see "Verification update, 2026-11-05" in `TEACHER_UX_IMPLEMENTATION.md`); native rendering, High Contrast, colour contrast and screen-reader checks are still not done. The Codex audit reports that a later CSS rule gives context-side swatches an effective 24x26 target (the 44 px touch rule needs the `utnTouch` class), which the 44 px palette test does not cover.
+
 Source files cited throughout:
 
 - `CSS` = `ui/xournalpp.css` (the only UTN theme stylesheet; loaded by `MainWindow::loadMainCSS`, `src/core/gui/MainWindow.cpp`)

@@ -1,5 +1,7 @@
 # Ultimate Teacher Notepad: project update report
 
+> **Archival.** This is the Phase 3 report of 2026-10-30. The 483 unit and 109 GTK figures below are the Phase 3 numbers. Current status: `TEACHER_UX_IMPLEMENTATION.md`, "Verification update, 2026-11-05".
+
 Written 2026-10-30 for sharing with another assistant. It summarises the teacher-first UX programme up to the end of Phase 3.
 
 ## Project

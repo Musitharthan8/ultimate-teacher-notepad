@@ -263,6 +263,37 @@ Choosing a done step undoes back to before it; choosing an undone step redoes up
 
 ## Phase 6: ChatGPT cloud handoff (2026-11-03, review required)
 
+### Verification update, 2026-11-05 (Windows UCRT64): supersedes "not built, not run" below for this head
+
+The 63 ChatGPT commits were integrated on `integration/chatgpt-phase6` (pushed as `wip/phase6-integration`) and built
+and run on Windows 11 with MSYS2 UCRT64, `ninja -j2`. They are **not** merged into `feature/utn-teacher-ux-program`.
+
+- Build: exit 0 for `xournalpp`, `test-units` and `test-gtk-integration`.
+- Units: 595 passed, 1 skipped (`CrashChild.run`).
+- GTK, full suite without soak, stress, `heavySession*`, `longSession*`: 194 of 194 at 96 DPI (`__COMPAT_LAYER=DPIUNAWARE`), 0 GTK
+  CRITICAL or ERROR. At 120 DPI the full run before the last test commit passed 193 of 194, 0 CRITICAL; the one failure
+  (`TextContextualSettings`, which toggled Bold with the pen active, now refused by the new text gate) was fixed and passes alone.
+  A full 120 DPI rerun after that fix was not made.
+- Real `%LOCALAPPDATA%\utn\settings.xml` unchanged before and after (SHA-256 starts `667441dd910`, 15181 bytes, mtime 2026-11-03 17:15:34).
+  The first launch of the real app read that file because the isolating variables were set from bash; it was killed by PID
+  within a minute without saving, and the file was verified identical. Later runs used a scratch profile started from PowerShell.
+- The real app was launched on a scratch profile and driven with real mouse clicks (window-only capture): classroom header and
+  compact header, the Colours palette with all eight swatches, the Shapes menu, Smart Shape (a sloppy rectangle started mid-side
+  became a clean rectangle, a rough ellipse a clean ellipse), the Classroom controls popover, the ink dock.
+- Defects found by building and running, and fixed: two compile errors in the ChatGPT code (`CircleRecognizer.cpp`,
+  `ClassroomWorkflowTest.cpp`); the smooth-loop fallback turned sloppy rectangles and squares into ovals (rectangle-evidence guard);
+  an intermittent use-after-free in `UndoRedoHandler::undo/redo` (an undo that adds a step frees itself); palette swatches drawn as empty
+  frames (the dot inside the button was never shown; the GTK test passed because it checked only the button).
+- Codex audit (`utn-sdd-backup/codex-chatgpt-audit.md`, read-only, nothing built) of `7e9e864cf`: not safe to merge. Blockers fixed in
+  `64d33b33e` (classroom gate for the colour action and the text, eraser, highlight and Answer Box controls; callback lifetimes),
+  `09f5a0cda` (iterative polygon fallback, coordinate validation, removal of the obsolete "Minimum Stroke Size" preference),
+  `d76fe368d` (one ink palette for pen settings and the ink dock) and the docs (this section).
+- Audit items left open (not blocking): the corpus is synthetic (no real pen traces) and `freehandAcceptable` is never consulted; the
+  handwriting test allows one false positive per glyph and has no 8/O/0 cases; some `CircleRecognizerTest` assertions count outline
+  points instead of checking geometry; the context side-panel swatch CSS cascade (a later rule gives 24x26) is not covered by the 44 px test.
+- Still **not** verified: High Contrast and dark-mode native visual pass, NVDA/Narrator, touch and stylus, dual-display Student View,
+  the menubar dropdowns (Classroom, File), shuffled test order, real handwriting traces, the full 120 DPI suite after the last fix.
+
 **Never treat this section as a verified Windows build.** All commits below were created through the
 GitHub connector and reviewed statically. No CMake/Ninja, C++ unit suite, GTK integration suite,
 Windows UCRT64 test, native screen capture or real-profile hash check ran. The affected
