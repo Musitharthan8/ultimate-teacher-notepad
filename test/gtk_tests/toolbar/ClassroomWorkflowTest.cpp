@@ -8696,7 +8696,11 @@ void collectUnseen(GtkWidget* root, GtkWidget* popover, std::vector<std::string>
 void expectSwatchSeen(GtkWidget* popover, const char* name) {
     GtkWidget* swatch = buttonAccessibleNamed(popover, name);
     ASSERT_NE(swatch, nullptr) << name;
-    for (GtkWidget* w: {swatch, gtk_widget_get_parent(swatch)}) {
+    // The coloured dot inside the button is what is painted: a shown button around a hidden dot is an empty frame
+    // (a real screen showed exactly that while the button and its row passed)
+    GtkWidget* dot = gtk_bin_get_child(GTK_BIN(swatch));
+    ASSERT_NE(dot, nullptr) << name << " has its coloured dot";
+    for (GtkWidget* w: {dot, swatch, gtk_widget_get_parent(swatch)}) {
         GtkAllocation a{};
         gtk_widget_get_allocation(w, &a);
         EXPECT_TRUE(gtk_widget_get_visible(w)) << name;

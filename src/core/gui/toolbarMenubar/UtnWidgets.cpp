@@ -282,6 +282,9 @@ auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
                      }),
                      nullptr);
     gtk_button_set_child(GTK_BUTTON(button), dot);
+    // A container that is no-show-all (the palette's swatch row) is not entered by show_all, so the dot must be shown
+    // here or the swatch is an empty frame
+    gtk_widget_show(dot);
     return button;
 }
 
