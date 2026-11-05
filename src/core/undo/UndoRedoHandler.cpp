@@ -110,17 +110,22 @@ void UndoRedoHandler::undo() {
     this->undoList.pop_back();
     ++this->historyRevision;
 
+    // Running the step can change the history (an undo that adds a step clears the redo list, which frees this very
+    // action), and the error dialog runs a nested main loop. Read what is needed first and never touch the action after.
+    const std::vector<PageRef> pages = undoAction.getPages();
+    const std::string text = undoAction.getText();
+
     bool undoResult = undoAction.undo(this->control);
     this->lastStepOk = undoResult;
 
     if (!undoResult) {
         string msg = FS(_F("Could not undo \"{1}\"\n"
                            "Something went wrong… Please write a bug report…") %
-                        undoAction.getText());
+                        text);
         XojMsgBox::showErrorToUser(control->getGtkWindow(), msg);
     }
 
-    fireUpdateUndoRedoButtons(undoAction.getPages());
+    fireUpdateUndoRedoButtons(pages);
 
     printContents();
 }
@@ -138,17 +143,21 @@ void UndoRedoHandler::redo() {
     this->redoList.pop_back();
     ++this->historyRevision;
 
+    // See undo(): the step may change the history and free itself, and the error dialog runs a nested main loop
+    const std::vector<PageRef> pages = redoAction.getPages();
+    const std::string text = redoAction.getText();
+
     bool redoResult = redoAction.redo(this->control);
     this->lastStepOk = redoResult;
 
     if (!redoResult) {
         string msg = FS(_F("Could not redo \"{1}\"\n"
                            "Something went wrong… Please write a bug report…") %
-                        redoAction.getText());
+                        text);
         XojMsgBox::showErrorToUser(control->getGtkWindow(), msg);
     }
 
-    fireUpdateUndoRedoButtons(redoAction.getPages());
+    fireUpdateUndoRedoButtons(pages);
 
     printContents();
 }
