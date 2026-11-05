@@ -535,6 +535,20 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
  * The main pattern recognition function
  */
 auto ShapeRecognizer::recognizePatterns(Stroke* stroke) -> std::unique_ptr<Stroke> {
+    auto result = recognizeUnchecked(stroke);
+    // The legacy fits divide by segment mass and by the sine of the angle between edges: degenerate (zero-mass or
+    // parallel) segments give NaN or infinite corners. Whatever the cause, such a result is never handed back.
+    if (result) {
+        for (const Point& point: result->getPointVector()) {
+            if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+                return nullptr;
+            }
+        }
+    }
+    return result;
+}
+
+auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stroke> {
     this->stroke = stroke;
 
     // Every later step squares, multiplies and divides coordinates. Reject a stroke whose points are not finite, or so

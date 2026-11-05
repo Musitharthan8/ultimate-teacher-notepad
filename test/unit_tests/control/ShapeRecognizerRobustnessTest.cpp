@@ -368,3 +368,54 @@ TEST(ShapeRecognizerRobustness, strokesFarOutsideAnyPageAreLeftAloneAndLargeOffs
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->getPointCount(), 5U);
 }
+
+// Review (Codex, second pass): the legacy fits divide by segment mass and by the sine of the angle between edges, so
+// degenerate strokes (repeated points, collinear or parallel runs, two-point strokes) can produce NaN corners. Whatever
+// the recogniser decides about such a stroke, it must never hand back a non-finite point.
+TEST(ShapeRecognizerRobustness, degenerateStrokesNeverYieldNonFinitePoints) {
+    const auto addRun = [](Stroke& stroke, double x0, double y0, double x1, double y1, int steps, int repeat) {
+        for (int i = 0; i <= steps; ++i) {
+            const double t = static_cast<double>(i) / steps;
+            for (int r = 0; r < repeat; ++r) {
+                stroke.addPoint(Point(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t));
+            }
+        }
+    };
+    std::vector<std::unique_ptr<Stroke>> strokes;
+    for (const int repeat: {1, 3, 12}) {
+        auto parallel = std::make_unique<Stroke>();  // two parallel runs joined by a long return: parallel edges
+        addRun(*parallel, 0, 0, 100, 0, 8, repeat);
+        addRun(*parallel, 100, 0, 100, 40, 8, repeat);
+        addRun(*parallel, 100, 40, 0, 40, 8, repeat);
+        addRun(*parallel, 0, 40, 0, 0, 8, repeat);
+        strokes.push_back(std::move(parallel));
+
+        auto line = std::make_unique<Stroke>();  // a line drawn forth and back over itself
+        addRun(*line, 0, 0, 120, 60, 10, repeat);
+        addRun(*line, 120, 60, 0, 0, 10, repeat);
+        strokes.push_back(std::move(line));
+
+        auto dotsAndLine = std::make_unique<Stroke>();  // a few identical points, then one far point
+        for (int i = 0; i < 6; ++i) {
+            dotsAndLine->addPoint(Point(50, 50));
+        }
+        addRun(*dotsAndLine, 50, 50, 50, 140, 4, repeat);
+        strokes.push_back(std::move(dotsAndLine));
+
+        auto triangle = std::make_unique<Stroke>();  // a triangle with a collapsed (zero-length) side
+        addRun(*triangle, 0, 0, 100, 0, 8, repeat);
+        addRun(*triangle, 100, 0, 100, 0, 3, repeat);
+        addRun(*triangle, 100, 0, 0, 0, 8, repeat);
+        strokes.push_back(std::move(triangle));
+    }
+    for (size_t i = 0; i < strokes.size(); ++i) {
+        ShapeRecognizer recognizer;
+        const auto result = recognizer.recognizePatterns(strokes[i].get());
+        if (!result) {
+            continue;
+        }
+        for (const Point& point: result->getPointVector()) {
+            EXPECT_TRUE(std::isfinite(point.x) && std::isfinite(point.y)) << "stroke " << i;
+        }
+    }
+}

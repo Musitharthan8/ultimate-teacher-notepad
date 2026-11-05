@@ -220,9 +220,10 @@ TEST(ShapeGlyphs, handwritingStaysHandwriting) {
         if (glyph.ambiguous) {
             continue;  // reported above, not gated
         }
-        // A small, sloppy D really is a circle with a flat side. At most one such case per glyph is tolerated (measured:
-        // D, 1 in 90); neat and typical writing must never change (checked below).
-        EXPECT_LE(t.shape, 1U) << glyph.name << " was turned into a rectangle, triangle or circle too often";
+        // No false positive is tolerated, except one documented case: a small, sloppy D really is a circle with a flat
+        // side (measured: D, 1 in 90). Neat and typical writing must never change (checked below).
+        const size_t tolerated = std::string(glyph.name) == "D" ? 1U : 0U;
+        EXPECT_LE(t.shape, tolerated) << glyph.name << " was turned into a rectangle, triangle or circle";
         if (!glyph.mayBecomeLine) {
             EXPECT_EQ(t.line, 0U) << glyph.name << " was turned into a straight line";
         }

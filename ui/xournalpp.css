@@ -982,11 +982,6 @@ window.utnShell #tbLeft1 button.utn-tool-arrow {
     padding: 2px;
     margin: 0;
 }
-window.utnShell #utnContextSide .utn-swatches button {
-    min-width: 24px;
-    min-height: 26px;
-    padding: 2px;
-}
 window.utnShell #utnContextSide {
     padding: 8px 4px;
     border-right: 1px solid alpha(@theme_fg_color, 0.15);

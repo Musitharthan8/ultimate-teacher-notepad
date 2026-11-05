@@ -31,6 +31,8 @@ public:
     void resetRecognizer();
 
 private:
+    /// The recognition itself; recognizePatterns only adds the check that nothing non-finite is ever returned
+    auto recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stroke>;
     auto tryTriangle() -> std::unique_ptr<Stroke>;
     auto tryRectangle() -> std::unique_ptr<Stroke>;
 

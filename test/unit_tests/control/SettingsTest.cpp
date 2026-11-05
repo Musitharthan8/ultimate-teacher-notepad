@@ -10,6 +10,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <chrono>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -111,10 +112,13 @@ TEST(SettingsTest, aSavedThemeChoiceIsKept) {
 // Smart Shape has one fixed minimum size now. A profile saved before that still carries strokeRecognizerMinSize: it
 // must load without complaint and the next save must no longer write it.
 TEST(SettingsTest, anOldProfilesRemovedStrokeRecognizerMinSizeLoadsAndIsNotWrittenAgain) {
-    const fs::path path = fs::temp_directory_path() / "xournalpp-test-units_Settings_oldMinSize.xml";
+    // A name no concurrent test process can share
+    const fs::path path = fs::temp_directory_path() / ("xournalpp-test-units_Settings_oldMinSize_" +
+                                                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".xml");
     fs::remove(path);
     {
         std::ofstream out(path);
+        ASSERT_TRUE(out.is_open());
         out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<settings>\n"
                "  <property name=\"strokeRecognizerMinSize\" value=\"42\"/>\n"
                "  <property name=\"themeVariant\" value=\"forceDark\"/>\n</settings>\n";

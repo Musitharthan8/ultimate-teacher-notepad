@@ -362,7 +362,7 @@ double meanDeviation(const Stroke& original, const Stroke& result, double size) 
 
 TEST(ShapeCorpus, measurePositivesAndHandwriting) {
     struct Tally {
-        size_t total = 0, correct = 0, freehand = 0, wrong = 0, distorted = 0;
+        size_t total = 0, correct = 0, freehand = 0, wrong = 0, distorted = 0, missedClean = 0;
     };
     std::map<std::string, Tally> byLabel;
     std::map<std::string, std::map<std::string, size_t>> wrongDetail;
@@ -385,6 +385,8 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
                 if (result && meanDeviation(*s.stroke, *result, s.size) > 0.10) ++t.distorted;
             } else if (got == Outcome::Freehand) {
                 ++t.freehand;
+                // Leaving truly sloppy ink alone is fine (freehandAcceptable); leaving a clean shape alone is a miss
+                if (s.expected != Outcome::Freehand && !s.freehandAcceptable) ++t.missedClean;
             } else {
                 ++t.wrong;
                 ++wrongDetail[s.label][name(got)];
@@ -402,10 +404,11 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
     run(negatives());
 
     std::cout << std::left << std::setw(14) << "label" << std::setw(8) << "total" << std::setw(10) << "correct"
-              << std::setw(10) << "freehand" << std::setw(8) << "wrong" << "distorted\n";
+              << std::setw(10) << "freehand" << std::setw(8) << "wrong" << std::setw(11) << "distorted"
+              << "missedClean\n";
     for (const auto& [label, t] : byLabel) {
         std::cout << std::setw(14) << label << std::setw(8) << t.total << std::setw(10) << t.correct << std::setw(10)
-                  << t.freehand << std::setw(8) << t.wrong << t.distorted;
+                  << t.freehand << std::setw(8) << t.wrong << std::setw(11) << t.distorted << t.missedClean;
         for (const auto& [k, v] : wrongDetail[label]) std::cout << "  ->" << k << ":" << v;
         std::cout << "\n";
     }
@@ -434,7 +437,17 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
     EXPECT_GE(recall("rectangle"), 0.60);
     EXPECT_GE(recall("square"), 0.75);
     EXPECT_GE(recall("triangle"), 0.70);
-    // Ellipses are deliberately left as freehand today; they must never become something else (checked above).
+    // Ellipses are recognised as ovals now (the smooth-loop fit); the few left alone are the sloppiest.
+    EXPECT_GE(recall("ellipse"), 0.95);
+
+    // Leaving a CLEAN shape as ink is a miss (only truly sloppy ink may be left alone: freehandAcceptable). These are the
+    // misses measured on 2026-11-05; they must not grow. Circles and ellipses miss none.
+    EXPECT_EQ(byLabel["circle"].missedClean, 0U);
+    EXPECT_EQ(byLabel["ellipse"].missedClean, 0U);
+    EXPECT_LE(byLabel["line"].missedClean, 7U);
+    EXPECT_LE(byLabel["rectangle"].missedClean, 7U);
+    EXPECT_LE(byLabel["square"].missedClean, 4U);
+    EXPECT_LE(byLabel["triangle"].missedClean, 7U);
 
     // A neatly drawn polygon started at a corner is the ideal case and must be recognised nearly always.
     for (const char* label : {"rectangle", "square", "triangle"}) {

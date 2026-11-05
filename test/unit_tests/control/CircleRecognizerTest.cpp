@@ -141,8 +141,22 @@ std::unique_ptr<Stroke> pipelineOutline(const Stroke& input) {
     return recognizer.recognizePatterns(copy.get());
 }
 
-// The full pipeline reports a round shape as a fitted outline of at least 25 points (see the test above).
-bool isRoundOutline(const Stroke* result) { return result && result->getPointCount() >= 25U; }
+// A round shape is a fitted outline of at least 25 points that closes on itself and has only finite vertices: a count
+// alone would also pass a polygon with many sides or an outline that never closes.
+bool isRoundOutline(const Stroke* result) {
+    if (!result || result->getPointCount() < 25U) {
+        return false;
+    }
+    const auto& points = result->getPointVector();
+    for (const Point& p: points) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y)) {
+            return false;
+        }
+    }
+    const auto bounds = result->getSnappedBounds();
+    const double diagonal = std::hypot(bounds.width, bounds.height);
+    return std::hypot(points.front().x - points.back().x, points.front().y - points.back().y) < 0.02 * diagonal;
+}
 
 // Shorter bounding-box side over longer: 1 for a circle, the axis ratio for an ellipse.
 double outlineAspect(const Stroke& outline) {

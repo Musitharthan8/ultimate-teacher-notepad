@@ -9760,3 +9760,44 @@ TEST_F(ClassroomWorkflow, theColourActionAndTextEraserAndHighlightControlsRefuse
     }
     control->selectTool(TOOL_PEN);
 }
+
+// Review (Codex, second pass): a pen preset selects the tool, colour and size, and "Reveal" shows hidden answers to the
+// class. Both must wait for the same gate as every other teacher control: busy, the Blank cover and quiet Present.
+// Hiding stays available on purpose (it is the protective direction).
+TEST_F(ClassroomWorkflow, penPresetsAndRevealRefuseWhileBusyBlankOrQuietPresent) {
+    PenPresetsGuard presetsGuard(control.get());
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
+
+    struct Gate {
+        const char* name;
+        std::function<void()> close;
+        std::function<void()> open;
+    };
+    const Gate gates[] = {
+            {"busy", [&] { control->block("gate test"); }, [&] { control->unblock(); }},
+            {"Blank", [&] { students->showTeacherBlankCover(true); }, [&] { students->showTeacherBlankCover(false); }},
+            {"quiet Present", [&] { window->toolbarSelected("UTN Present"); }, [&] { window->toolbarSelected("UTN Teacher"); }},
+    };
+    for (const Gate& gate: gates) {
+        SCOPED_TRACE(gate.name);
+        prepareHighlighter(control.get());
+        const ToolSnapshot before = snapshotTools(control.get());
+        gate.close();
+        settle();
+        EXPECT_FALSE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID)) << "the preset must be refused";
+        EXPECT_TRUE(snapshotTools(control.get()) == before) << "tool, colour and size stay as they were";
+        EXPECT_EQ(utn::revealAnswersFromUi(control.get(), false), utn::RevealOutcome::Refused);
+        EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true), utn::RevealOutcome::Refused);
+        gate.open();
+        settle();
+        EXPECT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID)) << "and works again once it opens";
+        EXPECT_EQ(tools->getToolType(), TOOL_PEN);
+    }
+    control->selectTool(TOOL_PEN);
+}
