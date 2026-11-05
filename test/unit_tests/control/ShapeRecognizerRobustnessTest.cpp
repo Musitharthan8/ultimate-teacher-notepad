@@ -3,6 +3,8 @@
  * No GTK, settings profile or real user data is touched.
  */
 
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -91,7 +93,7 @@ TEST(ShapeRecognizerRobustness, SmallNoisyGappedCircleUsesScaleNotSavedLargeThre
     Stroke input;
     ellipse(input, 60.0, 55.0, 6.5, 6.5, 0.0, 2.0 * PI - 0.36, 0.20);
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(&input, 60.0);
+    auto result = recognizer.recognizePatterns(&input);
     ASSERT_NE(result, nullptr);
     EXPECT_GE(result->getPointCount(), 24U);
     expectClosed(*result);
@@ -110,7 +112,7 @@ TEST(ShapeRecognizerRobustness, SmallRotatedRectangleWhoseStrokeStartsMidEdge) {
     Stroke input;
     rectangleStartingMidEdge(input, corners);
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(&input, 60.0);
+    auto result = recognizer.recognizePatterns(&input);
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->getPointCount(), 5U);
     expectClosed(*result);
@@ -125,7 +127,7 @@ TEST(ShapeRecognizerRobustness, NoisyGappedRotatedTriangle) {
     Stroke input;
     polygon(input, corners, 20, true, 0.16);
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(&input, 60.0);
+    auto result = recognizer.recognizePatterns(&input);
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->getPointCount(), 4U);
     expectClosed(*result);
@@ -135,7 +137,7 @@ TEST(ShapeRecognizerRobustness, RotatedGappedEllipseNotMistakenForACircle) {
     Stroke input;
     ellipse(input, 95.0, 95.0, 26.0, 13.0, 0.41, 2.0 * PI - 0.30, 0.28);
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(&input, 60.0);
+    auto result = recognizer.recognizePatterns(&input);
     ASSERT_NE(result, nullptr);
     EXPECT_GE(result->getPointCount(), 24U);
     expectClosed(*result);
@@ -159,7 +161,7 @@ TEST(ShapeRecognizerRobustness, GappedTriangleRecognisesAcrossDrawingScales) {
                 Point{scale * 1.0, scale * 10.0}};
         polygon(input, corners, 20, true, 0.12 * scale);
         ShapeRecognizer recognizer;
-        auto result = recognizer.recognizePatterns(&input, 80.0);
+        auto result = recognizer.recognizePatterns(&input);
         ASSERT_NE(result, nullptr);
         EXPECT_EQ(result->getPointCount(), 4U) << "Triangle must not become a circle or line";
         expectClosed(*result);
@@ -175,7 +177,7 @@ TEST(ShapeRecognizerRobustness, OpenCShapedStrokeRemainsInk) {
     Stroke input;
     ellipse(input, 45.0, 45.0, 20.0, 20.0, 0.0, 1.65 * PI, 0.12);
     ShapeRecognizer recognizer;
-    EXPECT_EQ(recognizer.recognizePatterns(&input, 80.0), nullptr);
+    EXPECT_EQ(recognizer.recognizePatterns(&input), nullptr);
 }
 
 TEST(ShapeRecognizerRobustness, HandwritingLikeLoopWithStemAndCrossbarStaysInk) {
@@ -189,7 +191,7 @@ TEST(ShapeRecognizerRobustness, HandwritingLikeLoopWithStemAndCrossbarStaysInk) 
         input.addPoint({36.0 - i * 0.9, 32.0});
     }
     ShapeRecognizer recognizer;
-    EXPECT_EQ(recognizer.recognizePatterns(&input, 60.0), nullptr);
+    EXPECT_EQ(recognizer.recognizePatterns(&input), nullptr);
 }
 
 TEST(ShapeRecognizerRobustness, LegacyCircleRejectsNonFinitePoints) {
@@ -319,4 +321,50 @@ TEST(ShapeRecognizerRobustness, SmoothLoopRejectsOverflowingWindingProducts) {
     Stroke input;
     ellipse(input, 0.0, 0.0, 1e155, 6e154, 0.31);
     EXPECT_EQ(CircleRecognizer::recognizeSmoothLoop(&input), nullptr);
+}
+
+// Review (Codex): the polygon fallback recursed per corner candidate, so a dense contour with hundreds of corners could
+// recurse deeply and scan quadratically on the UI thread. The simplifier is iterative and gives up after four sides.
+TEST(ShapeRecognizerRobustness, aDenseZigZagLoopIsRejectedQuicklyAndLeftAsInk) {
+    Stroke input;
+    constexpr int points = 4000;
+    for (int i = 0; i <= points; ++i) {
+        const double angle = 2.0 * M_PI * i / points;
+        const double radius = (i % 2 == 0) ? 100.0 : 62.0;  // every sample is a corner
+        input.addPoint(Point(300.0 + radius * std::cos(angle), 300.0 + radius * std::sin(angle)));
+    }
+    ShapeRecognizer recognizer;
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = recognizer.recognizePatterns(&input);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    EXPECT_EQ(result, nullptr) << "a saw-tooth loop is not a shape";
+    EXPECT_LT(elapsed.count(), 1000) << "bounded work, took " << elapsed.count() << " ms";
+}
+
+// Squares, products and fourth powers in the fits assume page-sized numbers. A stroke far outside any page, or with
+// coordinates that would overflow them, is left alone before anything computes with it.
+TEST(ShapeRecognizerRobustness, strokesFarOutsideAnyPageAreLeftAloneAndLargeOffsetsStillWork) {
+    const auto rectangleAt = [](double offsetX, double offsetY) {
+        auto stroke = std::make_unique<Stroke>();
+        const std::array<std::pair<double, double>, 5> corners{{{0, 0}, {120, 0}, {120, 80}, {0, 80}, {0, 0}}};
+        for (size_t c = 0; c + 1 < corners.size(); ++c) {
+            for (int step = 0; step < 10; ++step) {
+                const double t = step / 10.0;
+                stroke->addPoint(Point(offsetX + corners[c].first + (corners[c + 1].first - corners[c].first) * t,
+                                       offsetY + corners[c].second + (corners[c + 1].second - corners[c].second) * t));
+            }
+        }
+        stroke->addPoint(Point(offsetX, offsetY));
+        return stroke;
+    };
+    for (const double offset: {5.0e7, 1.0e200}) {
+        auto far = rectangleAt(offset, offset);
+        ShapeRecognizer recognizer;
+        EXPECT_EQ(recognizer.recognizePatterns(far.get()), nullptr) << "offset " << offset;
+    }
+    auto large = rectangleAt(1.0e5, 1.0e5);  // a very long scroll, still a page-sized number
+    ShapeRecognizer recognizer;
+    const auto result = recognizer.recognizePatterns(large.get());
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->getPointCount(), 5U);
 }

@@ -27,7 +27,7 @@ public:
     ShapeRecognizer();
     virtual ~ShapeRecognizer();
 
-    auto recognizePatterns(Stroke* stroke, double strokeMinSize) -> std::unique_ptr<Stroke>;
+    auto recognizePatterns(Stroke* stroke) -> std::unique_ptr<Stroke>;
     void resetRecognizer();
 
 private:

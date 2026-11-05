@@ -371,7 +371,7 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
     auto run = [&](std::vector<Sample> samples) {
         for (auto& s : samples) {
             ShapeRecognizer reco;
-            auto result = reco.recognizePatterns(s.stroke.get(), 0.0);
+            auto result = reco.recognizePatterns(s.stroke.get());
             const Outcome got = classify(s.stroke.get(), result.get());
             if (!s.quality.empty()) {
                 auto& d = detail[s.label + "/" + s.quality + "/" + std::to_string(static_cast<int>(s.size))];

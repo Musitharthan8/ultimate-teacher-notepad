@@ -10,6 +10,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #include "control/settings/Settings.h"
 
@@ -103,4 +106,32 @@ TEST(SettingsTest, aSavedThemeChoiceIsKept) {
         EXPECT_EQ(loaded.getThemeVariant(), saved);
         fs::remove(path);
     }
+}
+
+// Smart Shape has one fixed minimum size now. A profile saved before that still carries strokeRecognizerMinSize: it
+// must load without complaint and the next save must no longer write it.
+TEST(SettingsTest, anOldProfilesRemovedStrokeRecognizerMinSizeLoadsAndIsNotWrittenAgain) {
+    const fs::path path = fs::temp_directory_path() / "xournalpp-test-units_Settings_oldMinSize.xml";
+    fs::remove(path);
+    {
+        std::ofstream out(path);
+        out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<settings>\n"
+               "  <property name=\"strokeRecognizerMinSize\" value=\"42\"/>\n"
+               "  <property name=\"themeVariant\" value=\"forceDark\"/>\n</settings>\n";
+    }
+    {
+        Settings loaded(path);
+        EXPECT_TRUE(loaded.load());
+        EXPECT_EQ(loaded.getThemeVariant(), THEME_VARIANT_FORCE_DARK) << "the rest of the profile is kept";
+        loaded.transactionStart();
+        loaded.setThemeVariant(THEME_VARIANT_HIGH_CONTRAST);  // any change makes it save
+        loaded.transactionEnd();
+    }
+    std::ifstream in(path);
+    std::stringstream content;
+    content << in.rdbuf();
+    in.close();
+    EXPECT_EQ(content.str().find("strokeRecognizerMinSize"), std::string::npos);
+    EXPECT_NE(content.str().find("highContrast"), std::string::npos) << "and the file really was saved again";
+    fs::remove(path);
 }

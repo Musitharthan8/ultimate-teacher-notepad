@@ -200,7 +200,7 @@ void StrokeHandler::onButtonReleaseEvent(const PositionInputData& pos, double zo
         std::unique_ptr<Stroke> recognized;
         {
             utn::perf::ScopedTimer recognizerTimer(utn::perf::Metric::Recognizer);
-            recognized = reco.recognizePatterns(stroke.get(), control->getSettings()->getStrokeRecognizerMinSize());
+            recognized = reco.recognizePatterns(stroke.get());
         }
 
         if (recognized) {

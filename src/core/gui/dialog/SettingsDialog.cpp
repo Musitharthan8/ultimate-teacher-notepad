@@ -437,9 +437,6 @@ void SettingsDialog::load() {
     GtkWidget* spSnapGridSize = builder.get("spSnapGridSize");
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(spSnapGridSize), settings->getSnapGridSize() / DEFAULT_GRID_SIZE);
 
-    GtkWidget* spStrokeRecognizerMinSize = builder.get("spStrokeRecognizerMinSize");
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spStrokeRecognizerMinSize), settings->getStrokeRecognizerMinSize());
-
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(builder.get("edgePanSpeed")), settings->getEdgePanSpeed());
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(builder.get("edgePanMaxMult")), settings->getEdgePanMaxMult());
 
@@ -1051,9 +1048,6 @@ void SettingsDialog::save() {
             static_cast<double>(gtk_spin_button_get_value(GTK_SPIN_BUTTON(builder.get("spSnapGridTolerance")))));
     settings->setSnapGridSize(static_cast<double>(
             gtk_spin_button_get_value(GTK_SPIN_BUTTON(builder.get("spSnapGridSize"))) * DEFAULT_GRID_SIZE));
-
-    settings->setStrokeRecognizerMinSize(
-            static_cast<double>(gtk_spin_button_get_value(GTK_SPIN_BUTTON(builder.get("spStrokeRecognizerMinSize")))));
 
 #ifdef ENABLE_AUDIO
     auto file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(builder.get("fcAudioPath")));

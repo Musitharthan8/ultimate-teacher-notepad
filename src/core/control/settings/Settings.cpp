@@ -148,9 +148,6 @@ void Settings::loadDefault() {
     this->snapGridTolerance = 0.50;
     this->snapGridSize = DEFAULT_GRID_SIZE;
 
-    // UTN: recognise small classroom diagrams while leaving the threshold adjustable.
-    this->strokeRecognizerMinSize = 18;
-
     this->touchDrawing = false;
     this->gtkTouchInertialScrolling = true;
 
@@ -615,7 +612,8 @@ void Settings::parseItem(xmlDocPtr doc, xmlNodePtr cur) {
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("snapGridTolerance")) == 0) {
         this->snapGridTolerance = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("strokeRecognizerMinSize")) == 0) {
-        this->strokeRecognizerMinSize = tempg_ascii_strtod(reinterpret_cast<const char*>(value), nullptr);
+        // Removed setting: older profiles still carry it. Smart Shape uses one fixed minimum size now, so it is read and
+        // dropped here, and the next save no longer writes it.
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("touchDrawing")) == 0) {
         this->touchDrawing = xmlStrcmp(value, reinterpret_cast<const xmlChar*>("true")) == 0;
     } else if (xmlStrcmp(name, reinterpret_cast<const xmlChar*>("gtkTouchInertialScrolling")) == 0) {
@@ -1134,8 +1132,6 @@ void Settings::save() {
     SAVE_DOUBLE_PROP(snapGridTolerance);
     SAVE_DOUBLE_PROP(snapGridSize);
 
-    SAVE_DOUBLE_PROP(strokeRecognizerMinSize);
-
     SAVE_BOOL_PROP(touchDrawing);
     SAVE_BOOL_PROP(gtkTouchInertialScrolling);
     SAVE_BOOL_PROP(pressureGuessing);
@@ -1639,16 +1635,6 @@ void Settings::setSnapGridSize(double gridSize) {
     this->snapGridSize = gridSize;
     save();
 }
-
-auto Settings::getStrokeRecognizerMinSize() const -> double { return this->strokeRecognizerMinSize; };
-void Settings::setStrokeRecognizerMinSize(double value) {
-    if (this->strokeRecognizerMinSize == value) {
-        return;
-    }
-
-    this->strokeRecognizerMinSize = value;
-    save();
-};
 
 auto Settings::getTouchDrawingEnabled() const -> bool { return this->touchDrawing; }
 

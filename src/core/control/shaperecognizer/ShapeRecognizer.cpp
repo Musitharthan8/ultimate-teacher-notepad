@@ -333,6 +333,9 @@ auto ShapeRecognizer::isStrokeLargeEnough(Stroke* stroke, double strokeMinSize) 
 }
 
 namespace {
+// A page is a few thousand units across. Beyond this, squares and sums of squares in the fits could overflow.
+constexpr double MAX_RECOGNIZER_COORDINATE = 1.0e7;
+
 // A box or triangle found after restarting at a corner must stay this close to what was drawn, else leave the ink
 constexpr double RESTART_MAX_DEVIATION = 0.06;
 
@@ -406,23 +409,35 @@ double distanceToEdge(const Point& p, const Point& a, const Point& b) {
     return std::hypot(p.x - a.x - fraction * dx, p.y - a.y - fraction * dy);
 }
 
-void simplifyContour(const std::vector<Point>& points, size_t first, size_t last, double tolerance,
-                     std::vector<size_t>& indices) {
-    double worst = tolerance;
-    size_t split = first;
-    for (size_t i = first + 1; i < last; ++i) {
-        const double deviation = distanceToEdge(points[i], points[first], points[last]);
-        if (deviation > worst) {
-            worst = deviation;
-            split = i;
+/// Douglas-Peucker with an explicit stack, left to right, that gives up (returns false) as soon as it is certain to
+/// end with more than @p maxSegments segments: every pending range yields at least one more. That bounds the depth by
+/// maxSegments, so the work is linear in the points whatever the stroke looks like, and nothing recurses.
+bool simplifyContour(const std::vector<Point>& points, size_t first, size_t last, double tolerance,
+                     std::vector<size_t>& indices, size_t maxSegments) {
+    std::vector<std::pair<size_t, size_t>> pending{{first, last}};
+    while (!pending.empty()) {
+        if (indices.size() - 1 + pending.size() > maxSegments) {
+            return false;
         }
+        const auto [from, to] = pending.back();
+        pending.pop_back();
+        double worst = tolerance;
+        size_t split = from;
+        for (size_t i = from + 1; i < to; ++i) {
+            const double deviation = distanceToEdge(points[i], points[from], points[to]);
+            if (deviation > worst) {
+                worst = deviation;
+                split = i;
+            }
+        }
+        if (split == from) {
+            indices.push_back(to);
+            continue;
+        }
+        pending.emplace_back(split, to);  // the right part waits, the left part is taken next
+        pending.emplace_back(from, split);
     }
-    if (split == first) {
-        indices.push_back(last);
-        return;
-    }
-    simplifyContour(points, first, split, tolerance, indices);
-    simplifyContour(points, split, last, tolerance, indices);
+    return true;
 }
 
 auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
@@ -431,8 +446,8 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
         return nullptr;
     }
     const auto& points = restarted->getPointVector();
-    // Douglas-Peucker's recursive worst case is quadratic. Dense stylus scribbles must
-    // never monopolise the UI thread or exhaust its stack; leave them as ordinary ink.
+    // Dense stylus scribbles must never monopolise the UI thread: simplifyContour is iterative and linear, and this
+    // cap bounds the later per-point corner and error passes. Anything larger stays ordinary ink.
     if (points.size() < 12 || points.size() > 4096) {
         return nullptr;
     }
@@ -453,7 +468,9 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
         return nullptr;
     }
     std::vector<size_t> indices{0};
-    simplifyContour(points, 0, n, 0.05 * diagonal, indices);
+    if (!simplifyContour(points, 0, n, 0.05 * diagonal, indices, 4)) {
+        return nullptr;  // more than four sides: neither a triangle nor a box
+    }
     const size_t cornersCount = indices.size() - 1;
     if (cornersCount != 3 && cornersCount != 4) {
         return nullptr;
@@ -517,8 +534,17 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
 /**
  * The main pattern recognition function
  */
-auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/) -> std::unique_ptr<Stroke> {
+auto ShapeRecognizer::recognizePatterns(Stroke* stroke) -> std::unique_ptr<Stroke> {
     this->stroke = stroke;
+
+    // Every later step squares, multiplies and divides coordinates. Reject a stroke whose points are not finite, or so
+    // far off the page that those products could overflow, before anything (even the cached bounds) sees it.
+    for (const Point& point: stroke->getPointVector()) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || std::abs(point.x) > MAX_RECOGNIZER_COORDINATE ||
+            std::abs(point.y) > MAX_RECOGNIZER_COORDINATE) {
+            return nullptr;
+        }
+    }
 
     // Former per-profile minimum sizes could reject ordinary small diagrams (and the slider is no longer
     // displayed). The same conservative 8-page-unit diagonal now applies regardless of legacy settings.
@@ -608,7 +634,8 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/
                 const double num = dy * last.x - dx * last.y + Q.x * P.y - Q.y * P.x;
                 const double num2 = num * num;
                 const double den2 = dy * dy + dx * dx;
-                const double dist2 = num2 / den2;
+                // A degenerate (zero-length) fitted line has no distance to the last point: keep the ink's own ends
+                const double dist2 = den2 > 0.0 ? num2 / den2 : std::numeric_limits<double>::infinity();
 
                 if (dist2 < LINE_POINT_DIST2_THRESHOLD) {
                     s->addPoint(P);
@@ -629,7 +656,7 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke, double /*strokeMinSize*/
         if (auto restarted = restartAtSharpestCorner(stroke)) {
             ShapeRecognizer again;
             again.restartedAtCorner = true;
-            auto result = again.recognizePatterns(restarted.get(), 0.0);
+            auto result = again.recognizePatterns(restarted.get());
             if (result && (result->getPointCount() == 4 || result->getPointCount() == 5) &&
                 cornerDeviation(*result, *stroke) <= RESTART_MAX_DEVIATION) {
                 RDEBUG("return polygon after restarting at a corner");

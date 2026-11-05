@@ -334,9 +334,6 @@ public:
     double getSnapGridSize() const;
     void setSnapGridSize(double gridSize);
 
-    double getStrokeRecognizerMinSize() const;
-    void setStrokeRecognizerMinSize(double value);
-
     StylusCursorType getStylusCursorType() const;
     void setStylusCursorType(StylusCursorType stylusCursorType);
 
@@ -1061,11 +1058,6 @@ private:
 
     /// Grid size for Snapping
     double snapGridSize{};
-
-    /**
-     * Minimum size of stroke to detect shape
-     */
-    double strokeRecognizerMinSize{};
 
     /// Touchscreens act like multi-touch-aware pens.
     bool touchDrawing{};

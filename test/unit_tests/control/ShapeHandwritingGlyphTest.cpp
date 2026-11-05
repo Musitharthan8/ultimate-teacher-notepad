@@ -184,7 +184,7 @@ TEST(ShapeGlyphs, handwritingStaysHandwriting) {
                     auto stroke = render(glyph, height, q, rng.range(-0.25, 0.25), rng);
                     ShapeRecognizer reco;
                     const auto start = std::chrono::steady_clock::now();
-                    auto result = reco.recognizePatterns(stroke.get(), 0.0);
+                    auto result = reco.recognizePatterns(stroke.get());
                     worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
                     auto& t = byGlyph[glyph.name];
                     ++t.total;
@@ -296,7 +296,7 @@ TEST(ShapeRobustness, veryDenseStrokesAreRecognisedQuicklyAndCorrectly) {
             auto stroke = strokeOf(c.path);
             ShapeRecognizer reco;
             const auto start = std::chrono::steady_clock::now();
-            auto result = reco.recognizePatterns(stroke.get(), 0.0);
+            auto result = reco.recognizePatterns(stroke.get());
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             EXPECT_TRUE(result) << c.name << " with " << n << " points was not recognised";
             EXPECT_LT(ms, 50.0) << c.name << " with " << n << " points took " << ms << " ms";
@@ -313,8 +313,8 @@ TEST(ShapeRobustness, sparseFastStrokesNeverBecomeADifferentShape) {
         auto rect = strokeOf(rectanglePath(120, 80, perSide));
         auto tri = strokeOf(trianglePath(120, perSide));
         ShapeRecognizer r1, r2;
-        auto rectResult = r1.recognizePatterns(rect.get(), 0.0);
-        auto triResult = r2.recognizePatterns(tri.get(), 0.0);
+        auto rectResult = r1.recognizePatterns(rect.get());
+        auto triResult = r2.recognizePatterns(tri.get());
         if (rectResult) {
             EXPECT_TRUE(pointsOf(rectResult) == 5U || pointsOf(rectResult) == 4U)
                     << "a rectangle flick with " << perSide << " points per side became " << pointsOf(rectResult);
@@ -337,13 +337,13 @@ TEST(ShapeRobustness, theAnswerDoesNotDependOnTheSizeOfTheShape) {
         for (auto& c: cases) {
             auto stroke = strokeOf(c.path, scale);
             ShapeRecognizer reco;
-            auto result = reco.recognizePatterns(stroke.get(), 0.0);
+            auto result = reco.recognizePatterns(stroke.get());
             ASSERT_TRUE(result) << c.name << " at scale " << scale;
             EXPECT_EQ(pointsOf(result), c.expectedPoints) << c.name << " at scale " << scale;
         }
         auto circle = strokeOf(circlePath(60, 120), scale);
         ShapeRecognizer reco;
-        auto result = reco.recognizePatterns(circle.get(), 0.0);
+        auto result = reco.recognizePatterns(circle.get());
         ASSERT_TRUE(result) << "circle at scale " << scale;
         EXPECT_GT(pointsOf(result), 5U) << "a circle stays a circle at scale " << scale;
     }
@@ -353,19 +353,18 @@ TEST(ShapeRobustness, theAnswerDoesNotDependOnTheSizeOfTheShape) {
 TEST(ShapeRobustness, shapesBelowTheFixedMinimumSizeAreLeftAlone) {
     auto speck = strokeOf(rectanglePath(120, 80, 30), 0.05);  // a 7-unit diagonal
     ShapeRecognizer reco;
-    EXPECT_FALSE(reco.recognizePatterns(speck.get(), 0.0));
+    EXPECT_FALSE(reco.recognizePatterns(speck.get()));
     auto big = strokeOf(rectanglePath(120, 80, 30), 1.0);
     ShapeRecognizer reco2;
-    EXPECT_TRUE(reco2.recognizePatterns(big.get(), 0.0));
+    EXPECT_TRUE(reco2.recognizePatterns(big.get()));
 }
 
-// A profile saved before the slider was removed may still carry strokeRecognizerMinSize (default 18). It is
-// ignored, so a small ruled diagram is no longer left as ink because of it.
-TEST(ShapeRobustness, aLegacySavedMinimumSizeNoLongerVetoesASmallDiagram) {
-    constexpr double legacyMinimumSize = 18.0;
+// There is no size setting any more (an old profile may still carry one, see SettingsTest): a small ruled diagram
+// above the fixed 8-unit minimum is recognised.
+TEST(ShapeRobustness, aSmallRuledDiagramAboveTheFixedMinimumIsRecognised) {
     auto small = strokeOf(rectanglePath(120, 80, 30), 0.1);  // a 14-unit diagonal
     ShapeRecognizer reco;
-    auto result = reco.recognizePatterns(small.get(), legacyMinimumSize);
+    auto result = reco.recognizePatterns(small.get());
     ASSERT_TRUE(result);
     EXPECT_EQ(result->getPointCount(), 5U);
 }

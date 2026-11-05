@@ -64,7 +64,7 @@ TEST(CircleRecognizer, straightLineIsNotACircle) {
 TEST(CircleRecognizer, smallCircleSurvivesFullSmartShapePipeline) {
     auto stroke = jitteredCircle(9.0, 1.5);
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(stroke.get(), 0.0);
+    auto result = recognizer.recognizePatterns(stroke.get());
     ASSERT_NE(result, nullptr);
     // CircleRecognizer's fitted output uses >=24 segments; rectangle/triangle have 4/3.
     EXPECT_GE(result->getPointCount(), 25U);
@@ -89,7 +89,7 @@ TEST(CircleRecognizer, smallBoxRemainsRectangleInSmartShapePipeline) {
         stroke->addPoint(Point(left, top + side - side * i / steps));
     }
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(stroke.get(), 0.0);
+    auto result = recognizer.recognizePatterns(stroke.get());
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->getPointCount(), 5U);
 }
@@ -138,7 +138,7 @@ std::unique_ptr<Stroke> pipelineOutline(const Stroke& input) {
         copy->addPoint(p);
     }
     ShapeRecognizer recognizer;
-    return recognizer.recognizePatterns(copy.get(), 0.0);
+    return recognizer.recognizePatterns(copy.get());
 }
 
 // The full pipeline reports a round shape as a fitted outline of at least 25 points (see the test above).
@@ -246,7 +246,7 @@ TEST(CircleRecognizer, nearlyStraightLineStaysLineInPipeline) {
         stroke->addPoint(Point(20.0 + 3.0 * i, 50.0 + 0.4 * std::sin(i)));
     }
     ShapeRecognizer recognizer;
-    auto result = recognizer.recognizePatterns(stroke.get(), 0.0);
+    auto result = recognizer.recognizePatterns(stroke.get());
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->getPointCount(), 2U);
 }
@@ -276,7 +276,7 @@ TEST(CircleRecognizer, rotatedRoughSquaresAreRejectedDirectly) {
 TEST(CircleRecognizer, recognizedShapeSurvivesMoveResizeAndDeleteUndo) {
     auto input = jitteredCircle(9.0, 1.5);
     ShapeRecognizer recognizer;
-    auto shape = recognizer.recognizePatterns(input.get(), 0.0);
+    auto shape = recognizer.recognizePatterns(input.get());
     ASSERT_NE(shape, nullptr);
     const auto original = shape->getPointVector();
     shape->move(27, -13);
