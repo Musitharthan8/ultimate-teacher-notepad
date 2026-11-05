@@ -4,6 +4,7 @@
 #include "gui/CommandPalette.h"     // for CommandPalette
 #include "gui/SelectionToolbar.h"   // for SelectionToolbar
 #include "gui/UtnToast.h"           // for UtnToast
+#include "model/TeacherPalette.h"   // for the one teacher ink palette
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -1219,6 +1220,15 @@ void MainWindow::destroyPenSettingsMenu() {
     // penSettingsBar lives as long as the window: the tool handler keeps its listener, so a new bar per reload would add one more each time
 }
 
+namespace {
+/// The @p index-th colour of the one teacher ink palette: every surface (rail, context bar, pen settings, ink dock)
+/// reads utn::palette, so a colour offered on one is on all of them and the active mark always matches
+Color inkColour(size_t index) {
+    return Color{0xFF000000U | utn::palette::swatch(utn::palette::Kind::Ink, index).rgb};
+}
+const char* inkName(size_t index) { return utn::palette::swatch(utn::palette::Kind::Ink, index).name; }
+}  // namespace
+
 void MainWindow::appendPenSettingsMenu() {
     GtkToolbar* top = GTK_TOOLBAR(this->toolbarWidgets[0].get());
     GtkToolItem* item = gtk_tool_item_new();
@@ -1261,12 +1271,11 @@ void MainWindow::appendPenSettingsMenu() {
     gtk_grid_set_row_spacing(GTK_GRID(colourGrid), 6);
     gtk_grid_set_column_spacing(GTK_GRID(colourGrid), 8);
     gtk_widget_add_css_class(colourGrid, "utn-paper-palette");
-    const std::array<std::pair<const char*, Color>, 8> propertyColours{{
-            {N_("Ink"), Color{0x20U, 0x25U, 0x2BU}}, {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
-            {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}}, {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
-            {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}}, {N_("Orange"), Color{0xEFU, 0x6CU, 0x00U}},
-            {N_("Gold"), Color{0xC0U, 0x8BU, 0x00U}}, {N_("Teal"), Color{0x00U, 0x7FU, 0x73U}},
-    }};
+    // The same eight colours as the rail palette and the context bar: one list, utn::palette
+    std::array<std::pair<const char*, Color>, 8> propertyColours;
+    for (size_t i = 0; i < propertyColours.size(); ++i) {
+        propertyColours[i] = {inkName(i), inkColour(i)};
+    }
     for (size_t i = 0; i < propertyColours.size(); ++i) {
         const auto& [name, colour] = propertyColours[i];
         GtkWidget* swatch = utn::createColourSwatch(colour, _(name));
@@ -1432,13 +1441,11 @@ void MainWindow::createInkDock(GtkOverlay* overlay) {
     gtk_widget_add_css_class(title, "utn-paper-dock-title");
     gtk_box_append(GTK_BOX(dock), title);
 
-    const std::array<std::pair<const char*, Color>, 5> swatches{{
-            {N_("Black"), Color{0x00U, 0x00U, 0x00U}},
-            {N_("Blue"), Color{0x1EU, 0x5BU, 0xD8U}},
-            {N_("Red"), Color{0xD3U, 0x2FU, 0x2FU}},
-            {N_("Green"), Color{0x2EU, 0x7DU, 0x32U}},
-            {N_("Purple"), Color{0x6AU, 0x1BU, 0x9AU}},
-    }};
+    // The compact dock offers the first five colours of the one palette (utn::palette), in the same order
+    std::array<std::pair<const char*, Color>, 5> swatches;
+    for (size_t i = 0; i < swatches.size(); ++i) {
+        swatches[i] = {inkName(i), inkColour(i)};
+    }
     for (size_t i = 0; i < swatches.size(); ++i) {
         const auto& [name, colour] = swatches[i];
         GtkWidget* swatch = utn::createColourSwatch(colour, _(name));
@@ -1559,13 +1566,9 @@ void MainWindow::updateInkDock() {
     gtk_widget_set_visible(inkDock, inkDockEnabled && pen && teacher &&
                                            ToolUtnContextBar::toolControlsReachable(control));
     const Color active = tools->getDisplayedColor();  // same active colour surface as rail, context and palette
-    const std::array<Color, 8> propertyColours{{Color{0x20U, 0x25U, 0x2BU}, Color{0x1EU, 0x5BU, 0xD8U},
-                                                Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
-                                                Color{0x6AU, 0x1BU, 0x9AU}, Color{0xEFU, 0x6CU, 0x00U},
-                                                Color{0xC0U, 0x8BU, 0x00U}, Color{0x00U, 0x7FU, 0x73U}}};
     for (size_t i = 0; i < penPropertySwatches.size(); ++i) {
         if (penPropertySwatches[i]) {
-            utn::setSwatchSelected(penPropertySwatches[i], active == propertyColours[i]);
+            utn::setSwatchSelected(penPropertySwatches[i], active == inkColour(i));
         }
     }
     if (penWidthScale && penWidthLabel && penStrokePreview) {
@@ -1577,11 +1580,8 @@ void MainWindow::updateInkDock() {
         gtk_label_set_text(GTK_LABEL(penWidthLabel), _(widthLabels[std::clamp(static_cast<int>(activeWidth), 0, 4)]));
         gtk_widget_queue_draw(penStrokePreview);
     }
-    const std::array<Color, 5> swatches{{Color{0x00U, 0x00U, 0x00U}, Color{0x1EU, 0x5BU, 0xD8U},
-                                        Color{0xD3U, 0x2FU, 0x2FU}, Color{0x2EU, 0x7DU, 0x32U},
-                                        Color{0x6AU, 0x1BU, 0x9AU}}};
     for (size_t i = 0; i < inkDockSwatches.size(); ++i) {
-        const auto& candidate = swatches[i];
+        const Color candidate = inkColour(i);
         utn::setSwatchSelected(inkDockSwatches[i], active.red == candidate.red && active.green == candidate.green &&
                                                   active.blue == candidate.blue);
     }
