@@ -2145,10 +2145,18 @@ TEST_F(ClassroomWorkflow, documentHeaderShowsTheNameAndTheRealStatusAndOnlyTheNa
     EXPECT_STREQ(gtk_button_get_label(GTK_BUTTON(expandSettings)), "");
     EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(expandSettings)), "Show tool settings");
     gtk_widget_get_size_request(widgetNamed(window->getWindow(), "tbLeft1Scroller"), &railWidth, nullptr);
-    EXPECT_EQ(railWidth, utn::layout::TEACHER_RAIL_WIDTH);
-    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)),
-              utn::layout::TEACHER_RAIL_WIDTH);
+    // At full width the captions are shown (automatic mode), and the rail is the wider labelled one so the longest
+    // caption does not run under the settings chevron; with captions hidden it is the slim icon-only rail.
     const int previousLabelMode = window->getToolLabelMode();
+    const int expectedRailWidth =
+            utn::layout::teacherRailWidth(utn::layout::railLabelsVisible(previousLabelMode, /*compact=*/false));
+    EXPECT_EQ(railWidth, expectedRailWidth);
+    EXPECT_EQ(gtk_scrolled_window_get_max_content_width(GTK_SCROLLED_WINDOW(railScroller)), expectedRailWidth);
+    window->setToolLabelMode(utn::layout::LABELS_HIDE);
+    settle();
+    gtk_widget_get_size_request(widgetNamed(window->getWindow(), "tbLeft1Scroller"), &railWidth, nullptr);
+    EXPECT_EQ(railWidth, utn::layout::TEACHER_RAIL_WIDTH) << "hidden captions give the slim rail back";
+    window->setToolLabelMode(previousLabelMode);
     window->setToolLabelMode(2);
     gtk_window_resize(GTK_WINDOW(window->getWindow()), 1280, 800);
     settle();
@@ -8599,9 +8607,10 @@ GtkWidget* refreshedPalette(GtkWidget* rail) {
     return popover;
 }
 
+// The refresh shows or hides each round swatch itself (all swatches share one row), so the swatch's own flag decides
 bool swatchShown(GtkWidget* popover, const char* name) {
     GtkWidget* swatch = buttonAccessibleNamed(popover, name);
-    return swatch && gtk_widget_get_visible(gtk_widget_get_parent(swatch));
+    return swatch && gtk_widget_get_visible(swatch) && gtk_widget_get_visible(gtk_widget_get_parent(swatch));
 }
 
 std::string indicatorText(GtkWidget* popover) {
@@ -8695,16 +8704,12 @@ void expectSwatchSeen(GtkWidget* popover, const char* name) {
         EXPECT_GT(a.width, 0) << name;
         EXPECT_GT(a.height, 0) << name;
     }
-    GtkWidget* caption = nullptr;
-    GList* siblings = gtk_container_get_children(GTK_CONTAINER(gtk_widget_get_parent(swatch)));
-    for (GList* s = siblings; s; s = s->next) {
-        if (GTK_IS_LABEL(s->data)) {
-            caption = GTK_WIDGET(s->data);
-        }
-    }
-    g_list_free(siblings);
-    ASSERT_NE(caption, nullptr) << name << " has its name written under it";
-    EXPECT_TRUE(gtk_widget_get_mapped(caption)) << name << " caption is not on the screen";
+    // The round swatches of the one-row palette print no name: the name is the accessible name (found above) and the
+    // tooltip, and the palette's indicator names the colour in use. A missing tooltip would leave sighted pointer
+    // users with a bare colour dot.
+    gchar* tooltip = gtk_widget_get_tooltip_text(swatch);
+    EXPECT_STREQ(tooltip, name) << name << " has its name as a tooltip";
+    g_free(tooltip);
 }
 }  // namespace
 
@@ -8756,6 +8761,10 @@ TEST_F(ClassroomWorkflow, theOpenedAnnotationPaletteReallyShowsItsSwatchesAndRow
     }
     control->selectTool(TOOL_PEN);
 }
+
+namespace {
+GtkWidget* openedPalette(GtkWidget* rail);  // defined with the other palette helpers below
+}  // namespace
 
 // Touch density is a layout contract, not merely larger icons. Inspect mapped controls in a real GTK popover;
 // testing CSS properties or gtk_widget_get_visible() alone would miss an allocated 0x0 or an unmapped swatch.
@@ -8912,7 +8921,7 @@ struct PaletteControls {
         tab = hold(paletteTab(popover, 3));
         swatch = hold(buttonAccessibleNamed(popover, "Cyan"));
         custom = hold(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-custom-colour")));
-        size = hold(buttonAccessibleNamed(popover, "Extra thick"));
+        size = hold(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-scale")));  // the thickness slider
         opacity = hold(opacitySlider(popover));
     }
     ~PaletteControls() {
@@ -8927,6 +8936,18 @@ struct PaletteControls {
 
     bool complete() const { return tab && swatch && custom && size && opacity; }
 
+    std::string missing() const {
+        std::string names;
+        const std::pair<GtkWidget*, const char*> all[] = {
+                {tab, "tab "}, {swatch, "swatch "}, {custom, "custom "}, {size, "size "}, {opacity, "opacity "}};
+        for (const auto& [widget, name]: all) {
+            if (!widget) {
+                names += name;
+            }
+        }
+        return names;
+    }
+
     /// Every way of changing the tool the palette offers: another tab, a swatch, a custom colour, a thickness, an opacity
     void mutateEverything() const {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tab), true);
@@ -8934,8 +8955,8 @@ struct PaletteControls {
         GdkRGBA red{0.8, 0.1, 0.1, 1.0};
         gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(custom), &red);
         g_signal_emit_by_name(custom, "color-set");
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(size), true);
-        gtk_button_clicked(GTK_BUTTON(size));
+        // A different step from the one showing, or the slider emits nothing
+        gtk_range_set_value(GTK_RANGE(size), gtk_range_get_value(GTK_RANGE(size)) >= 3.0 ? 1.0 : 4.0);
         gtk_range_set_value(GTK_RANGE(opacity), 30.0);
         settle();
     }
@@ -9100,7 +9121,7 @@ TEST_F(ClassroomWorkflow, anOpenPaletteFollowsAPresetOrToolChangeAndItsStaleCont
     GtkWidget* popover = openedPalette(rail);
     ASSERT_EQ(activePaletteTab(popover), 1);
     PaletteControls stale(popover);
-    ASSERT_TRUE(stale.complete()) << "the highlighter palette has its swatches, thicknesses and opacity";
+    ASSERT_TRUE(stale.complete()) << "missing: " << stale.missing() << "; " << "the highlighter palette has its swatches, thicknesses and opacity";
 
     // A preset (or a shortcut: the same tool change) selects the pen with its own colour
     control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
@@ -9118,26 +9139,30 @@ TEST_F(ClassroomWorkflow, anOpenPaletteFollowsAPresetOrToolChangeAndItsStaleCont
     // Controls drawn for the highlighter, used now that the pen is the tool
     const ToolSnapshot before = snapshotTools(control.get());
     gtk_range_set_value(GTK_RANGE(stale.opacity), 30.0);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(stale.size), true);
-    gtk_button_clicked(GTK_BUTTON(stale.size));
     settle();
-    EXPECT_TRUE(snapshotTools(control.get()) == before)
-            << "a stale highlighter opacity or thickness must not reach the pen";
+    EXPECT_TRUE(snapshotTools(control.get()) == before) << "a stale highlighter opacity must not reach the pen";
     EXPECT_EQ(tools->getTool(TOOL_PEN).getColor().alpha, 255);
+
+    // The thickness is one slider that follows the tool in place: after the change it is the pen's slider, so moving
+    // it sets the pen's thickness and leaves the highlighter's alone
+    const ToolSize penTarget = before.penSize == TOOL_SIZE_FINE ? TOOL_SIZE_THICK : TOOL_SIZE_FINE;
+    gtk_range_set_value(GTK_RANGE(stale.size), static_cast<double>(penTarget));
+    settle();
+    EXPECT_EQ(tools->getPenSize(), penTarget) << "the slider now writes the pen's thickness";
+    EXPECT_EQ(tools->getHighlighterSize(), before.highlighterSize) << "and never the highlighter's";
 
     // The thickness changed from elsewhere reaches the open palette too
     tools->setPenSize(TOOL_SIZE_THICK);
     settle();
-    GtkWidget* thick = buttonAccessibleNamed(popover, "Thick");
-    ASSERT_NE(thick, nullptr);
-    EXPECT_TRUE(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(thick))) << "the pen's thickness is marked";
+    EXPECT_DOUBLE_EQ(gtk_range_get_value(GTK_RANGE(stale.size)), static_cast<double>(TOOL_SIZE_THICK))
+            << "the pen's thickness is shown";
 
-    // And the text tool: its row is the text size, not a stale pen row
+    // And the text tool: its row is the text size, and the thickness slider is gone, not a stale pen row
     control->selectTool(TOOL_TEXT);
     settle();
     EXPECT_EQ(activePaletteTab(popover), 3);
     EXPECT_NE(accessibleNamed(popover, "Text size"), nullptr);
-    EXPECT_EQ(buttonAccessibleNamed(popover, "Thick"), nullptr);
+    EXPECT_FALSE(gtk_widget_get_visible(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-width-box"))));
 
     gtk_popover_popdown(GTK_POPOVER(popover));
     control->selectTool(TOOL_PEN);
@@ -9161,7 +9186,7 @@ TEST_F(ClassroomWorkflow, aQueuedSwatchOrCustomColourEventForAnotherToolChangesN
     prepareHighlighter(control.get());
     GtkWidget* popover = openedPalette(rail);
     PaletteControls queued(popover);
-    ASSERT_TRUE(queued.complete());
+    ASSERT_TRUE(queued.complete()) << "missing: " << queued.missing();
 
     control->updatePenPresets([](utn::PenPresetStore& store) { store.restoreDefaults(); });
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::RED_MARKING_ID));
@@ -9210,7 +9235,7 @@ TEST_F(ClassroomWorkflow, editingAnAnswerBoxKeepsDisplayedColourAndExistingAlpha
     auto* tools = control->getToolHandler();
     const Color previous = tools->getAnswerBoxTextColor();
     control->startAnswersLayer();
-    auto* page = control->getCurrentPage();
+    auto page = control->getCurrentPage();
     auto box = std::make_unique<Text>();
     box->setText("answer colour");
     box->setBoxEnabled(true);
@@ -9571,7 +9596,7 @@ TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRef
     ASSERT_TRUE(gtk_widget_get_sensitive(GTK_WIDGET(g_object_get_data(G_OBJECT(popover), "utn-colour-grid"))));
     {
         PaletteControls controls(popover);
-        ASSERT_TRUE(controls.complete());
+        ASSERT_TRUE(controls.complete()) << "missing: " << controls.missing();
         const ToolSnapshot before = snapshotTools(control.get());
         control->block("palette gate test");
         settle();
@@ -9588,7 +9613,7 @@ TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRef
     ASSERT_TRUE(gtk_widget_get_visible(popover));
     {
         PaletteControls controls(popover);
-        ASSERT_TRUE(controls.complete());
+        ASSERT_TRUE(controls.complete()) << "missing: " << controls.missing();
         const ToolSnapshot before = snapshotTools(control.get());
         students->showTeacherBlankCover(true);
         settle();

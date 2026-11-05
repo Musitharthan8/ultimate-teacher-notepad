@@ -79,8 +79,14 @@ TEST(TextContextualSettings, exposesLiveFormattingAndModeSpecificAnswerBoxContro
     EXPECT_EQ(control.getToolHandler()->getToolType(), TOOL_PEN);  // constructing settings never selects Text
 
     const double originalSize = control.getSettings()->getFont().getSize();
+    // A size control built for the Text tool must not change text while another tool is active: a preset, shortcut or
+    // stale control from before the tool changed would otherwise rewrite the text font behind the teacher's back.
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(findNamed(panel, "Text size")), originalSize + 1.0);
-    EXPECT_DOUBLE_EQ(control.getSettings()->getFont().getSize(), originalSize + 1.0);
+    EXPECT_DOUBLE_EQ(control.getSettings()->getFont().getSize(), originalSize) << "the pen is active";
+    control.selectTool(TOOL_TEXT);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(findNamed(panel, "Text size")), originalSize + 2.0);
+    EXPECT_DOUBLE_EQ(control.getSettings()->getFont().getSize(), originalSize + 2.0);
+    control.selectTool(TOOL_PEN);  // the rest starts from the pen, as before: the first Text activation selects it
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(findNamed(panel, "Bold")), true);
     auto* boldDescription = pango_font_description_from_string(control.getSettings()->getFont().asString().c_str());
     EXPECT_GE(pango_font_description_get_weight(boldDescription), PANGO_WEIGHT_SEMIBOLD);
