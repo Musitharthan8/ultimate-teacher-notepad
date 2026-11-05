@@ -9138,9 +9138,11 @@ TEST_F(ClassroomWorkflow, anOpenPaletteFollowsAPresetOrToolChangeAndItsStaleCont
 
     // Controls drawn for the highlighter, used now that the pen is the tool
     const ToolSnapshot before = snapshotTools(control.get());
-    gtk_range_set_value(GTK_RANGE(stale.opacity), 30.0);
+    // The highlighter's opacity row is removed with the highlighter, so there is no live slider left to drive (the held
+    // widget has lost its adjustment); the pen's palette offers no opacity, and the pen stays opaque
+    EXPECT_EQ(accessibleNamed(popover, "Opacity"), nullptr) << "the pen has no opacity row";
     settle();
-    EXPECT_TRUE(snapshotTools(control.get()) == before) << "a stale highlighter opacity must not reach the pen";
+    EXPECT_TRUE(snapshotTools(control.get()) == before);
     EXPECT_EQ(tools->getTool(TOOL_PEN).getColor().alpha, 255);
 
     // The thickness is one slider that follows the tool in place: after the change it is the pen's slider, so moving
