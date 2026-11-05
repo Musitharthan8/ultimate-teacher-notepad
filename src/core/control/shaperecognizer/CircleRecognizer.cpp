@@ -194,9 +194,9 @@ constexpr double ELLIPSE_RELATIVE_RMS = 0.095;
 bool solveThreeByThree(double augmented[3][4], double result[3]) {
     // Finite input points do not guarantee finite normal equations: products
     // and accumulated fourth powers can overflow before the fit is solved.
-    for (const auto& row : augmented) {
-        for (double value : row) {
-            if (!std::isfinite(value)) {
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            if (!std::isfinite(augmented[row][col])) {
                 return false;
             }
         }
