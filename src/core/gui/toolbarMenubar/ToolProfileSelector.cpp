@@ -14,6 +14,7 @@
 #include "control/Control.h"
 #include "control/ToolHandler.h"
 #include "ToolUtnContextBar.h"  // classroom gate shared by colour controls
+#include "UtnWidgets.h"            // for setAccessibleName
 #include "model/TeacherPalette.h"  // for the Pen profile's Blue
 #include "util/Color.h"
 #include "util/gtk4_helper.h"
@@ -126,6 +127,7 @@ auto ToolProfileSelector::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
     GtkMenuButton* menuButton = GTK_MENU_BUTTON(gtk_menu_button_new());
     gtk_widget_set_focus_on_click(GTK_WIDGET(menuButton), false);  // keyboard users can still Tab to it
     gtk_widget_set_tooltip_text(GTK_WIDGET(menuButton), getToolDisplayName().c_str());
+    utn::setAccessibleName(GTK_WIDGET(menuButton), getToolDisplayName().c_str());  // the child icon shows only "P"
     gtk_button_set_child(GTK_BUTTON(menuButton), getNewToolIcon());
     gtk_menu_button_set_popover(menuButton, GTK_WIDGET(popover));
     gtk_menu_button_set_direction(menuButton, horizontal ? GTK_ARROW_DOWN : GTK_ARROW_RIGHT);

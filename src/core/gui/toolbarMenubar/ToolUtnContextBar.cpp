@@ -119,6 +119,15 @@ bool mayChangeTool(Control* control, ToolType expected) {
     return ToolUtnContextBar::toolControlsReachable(control) && control->getToolHandler()->getToolType() == expected;
 }
 
+/// Keeps an object alive for the rest of a callback that may rebuild the bar it belongs to
+struct GObjectHold {
+    explicit GObjectHold(void* object): object(g_object_ref(object)) {}
+    ~GObjectHold() { g_object_unref(object); }
+    GObjectHold(const GObjectHold&) = delete;
+    GObjectHold& operator=(const GObjectHold&) = delete;
+    gpointer object;
+};
+
 /// The alpha a highlighter opacity of @p percent stands for (10 to 100), rounded to the nearest of the 256 steps
 uint8_t opacityPercentToAlpha(double percent) {
     return static_cast<uint8_t>(std::lround(std::clamp(percent, 10.0, 100.0) * 255.0 / 100.0));
@@ -708,6 +717,8 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
         g_object_set_data(G_OBJECT(button), "utn-colour", GUINT_TO_POINTER(uint32_t(swatch.colour)));
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto colour = Color(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "utn-colour")));
+                             // Applying the colour can rebuild the bar and destroy this button: keep it alive until done
+                             GObjectHold hold(button);
                              applyColour(static_cast<Control*>(data), colour);
                              // Colour changes do not rebuild the bar, so move the mark here
                              // Recolouring a selection can rebuild the bar; then there is nothing left to mark
@@ -738,6 +749,7 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     g_signal_connect(more, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                          GdkRGBA chosen{};
                          gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &chosen);
+                         GObjectHold hold(button);
                          applyColour(static_cast<Control*>(data), Util::GdkRGBA_to_argb(chosen));
                          GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(button));
                          if (!parent) {
@@ -1001,6 +1013,12 @@ void ToolUtnContextBar::appendHighlightControls() {
                              return;
                          }
                          auto* tools = static_cast<Control*>(data)->getToolHandler();
+                         if (!mayChangeTool(static_cast<Control*>(data), TOOL_HIGHLIGHTER)) {
+                             // Busy, covered or another tool: show the mode the highlighter still has
+                             gtk_combo_box_set_active(combo, utn::highlightModeIndex(tools->isSmartHighlighterEnabled(),
+                                                                                    tools->getSmartHighlighterSnapMode()));
+                             return;
+                         }
                          const auto& entry = utn::HIGHLIGHT_MODES[static_cast<size_t>(active)];
                          tools->setSmartHighlighterEnabled(entry.snap.has_value());
                          static_cast<Control*>(data)->getSettings()->getCustomElement("utn").setBool(
@@ -1062,9 +1080,25 @@ void ToolUtnContextBar::appendEraserControls() {
                                  !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button))) {
                                  return;  // state refresh / deselected radio
                              }
+                             auto* ctrl = static_cast<Control*>(data);
                              const auto type = static_cast<EraserType>(GPOINTER_TO_INT(
                                      g_object_get_data(G_OBJECT(button), "utn-eraser-type")));
-                             static_cast<Control*>(data)->setEraserType(type);
+                             if (!mayChangeTool(ctrl, TOOL_ERASER)) {
+                                 // Busy, covered or another tool: the radio goes back to the mode the eraser still has
+                                 const EraserType kept = ctrl->getToolHandler()->getEraserType();
+                                 GtkWidget* row = gtk_widget_get_parent(GTK_WIDGET(button));
+                                 GList* siblings = gtk_container_get_children(GTK_CONTAINER(row));
+                                 for (GList* s = siblings; s; s = s->next) {
+                                     if (GTK_IS_TOGGLE_BUTTON(s->data) && g_object_get_data(G_OBJECT(s->data), "utn-eraser-type")) {
+                                         const auto mode = static_cast<EraserType>(GPOINTER_TO_INT(
+                                                 g_object_get_data(G_OBJECT(s->data), "utn-eraser-type")));
+                                         utn::syncToggle(GTK_TOGGLE_BUTTON(s->data), mode == kept);
+                                     }
+                                 }
+                                 g_list_free(siblings);
+                                 return;
+                             }
+                             ctrl->setEraserType(type);
                          }), control);
         gtk_box_append(modes, button);
     }
@@ -1076,7 +1110,12 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_widget_set_tooltip_text(scale, _("Eraser size. The [ and ] keys also change it."));
     utn::setAccessibleName(scale, _("Eraser size"));
     g_signal_connect(scale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
-                         static_cast<Control*>(data)->getToolHandler()->setEraserThickness(gtk_range_get_value(range));
+                         auto* ctrl = static_cast<Control*>(data);
+                         if (!mayChangeTool(ctrl, TOOL_ERASER)) {
+                             gtk_range_set_value(range, ctrl->getToolHandler()->getEraserThickness());
+                             return;  // busy, covered or another tool: the eraser keeps its size
+                         }
+                         ctrl->getToolHandler()->setEraserThickness(gtk_range_get_value(range));
                      }),
                      control);
     GtkWidget* label = gtk_label_new(_("Size"));
@@ -1136,6 +1175,10 @@ void ToolUtnContextBar::appendTextControls() {
                          auto* ctrl = static_cast<Control*>(data);
                          XojFont chosen(gtk_font_button_get_font_name(button));
                          XojFont font = currentTextFont(ctrl);
+                         if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                             gtk_font_button_set_font_name(button, font.asString().c_str());  // keep what text still has
+                             return;
+                         }
                          // The size box stays in charge of the size when changing font
                          font.setName(chosen.getName());
                          applyTextFont(ctrl, font);
@@ -1189,9 +1232,17 @@ void ToolUtnContextBar::appendTextControls() {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(toggle), style.active);
         g_object_set_data(G_OBJECT(toggle), "utn-apply", reinterpret_cast<gpointer>(style.apply));
         g_signal_connect(toggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                             if (utn::isSyncing(GTK_WIDGET(button))) {
+                                 return;
+                             }
+                             auto* ctrl = static_cast<Control*>(data);
+                             if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                                 utn::syncToggle(button, !gtk_toggle_button_get_active(button));  // refused: undo the press
+                                 return;
+                             }
                              auto apply = reinterpret_cast<void (*)(Control*, bool)>(
                                      g_object_get_data(G_OBJECT(button), "utn-apply"));
-                             apply(static_cast<Control*>(data), gtk_toggle_button_get_active(button));
+                             apply(ctrl, gtk_toggle_button_get_active(button));
                          }),
                          control);
         gtk_box_append(styleGroup, toggle);
@@ -1208,8 +1259,17 @@ void ToolUtnContextBar::appendTextControls() {
     gtk_widget_set_tooltip_text(alignment, _("Alignment"));
     utn::setAccessibleName(alignment, _("Alignment"));
     g_signal_connect(alignment, "changed", G_CALLBACK(+[](GtkComboBox* combo, gpointer data) {
-                         auto* db = static_cast<Control*>(data)->getActionDatabase();
+                         auto* ctrl = static_cast<Control*>(data);
+                         auto* db = ctrl->getActionDatabase();
                          int active = gtk_combo_box_get_active(combo);
+                         if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                             auto* tools = ctrl->getToolHandler();
+                             const int kept = tools->getTextJustify() ? 3 : static_cast<int>(tools->getTextAlignment());
+                             if (active != kept) {
+                                 gtk_combo_box_set_active(combo, kept);  // refused: show the alignment text still has
+                             }
+                             return;
+                         }
                          if (active == 3) {
                              db->fireChangeActionState(Action::TEXT_ALIGNMENT, TextAlignment::LEFT);
                              db->fireChangeActionState(Action::TEXT_JUSTIFY, true);
@@ -1230,6 +1290,13 @@ void ToolUtnContextBar::appendTextControls() {
     g_signal_connect(lineSpacing, "value-changed", G_CALLBACK(+[](GtkSpinButton* spin, gpointer data) {
                          auto* ctrl = static_cast<Control*>(data);
                          double spacing = gtk_spin_button_get_value(spin);
+                         if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                             const double kept = ctrl->getToolHandler()->getTextLineSpacing();
+                             if (spacing != kept) {
+                                 gtk_spin_button_set_value(spin, kept);  // refused: show the spacing text still has
+                             }
+                             return;
+                         }
                          ctrl->getToolHandler()->setTextLineSpacing(spacing);
                          if (auto* editor = ctrl->getTextEditor(); editor) {
                              editor->setLineSpacing(spacing);
@@ -1241,6 +1308,9 @@ void ToolUtnContextBar::appendTextControls() {
     GtkWidget* bullets = utn::appendMenuButton(paragraphPanel, paragraphPopover, _("Bullet list"),
                                                _("Start or end a bullet list in the text being edited"));
     g_signal_connect(bullets, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         if (!mayChangeTool(static_cast<Control*>(data), TOOL_TEXT)) {
+                             return;
+                         }
                          if (auto* editor = static_cast<Control*>(data)->getTextEditor(); editor) {
                              editor->toggleBulletList();
                          }
@@ -1249,6 +1319,9 @@ void ToolUtnContextBar::appendTextControls() {
     GtkWidget* numbers = utn::appendMenuButton(paragraphPanel, paragraphPopover, _("Numbered list"),
                                                _("Start or end a numbered list in the text being edited"));
     g_signal_connect(numbers, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         if (!mayChangeTool(static_cast<Control*>(data), TOOL_TEXT)) {
+                             return;
+                         }
                          if (auto* editor = static_cast<Control*>(data)->getTextEditor(); editor) {
                              editor->toggleNumberedList();
                          }
@@ -1305,6 +1378,9 @@ void ToolUtnContextBar::appendAnswerBoxStyleMenu() {
         g_object_set_data(G_OBJECT(button), "utn-style", const_cast<utn::AnswerBoxStyle*>(&style));
         g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                              auto* ctrl = static_cast<Control*>(data);
+                             if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                                 return;  // busy, covered or another tool: no Answer Box style change
+                             }
                              auto* style =
                                      static_cast<utn::AnswerBoxStyle*>(g_object_get_data(G_OBJECT(button), "utn-style"));
                              utn::applyAnswerBoxStyle(*ctrl->getToolHandler(), *style);
@@ -1324,12 +1400,26 @@ void ToolUtnContextBar::appendAnswerBoxStyleMenu() {
         GtkWidget* button = gtk_color_button_new_with_rgba(&rgba);
         gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(button), true);
         g_object_set_data(G_OBJECT(button), "utn-apply", reinterpret_cast<gpointer>(apply));
+        g_object_set_data_full(G_OBJECT(button), "utn-kept", new GdkRGBA(rgba),
+                               +[](gpointer p) { delete static_cast<GdkRGBA*>(p); });
         g_signal_connect(button, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
                              GdkRGBA chosen{};
                              gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &chosen);
+                             auto* ctrl = static_cast<Control*>(data);
+                             if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                                 // Refused: the button goes back to the colour the style still has
+                                 const GdkRGBA* kept = static_cast<const GdkRGBA*>(
+                                         g_object_get_data(G_OBJECT(button), "utn-kept"));
+                                 if (kept) {
+                                     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(button), kept);
+                                 }
+                                 return;
+                             }
                              auto apply = reinterpret_cast<void (*)(Control*, Color)>(
                                      g_object_get_data(G_OBJECT(button), "utn-apply"));
-                             apply(static_cast<Control*>(data), Util::GdkRGBA_to_argb(chosen));
+                             apply(ctrl, Util::GdkRGBA_to_argb(chosen));
+                             g_object_set_data_full(G_OBJECT(button), "utn-kept", new GdkRGBA(chosen),
+                                                    +[](gpointer p) { delete static_cast<GdkRGBA*>(p); });
                          }),
                          control);
         appendMenuRow(panel, label, button);
@@ -1347,10 +1437,23 @@ void ToolUtnContextBar::appendAnswerBoxStyleMenu() {
                                   void (*apply)(Control*, double)) {
         GtkWidget* scale = newScale(0.0, max, step, value, digits);
         g_object_set_data(G_OBJECT(scale), "utn-apply", reinterpret_cast<gpointer>(apply));
+        g_object_set_data_full(G_OBJECT(scale), "utn-kept-value", new double(value),
+                               +[](gpointer p) { delete static_cast<double*>(p); });
         g_signal_connect(scale, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer data) {
+                             auto* ctrl = static_cast<Control*>(data);
+                             auto* kept = static_cast<double*>(g_object_get_data(G_OBJECT(range), "utn-kept-value"));
+                             if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                                 if (kept && gtk_range_get_value(range) != *kept) {
+                                     gtk_range_set_value(range, *kept);  // refused: show the value the style still has
+                                 }
+                                 return;
+                             }
                              auto apply = reinterpret_cast<void (*)(Control*, double)>(
                                      g_object_get_data(G_OBJECT(range), "utn-apply"));
-                             apply(static_cast<Control*>(data), gtk_range_get_value(range));
+                             apply(ctrl, gtk_range_get_value(range));
+                             if (kept) {
+                                 *kept = gtk_range_get_value(range);
+                             }
                          }),
                          control);
         appendMenuRow(panel, label, scale);

@@ -410,7 +410,10 @@ public:
     TextEditor* getTextEditor();
     /// UTN: the one way every colour surface applies the colour it shows (see ToolHandler::setDisplayedColor); also
     /// recolours the text being edited
+    /// Refused (nothing changes) while the classroom gate is closed: busy, Blank cover or quiet Present
     void applyDisplayedColour(Color color, bool userSelection = true);
+    /// UTN: whether a colour surface may change the colour now (the same gate as every other teacher control)
+    bool colourChangeAllowed();
 
     GladeSearchpath* getGladeSearchPath() const;
 

@@ -9651,3 +9651,112 @@ TEST_F(ClassroomWorkflow, anOpenPaletteClosesWhenBusyOrBlankOrQuietPresentAndRef
     settle();
     tools->setColor(previousHighlighter, false);
 }
+
+// Review (Codex): the colour action, the text, alignment, eraser and highlight-mode controls had no classroom gate, so a
+// queued or hidden control could still act while a save runs (busy) or the Blank cover is up. Each must refuse, and the
+// widget must show what the tool still has.
+TEST_F(ClassroomWorkflow, theColourActionAndTextEraserAndHighlightControlsRefuseEveryChangeWhileBusyOrBlank) {
+    window->toolbarSelected("UTN Teacher");
+    window->setTeacherWorkspace(0);
+    window->show(nullptr);
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1500, 900);
+    window->updateCompactLayout(1500);  // wide enough that the settings inspector is not folded away
+    window->setTeacherWorkspace(0);
+    settle();
+    auto* tools = control->getToolHandler();
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+
+    struct Gate {
+        const char* name;
+        std::function<void()> close;
+        std::function<void()> open;
+    };
+    const Gate gates[] = {
+            {"busy", [&] { control->block("gate test"); }, [&] { control->unblock(); }},
+            {"Blank", [&] { students->showTeacherBlankCover(true); }, [&] { students->showTeacherBlankCover(false); }},
+    };
+    // Controls are held while the gate closes, which may rebuild the bar; whatever happens to the widgets, the tool
+    // state must not move
+    const auto held = [&](const char* name) {
+        GtkWidget* w = accessibleNamed(window->getWindow(), name);
+        return w ? GTK_WIDGET(g_object_ref(w)) : nullptr;
+    };
+
+    for (const Gate& gate: gates) {
+        SCOPED_TRACE(gate.name);
+
+        // The colour action (toolbar colour button, colour dialog result)
+        control->selectTool(TOOL_PEN);
+        settle();
+        const Color colourBefore = tools->getDisplayedColor();
+        gate.close();
+        settle();
+        control->getActionDatabase()->fireChangeActionState(Action::TOOL_COLOR, Color{0xD3U, 0x2FU, 0x2FU});
+        settle();
+        EXPECT_EQ(tools->getDisplayedColor(), colourBefore) << "the colour action must be refused";
+        gate.open();
+        settle();
+
+        // Text formatting and alignment
+        control->selectTool(TOOL_TEXT);
+        settle();
+        GtkWidget* bold = held("Bold");
+        GtkWidget* align = held("Alignment");
+        ASSERT_NE(bold, nullptr);
+        ASSERT_NE(align, nullptr);
+        const bool boldBefore = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(bold));
+        const int alignBefore = gtk_combo_box_get_active(GTK_COMBO_BOX(align));
+        const std::string fontBefore = control->getSettings()->getFont().asString();
+        const bool justifyBefore = tools->getTextJustify();
+        const auto alignmentBefore = tools->getTextAlignment();
+        gate.close();
+        settle();
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bold), !boldBefore);
+        gtk_combo_box_set_active(GTK_COMBO_BOX(align), (alignBefore + 1) % 4);
+        settle();
+        EXPECT_EQ(control->getSettings()->getFont().asString(), fontBefore) << "Bold must be refused";
+        EXPECT_EQ(tools->getTextJustify(), justifyBefore) << "alignment must be refused";
+        EXPECT_EQ(tools->getTextAlignment(), alignmentBefore) << "alignment must be refused";
+        EXPECT_EQ(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(bold)), boldBefore) << "the toggle goes back";
+        EXPECT_EQ(gtk_combo_box_get_active(GTK_COMBO_BOX(align)), alignBefore) << "the combo goes back";
+        g_object_unref(bold);
+        g_object_unref(align);
+        gate.open();
+        settle();
+
+        // Eraser size
+        control->selectTool(TOOL_ERASER);
+        settle();
+        GtkWidget* eraserSize = held("Eraser size");
+        ASSERT_NE(eraserSize, nullptr);
+        const double sizeBefore = tools->getEraserThickness();
+        gate.close();
+        settle();
+        gtk_range_set_value(GTK_RANGE(eraserSize), sizeBefore >= 15.0 ? 2.0 : sizeBefore + 8.0);
+        settle();
+        EXPECT_DOUBLE_EQ(tools->getEraserThickness(), sizeBefore) << "the eraser size must be refused";
+        EXPECT_DOUBLE_EQ(gtk_range_get_value(GTK_RANGE(eraserSize)), sizeBefore) << "the slider goes back";
+        g_object_unref(eraserSize);
+        gate.open();
+        settle();
+
+        // Highlight mode
+        control->selectTool(TOOL_HIGHLIGHTER);
+        settle();
+        GtkWidget* mode = held("Highlight mode");
+        ASSERT_NE(mode, nullptr);
+        const bool smartBefore = tools->isSmartHighlighterEnabled();
+        const int modeBefore = gtk_combo_box_get_active(GTK_COMBO_BOX(mode));
+        gate.close();
+        settle();
+        gtk_combo_box_set_active(GTK_COMBO_BOX(mode), modeBefore == 0 ? 1 : 0);
+        settle();
+        EXPECT_EQ(tools->isSmartHighlighterEnabled(), smartBefore) << "the highlight mode must be refused";
+        EXPECT_EQ(gtk_combo_box_get_active(GTK_COMBO_BOX(mode)), modeBefore) << "the combo goes back";
+        g_object_unref(mode);
+        gate.open();
+        settle();
+    }
+    control->selectTool(TOOL_PEN);
+}

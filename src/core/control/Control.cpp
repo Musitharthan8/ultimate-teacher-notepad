@@ -69,6 +69,7 @@
 #include "gui/sidebar/Sidebar.h"                                 // for Sidebar
 #include "gui/toolbarMenubar/ToolMenuHandler.h"                  // for Tool...
 #include "gui/toolbarMenubar/ToolStudentView.h"                  // for isTeacherCoverShown
+#include "gui/toolbarMenubar/ToolUtnContextBar.h"                // for toolControlsReachable
 #include "gui/toolbarMenubar/model/ToolbarData.h"                // for Tool...
 #include "gui/toolbarMenubar/model/ToolbarModel.h"               // for Tool...
 #include "model/BackgroundImage.h"                               // for Back...
@@ -2407,7 +2408,12 @@ void Control::showFontDialog() {
     popup.show(GTK_WINDOW(this->win->getWindow()));
 }
 
+bool Control::colourChangeAllowed() { return ToolUtnContextBar::toolControlsReachable(this); }
+
 void Control::applyDisplayedColour(Color color, bool userSelection) {
+    if (!colourChangeAllowed()) {
+        return;  // busy, Blank cover or quiet Present: no colour surface may change the colour
+    }
     this->toolHandler->setDisplayedColor(color, userSelection);
     if (this->toolHandler->getToolType() == TOOL_TEXT) {
         if (auto* editor = getTextEditor()) {
@@ -2428,7 +2434,8 @@ void Control::showColorChooserDialog() {
     auto popup = xoj::popup::PopupWindowWrapper<XojMsgBox>(
             GTK_DIALOG(dlg),
             [this, dlg](int response) {
-                if (response == GTK_RESPONSE_OK) {
+                // The dialog may have stayed open while Blank, busy or quiet Present started: then nothing changes
+                if (response == GTK_RESPONSE_OK && colourChangeAllowed()) {
                     GdkRGBA c;
                     gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(dlg), &c);
                     this->actionDB->fireChangeActionState(Action::TOOL_COLOR, Util::GdkRGBA_to_rgb(c));

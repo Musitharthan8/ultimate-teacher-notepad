@@ -561,12 +561,13 @@ public:
                 g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
                                      auto colour = Color(GPOINTER_TO_UINT(
                                              g_object_get_data(G_OBJECT(button), "utn-classroom-colour")));
-                                     // Close while this widget is still alive; applying the colour may
-                                     // trigger a toolbar rebuild that destroys the popover.
+                                     // Read everything this button holds first: closing the popover and applying the
+                                     // colour may trigger a toolbar rebuild that destroys the popover and its buttons.
+                                     const int kind = GPOINTER_TO_INT(
+                                             g_object_get_data(G_OBJECT(button), "utn-palette-kind"));
                                      auto* popup = GTK_POPOVER(g_object_get_data(G_OBJECT(button), "utn-popover"));
                                      gtk_popover_popdown(popup);
-                                     teacherApplyColour(static_cast<Control*>(data), colour,
-                                                        GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "utn-palette-kind")));
+                                     teacherApplyColour(static_cast<Control*>(data), colour, kind);
                                  }), control);
                 // The row is shown whole by show_all; the refresh shows or hides each swatch for the tool
                 gtk_widget_show(button);

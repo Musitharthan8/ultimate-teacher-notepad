@@ -1039,6 +1039,9 @@ struct ActionProperties<Action::TOOL_COLOR> {
     }
     static bool initiallyEnabled(Control* ctrl) { return ctrl->getToolHandler()->hasCapability(TOOL_CAP_COLOR); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->colourChangeAllowed()) {
+            return;  // busy, Blank cover or quiet Present: the action keeps the colour the tool still has
+        }
         g_simple_action_set_state(ga, p);
         ctrl->applyDisplayedColour(getGVariantValue<Color>(p));  // Feedback and Answer Box text keep their own colour
     }
