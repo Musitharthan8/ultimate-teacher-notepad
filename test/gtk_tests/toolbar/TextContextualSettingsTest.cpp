@@ -86,11 +86,11 @@ TEST(TextContextualSettings, exposesLiveFormattingAndModeSpecificAnswerBoxContro
     control.selectTool(TOOL_TEXT);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(findNamed(panel, "Text size")), originalSize + 2.0);
     EXPECT_DOUBLE_EQ(control.getSettings()->getFont().getSize(), originalSize + 2.0);
-    control.selectTool(TOOL_PEN);  // the rest starts from the pen, as before: the first Text activation selects it
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(findNamed(panel, "Bold")), true);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(findNamed(panel, "Bold")), true);  // Text is still the tool
     auto* boldDescription = pango_font_description_from_string(control.getSettings()->getFont().asString().c_str());
     EXPECT_GE(pango_font_description_get_weight(boldDescription), PANGO_WEIGHT_SEMIBOLD);
     pango_font_description_free(boldDescription);
+    control.selectTool(TOOL_PEN);  // the rest starts from the pen, as before: the first Text activation selects it
     gtk_button_clicked(GTK_BUTTON(findNamed(panel, "Red")));
     EXPECT_EQ(control.getToolHandler()->getColor().red, 0xD3U);
     EXPECT_EQ(control.getToolHandler()->getColor().green, 0x2FU);
