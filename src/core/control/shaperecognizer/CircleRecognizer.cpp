@@ -189,6 +189,7 @@ constexpr double MIN_LOOP_DIAGONAL = 8.0;
 constexpr double MAX_GAP_FRACTION = 0.14;  // round loops need tighter closure than sharp-corner polygons
 constexpr double CIRCLE_RELATIVE_RMS = 0.09;
 constexpr double ELLIPSE_RELATIVE_RMS = 0.095;
+constexpr double RECTANGLE_EVIDENCE = 0.9;  // same margin fitsSquareBetter asks of straight sides
 
 // Partial pivoting avoids introducing a geometry-library dependency. The caller centres its inputs.
 bool solveThreeByThree(double augmented[3][4], double result[3]) {
@@ -235,6 +236,63 @@ bool solveThreeByThree(double augmented[3][4], double result[3]) {
         }
     }
     return true;
+}
+
+// A rounded or sloppy box also sits close to its moment ellipse, so the smooth-loop fit alone would turn boxes into
+// ovals. Straight sides are the difference: compare the length-weighted error against the fitted ellipse with the
+// error against the best oriented rectangle, both measured as a fraction of the shape's own half-size.
+bool fitsRectangleBetter(const std::vector<Point>& points, double cx, double cy, double rx, double ry, double angle) {
+    struct Sample {
+        double x, y, weight;
+    };
+    std::vector<Sample> samples;
+    samples.reserve(points.size());
+    double ellipseError = 0.0, totalWeight = 0.0;
+    const double ellipseCos = std::cos(angle), ellipseSin = std::sin(angle);
+    for (size_t i = 1; i < points.size(); ++i) {
+        const Point& p = points[i - 1];
+        const double weight = std::hypot(points[i].x - p.x, points[i].y - p.y);
+        const double x = p.x - cx, y = p.y - cy;
+        const double u = ellipseCos * x + ellipseSin * y, v = -ellipseSin * x + ellipseCos * y;
+        samples.push_back({x, y, weight});
+        ellipseError += weight * std::abs(std::hypot(u / rx, v / ry) - 1.0);
+        totalWeight += weight;
+    }
+    if (!std::isfinite(ellipseError) || !std::isfinite(totalWeight) || totalWeight <= 0.0) {
+        return false;
+    }
+    ellipseError /= totalWeight;
+
+    // A rectangle repeats every half turn, so a quarter-turn search covers any tilt, whatever the starting point.
+    constexpr int ROTATION_STEPS = 36;
+    for (int step = 0; step < ROTATION_STEPS; ++step) {
+        const double theta = step * M_PI / (2 * ROTATION_STEPS);
+        const double c = std::cos(theta), s = std::sin(theta);
+        double minU = std::numeric_limits<double>::infinity(), maxU = -minU, minV = minU, maxV = -minU;
+        for (const Sample& p: samples) {
+            const double u = c * p.x + s * p.y, v = -s * p.x + c * p.y;
+            minU = std::min(minU, u);
+            maxU = std::max(maxU, u);
+            minV = std::min(minV, v);
+            maxV = std::max(maxV, v);
+        }
+        const double halfU = (maxU - minU) / 2, halfV = (maxV - minV) / 2;
+        if (halfU <= 0.0 || halfV <= 0.0) {
+            continue;
+        }
+        const double centreU = (maxU + minU) / 2, centreV = (maxV + minV) / 2;
+        double rectangleError = 0.0;
+        for (const Sample& p: samples) {
+            const double u = c * p.x + s * p.y, v = -s * p.x + c * p.y;
+            rectangleError +=
+                    p.weight * std::abs(std::max(std::abs(u - centreU) / halfU, std::abs(v - centreV) / halfV) - 1.0);
+        }
+        rectangleError /= totalWeight;
+        if (std::isfinite(rectangleError) && rectangleError < RECTANGLE_EVIDENCE * ellipseError) {
+            return true;
+        }
+    }
+    return false;
 }
 
 auto smoothOutline(Stroke* original, double cx, double cy, double rx, double ry, double angle)
@@ -347,7 +405,7 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
                 relativeSquareError += delta * delta;
             }
             const double rms = std::sqrt(relativeSquareError / points.size());
-            if (rms <= CIRCLE_RELATIVE_RMS) {
+            if (rms <= CIRCLE_RELATIVE_RMS && !fitsRectangleBetter(points, cx, cy, radius, radius, 0.0)) {
                 return smoothOutline(stroke, cx, cy, radius, radius, 0.0);
             }
         }
@@ -403,7 +461,8 @@ auto CircleRecognizer::recognizeSmoothLoop(Stroke* stroke) -> std::unique_ptr<St
         relativeSquareError += delta * delta;
     }
     const double rms = std::sqrt(relativeSquareError / points.size());
-    return std::isfinite(rms) && rms <= ELLIPSE_RELATIVE_RMS
+    return std::isfinite(rms) && rms <= ELLIPSE_RELATIVE_RMS &&
+                           !fitsRectangleBetter(points, meanX, meanY, rx, ry, angle)
                    ? smoothOutline(stroke, meanX, meanY, rx, ry, angle)
                    : nullptr;
 }

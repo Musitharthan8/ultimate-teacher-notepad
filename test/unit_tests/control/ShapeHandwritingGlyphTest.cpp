@@ -349,12 +349,23 @@ TEST(ShapeRobustness, theAnswerDoesNotDependOnTheSizeOfTheShape) {
     }
 }
 
-TEST(ShapeRobustness, shapesBelowTheMinimumSizeAreLeftAlone) {
-    constexpr double minimumSize = 18.0;  // Settings default for strokeRecognizerMinSize
-    auto tiny = strokeOf(rectanglePath(120, 80, 30), 0.1);  // a 14-unit diagonal
+// The per-profile size slider is gone: one fixed minimum (8 page units of diagonal) applies to every profile.
+TEST(ShapeRobustness, shapesBelowTheFixedMinimumSizeAreLeftAlone) {
+    auto speck = strokeOf(rectanglePath(120, 80, 30), 0.05);  // a 7-unit diagonal
     ShapeRecognizer reco;
-    EXPECT_FALSE(reco.recognizePatterns(tiny.get(), minimumSize));
+    EXPECT_FALSE(reco.recognizePatterns(speck.get(), 0.0));
     auto big = strokeOf(rectanglePath(120, 80, 30), 1.0);
     ShapeRecognizer reco2;
-    EXPECT_TRUE(reco2.recognizePatterns(big.get(), minimumSize));
+    EXPECT_TRUE(reco2.recognizePatterns(big.get(), 0.0));
+}
+
+// A profile saved before the slider was removed may still carry strokeRecognizerMinSize (default 18). It is
+// ignored, so a small ruled diagram is no longer left as ink because of it.
+TEST(ShapeRobustness, aLegacySavedMinimumSizeNoLongerVetoesASmallDiagram) {
+    constexpr double legacyMinimumSize = 18.0;
+    auto small = strokeOf(rectanglePath(120, 80, 30), 0.1);  // a 14-unit diagonal
+    ShapeRecognizer reco;
+    auto result = reco.recognizePatterns(small.get(), legacyMinimumSize);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->getPointCount(), 5U);
 }

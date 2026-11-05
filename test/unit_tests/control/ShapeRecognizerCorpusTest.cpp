@@ -388,6 +388,13 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
             } else {
                 ++t.wrong;
                 ++wrongDetail[s.label][name(got)];
+                std::cout << "WRONG " << s.label << "/" << s.quality << "/" << static_cast<int>(s.size) << " -> "
+                          << name(got) << " (" << (result ? result->getPointCount() : 0) << " points)\n";
+                if (std::getenv("UTN_CORPUS_DUMP")) {
+                    for (const Point& p: s.stroke->getPointVector()) {
+                        std::cout << "  " << p.x << " " << p.y << "\n";
+                    }
+                }
             }
         }
     };
