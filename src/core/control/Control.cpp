@@ -2632,6 +2632,9 @@ void Control::updatePenPresets(const std::function<void(utn::PenPresetStore&)>& 
 }
 
 bool Control::applyPenPreset(const std::string& id) {
+    if (!colourChangeAllowed()) {
+        return false;  // busy, Blank cover or quiet Present: a preset selects tool, colour and size, so it waits too
+    }
     const utn::PenPreset* preset = this->penPresets.find(id);
     if (!preset) {
         return false;

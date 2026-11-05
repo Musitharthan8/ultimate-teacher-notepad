@@ -106,11 +106,13 @@ Color currentColour(ToolHandler* tools) { return tools->getDisplayedColor(); }
 
 /// Apply a colour to whatever the colour controls stand for (the one path every colour surface uses): tool ink, a
 /// Feedback or Answer Box text, the text being edited, or the current selection. Refused when the controls may not act.
-void applyColour(Control* control, Color chosen) {
-    if (!ToolUtnContextBar::toolControlsReachable(control)) {
-        return;
+/// @return whether the colour was applied; the controls must not show a change that did not happen
+bool applyColour(Control* control, Color chosen) {
+    if (!control->colourChangeAllowed()) {
+        return false;
     }
     control->applyDisplayedColour(chosen);
+    return true;
 }
 
 /// Whether a size, opacity or shape control built for @p expected may still change the tool: the controls may not act,
@@ -719,7 +721,9 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                              auto colour = Color(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "utn-colour")));
                              // Applying the colour can rebuild the bar and destroy this button: keep it alive until done
                              GObjectHold hold(button);
-                             applyColour(static_cast<Control*>(data), colour);
+                             if (!applyColour(static_cast<Control*>(data), colour)) {
+                                 return;  // refused: the marks keep showing the colour the tool still has
+                             }
                              // Colour changes do not rebuild the bar, so move the mark here
                              // Recolouring a selection can rebuild the bar; then there is nothing left to mark
                              GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(button));
@@ -750,7 +754,14 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
                          GdkRGBA chosen{};
                          gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &chosen);
                          GObjectHold hold(button);
-                         applyColour(static_cast<Control*>(data), Util::GdkRGBA_to_argb(chosen));
+                         auto* ctrl = static_cast<Control*>(data);
+                         if (!applyColour(ctrl, Util::GdkRGBA_to_argb(chosen))) {
+                             // Refused: the chooser goes back to the colour the tool still has, and no mark moves
+                             GdkRGBA kept = Util::argb_to_GdkRGBA(ctrl->getToolHandler()->getDisplayedColor());
+                             kept.alpha = 1.0;
+                             gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(button), &kept);
+                             return;
+                         }
                          GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(button));
                          if (!parent) {
                              return;
@@ -1146,6 +1157,9 @@ void ToolUtnContextBar::appendTextControls() {
         gtk_widget_add_css_class(remove, "destructive-action");
         g_signal_connect(remove, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
                              auto* ctrl = static_cast<Control*>(data);
+                             if (!mayChangeTool(ctrl, TOOL_TEXT)) {
+                                 return;  // busy, covered or another tool: the Answer Box stays
+                             }
                              auto* editor = ctrl->getTextEditor();
                              if (!editor || !editor->getTextElement()->isBoxEnabled()) {
                                  // The button stays enabled (the panel cannot track editing), so say why nothing happened

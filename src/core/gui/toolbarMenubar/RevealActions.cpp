@@ -9,6 +9,7 @@
 #include "control/Control.h"
 #include "gui/MainWindow.h"
 #include "gui/UtnToast.h"
+#include "gui/toolbarMenubar/ToolUtnContextBar.h"  // for toolControlsReachable
 #include "util/i18n.h"
 
 namespace utn {
@@ -35,6 +36,11 @@ void hideAnswersFromUi(Control* control) {
 }
 
 RevealOutcome revealAnswersFromUi(Control* control, bool allPages, int64_t now) {
+    // Revealing changes what the class sees, so it waits for the same gate as every other teacher control. Hiding
+    // (hideAnswersFromUi) stays available: it is the protective direction and must work even while blocked.
+    if (!ToolUtnContextBar::toolControlsReachable(control)) {
+        return RevealOutcome::Refused;
+    }
     if (allPages && control->getStudentsMayWatch()) {
         if (revealAllArmedUntil == 0 || now > revealAllArmedUntil) {
             revealAllArmedUntil = now + REVEAL_ALL_CONFIRM_MICROSECONDS;

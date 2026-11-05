@@ -22,7 +22,8 @@ constexpr int64_t REVEAL_ALL_CONFIRM_MICROSECONDS = 5 * 1000 * 1000;
 enum class RevealOutcome {
     NothingToReveal,  ///< no hidden answers in scope
     Revealed,
-    NeedsConfirmation  ///< "Reveal all" while the class may be watching: press again to go ahead
+    NeedsConfirmation,  ///< "Reveal all" while the class may be watching: press again to go ahead
+    Refused  ///< busy, the Blank cover is up or quiet Present keeps the tools away: nothing was revealed
 };
 
 /**
