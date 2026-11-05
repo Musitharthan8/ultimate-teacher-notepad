@@ -346,11 +346,13 @@ The earlier doc is prescriptive prose. Where it disagrees with code, code is rec
 15. Dialog styling beyond `.utn-dialog` focus ring.
 
 
-## 16. Phase 6 palette and classroom controls (source review, unverified build)
+## 16. Phase 6 palette and classroom controls (source review; built and GTK-tested 2026-11-05, native checks pending)
 
-This section supersedes earlier swatch/target counts where they conflict. It documents the source on
-`wip/phase6-chatgpt-design-system`. No Windows build, native rendering, keyboard accessibility audit,
-or colour-contrast measurement has been completed for this branch.
+This section supersedes earlier swatch/target counts where they conflict. It documents the source of
+`wip/phase6-chatgpt-design-system`, now integrated. That integration was built and GTK-tested on Windows on 2026-11-05 (see
+"Verification update, 2026-11-05" in `TEACHER_UX_IMPLEMENTATION.md`). Native rendering in dark and High Contrast, a keyboard and
+screen-reader accessibility audit and colour-contrast measurement have still not been done. The context-side swatch size is now one
+rule (34x34, 44x44 with `utnTouch`); the earlier stray 24x26 override was removed.
 
 ### Palette source and state
 

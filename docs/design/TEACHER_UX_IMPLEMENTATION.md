@@ -265,8 +265,11 @@ Choosing a done step undoes back to before it; choosing an undone step redoes up
 
 ### Verification update, 2026-11-05 (Windows UCRT64): supersedes "not built, not run" below for this head
 
-The 63 ChatGPT commits were integrated on `integration/chatgpt-phase6` (pushed as `wip/phase6-integration`) and built
-and run on Windows 11 with MSYS2 UCRT64, `ninja -j2`. They are **not** merged into `feature/utn-teacher-ux-program`.
+The ChatGPT stack is `fe54f0749..24b849e7d` (64 commits: our own unfinished palette commit `b7c272007` plus 63 written by ChatGPT
+and never run by it). It was integrated on `integration/chatgpt-phase6` (pushed as `wip/phase6-integration`) and built and run on
+Windows 11 with MSYS2 UCRT64, `ninja -j2`. Claude's integration fixes follow it. Not yet merged into `feature/utn-teacher-ux-program`
+at the time of this note. The statements further down that say "no CMake/Ninja ... ran" and "not compiled or executed" are the original
+hand-off notes and are historical: this section replaces them for the head named here.
 
 - Build: exit 0 for `xournalpp`, `test-units` and `test-gtk-integration`.
 - Units: 595 passed, 1 skipped (`CrashChild.run`).
@@ -284,15 +287,20 @@ and run on Windows 11 with MSYS2 UCRT64, `ninja -j2`. They are **not** merged in
   `ClassroomWorkflowTest.cpp`); the smooth-loop fallback turned sloppy rectangles and squares into ovals (rectangle-evidence guard);
   an intermittent use-after-free in `UndoRedoHandler::undo/redo` (an undo that adds a step frees itself); palette swatches drawn as empty
   frames (the dot inside the button was never shown; the GTK test passed because it checked only the button).
-- Codex audit (`utn-sdd-backup/codex-chatgpt-audit.md`, read-only, nothing built) of `7e9e864cf`: not safe to merge. Blockers fixed in
-  `64d33b33e` (classroom gate for the colour action and the text, eraser, highlight and Answer Box controls; callback lifetimes),
-  `09f5a0cda` (iterative polygon fallback, coordinate validation, removal of the obsolete "Minimum Stroke Size" preference),
-  `d76fe368d` (one ink palette for pen settings and the ink dock) and the docs (this section).
-- Audit items left open (not blocking): the corpus is synthetic (no real pen traces) and `freehandAcceptable` is never consulted; the
-  handwriting test allows one false positive per glyph and has no 8/O/0 cases; some `CircleRecognizerTest` assertions count outline
-  points instead of checking geometry; the context side-panel swatch CSS cascade (a later rule gives 24x26) is not covered by the 44 px test.
+- First Codex audit (`utn-sdd-backup/codex-chatgpt-audit.md`, read-only, nothing built) of `7e9e864cf`: not safe to merge. Addressed in
+  `64d33b33e` (classroom gate for the colour action and the text, eraser, highlight and Answer Box style controls; callback lifetimes),
+  `09f5a0cda` (iterative polygon fallback, coordinate validation, removal of the obsolete "Minimum Stroke Size" preference) and `d76fe368d`
+  (one ink palette for pen settings and the ink dock).
+- Second Codex audit (`utn-sdd-backup/codex-chatgpt-audit2.md`, of `523b49725`): most items verified FIXED; it found pen presets,
+  Reveal and Delete Box ungated, a refused colour still moving the swatch mark, and non-finite points possible from degenerate legacy
+  segments. Addressed in `bf76a42a2` (presets, Reveal, Delete Box, honest marks) and `dd4f9a2ea` (non-finite result guard, one swatch
+  size rule, stronger tests). Hide answers stays available while blocked on purpose (protective direction). This note does not claim
+  the app is free of other classroom-gate gaps: the gate covers the controls named above and the audit checked those.
+- Open, non-blocking: the corpus is synthetic (no real pen traces); missed clean shapes are capped at today's measured counts, not
+  zero; the handwriting gate allows one documented false positive (D) and has no 8/O/0 cases; the colour-dialog path and the Answer
+  Box style controls are gated but not covered by a GTK test; no test measures the real side-panel swatch allocation.
 - Still **not** verified: High Contrast and dark-mode native visual pass, NVDA/Narrator, touch and stylus, dual-display Student View,
-  the menubar dropdowns (Classroom, File), shuffled test order, real handwriting traces, the full 120 DPI suite after the last fix.
+  the menubar dropdowns (Classroom, File), shuffled test order, real handwriting traces.
 
 **Never treat this section as a verified Windows build.** All commits below were created through the
 GitHub connector and reviewed statically. No CMake/Ninja, C++ unit suite, GTK integration suite,
