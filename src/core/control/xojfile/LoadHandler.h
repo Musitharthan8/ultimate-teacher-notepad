@@ -12,21 +12,26 @@
 #pragma once
 
 #include <cstddef>        // for size_t
-#include <memory>         // for unique_ptr
+#include <cstdint>        // for uint64_t
+#include <memory>        // for unique_ptr
 #include <optional>       // for optional
 #include <string>         // for string
 #include <string_view>    // for string_view
 #include <unordered_map>  // for unordered_map
+#include <unordered_set>  // for unordered_set
 #include <vector>         // for vector
 
 #include <zip.h>  // for zip_t
 
+#include "control/xojfile/AttachmentLimits.h"          // for AttachmentLimits
 #include "control/xojfile/DocumentBuilderInterface.h"  // for DocumentBuilderInterface
+#include "model/BackgroundImage.h"                     // for BackgroundImage
 #include "model/Document.h"                            // for Document
 #include "model/Layer.h"                               // for LayerAudience
 #include "model/DocumentHandler.h"                     // for DocumentHandler
 #include "model/PageRef.h"                             // for PageRef
 #include "model/Stroke.h"                              // for Stroke, StrokeTool,...
+#include "util/BoundedZipRead.h"                       // for ReadStatus
 #include "util/Color.h"                                // for Color
 #include "util/Rectangle.h"                            // for Rectangle
 #include "util/Size.h"                                 // for Size
@@ -83,6 +88,12 @@ public:
 
     /** @return The version of the loaded file */
     int getFileVersion() const;
+
+    /**
+     * Replace the limits applied to attachments (and to the XML) of the document. Call before `loadDocument()`.
+     * The defaults are meant for production; this exists so tests can use small synthetic archives.
+     */
+    void setAttachmentLimits(const xoj::load::AttachmentLimits& limits);
 
 private:
     // interface for XmlParser
@@ -165,11 +176,36 @@ private:
      */
     void fixNullPressureValues(std::vector<Point> pressures);
 
+    enum class AttachmentKind : uint8_t { Image, Pdf };
+
     /**
      * Returns the contents of the zip attachment with the given filename, or
-     * nullptr if there is no such file.
+     * nullptr if there is no such file, if it is corrupt or truncated, or if it
+     * exceeds the attachment limits. The reason is reported through `logError()`.
      */
-    std::unique_ptr<std::string> readZipAttachment(fs::path const& filename);
+    std::shared_ptr<std::string> readZipAttachment(fs::path const& filename, AttachmentKind kind);
+    std::shared_ptr<std::string> decodeInlineImage(std::string_view encoded, uint64_t perImageLimit);
+
+    enum class Admission : uint8_t { Ok, CountExceeded, TooLarge, BudgetExceeded };
+
+    /**
+     * Count one more attachment and check it against the document-wide count and budget.
+     * @param declaredBytes Size announced by the archive (an upper bound to check, not a value to trust)
+     * @param perAttachmentLimit Largest single attachment of this kind
+     * @param budgetBytes   Total allowed for this kind of storage (memory or disk)
+     * @param usedBytes     Already used out of the budget
+     */
+    Admission admitAttachment(uint64_t declaredBytes, uint64_t perAttachmentLimit, uint64_t budgetBytes,
+                              uint64_t usedBytes, bool countAttachment);
+
+    /** Report that an attachment was refused, skipping repeated reports of document-wide limits. */
+    void logAttachmentRefused(const fs::path& filename, Admission reason);
+
+    /** Report a failed attachment read. Never contains host paths. */
+    void logAttachmentFailure(const fs::path& filename, xoj::util::zip::ReadStatus status, uint64_t limitBytes);
+
+    /** Delete the temporary files of audio attachments that were never handed over to a document. */
+    void removeExtractedAudio() noexcept;
 
     /** Set audio attributes for `audio`, for any file type and file version. */
     void setAudioAttributes(AudioContent& audio, fs::path filename, size_t timestamp);
@@ -187,6 +223,10 @@ private:
 private:
     fs::path xournalFilepath;
     std::string imageStrokeData;
+    std::string imageBase64Data;
+    std::string texImageBase64Data;
+    bool imageBase64Rejected = false;
+    bool texImageBase64Rejected = false;
 
     bool parsingComplete;
     std::vector<std::string>* errorMessages;
@@ -208,6 +248,37 @@ private:
 
     std::vector<PageRef> pages;
     std::unordered_map<fs::path, fs::path> audioFiles;
+    struct CachedAttachment {
+        bool attempted = false;
+        xoj::util::zip::ReadStatus status = xoj::util::zip::ReadStatus::ReadError;
+        std::shared_ptr<std::string> data;
+    };
+    struct CachedAudio {
+        bool attempted = false;
+        xoj::util::zip::ReadStatus status = xoj::util::zip::ReadStatus::ReadError;
+        fs::path tempPath;
+    };
+    // One raw read cache for every attachment kind: the same ZIP entry may be referenced under different XML roles.
+    std::unordered_map<zip_uint64_t, CachedAttachment> zipAttachments;
+    std::unordered_set<zip_uint64_t> imageLimitRefusals;
+    std::unordered_set<zip_uint64_t> pdfLimitRefusals;
+    struct CachedBackground {
+        bool attempted = false;
+        bool valid = false;
+        BackgroundImage image;
+    };
+    std::unordered_map<zip_uint64_t, CachedBackground> backgroundAttachments;
+    std::unordered_map<zip_uint64_t, CachedAudio> audioAttachments;
+    std::unordered_set<zip_uint64_t> countedZipEntries;
+    std::unordered_set<std::string> missingZipEntries;
+    bool audioFilesOwned = true;  ///< false once the document has been returned: it owns the files then
+
+    xoj::load::AttachmentLimits limits;
+    size_t attachmentCount = 0;
+    uint64_t memoryBytesUsed = 0;
+    uint64_t diskBytesUsed = 0;
+    bool limitErrorLogged = false;
+    bool incompleteLoad = false;
 
     PageRef page;
     std::unique_ptr<Layer> layer;

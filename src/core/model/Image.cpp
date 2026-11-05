@@ -2,7 +2,6 @@
 
 #include <algorithm>  // for min
 #include <array>      // for array
-#include <cmath>      // for sqrt
 #include <memory>
 #include <utility>  // for move, pair
 
@@ -12,6 +11,7 @@
 
 #include "model/Element.h"   // for Element, ELEMENT_IMAGE
 #include "util/Assert.h"     // for xoj_assert
+#include "util/BoundedPixbuf.h"  // for limitGdkPixbufLoaderPixels
 #include "util/Rectangle.h"  // for Rectangle
 #include "util/i18n.h"
 #include "util/matrix/RectangleMultiply.h"
@@ -43,7 +43,12 @@ auto Image::clone() const -> ElementPtr {
 
 void Image::setImage(std::string_view data) { setImage(std::string(data)); }
 
-void Image::setImage(std::string&& data) {
+void Image::setImage(std::string&& data) { setImage(std::make_shared<std::string>(std::move(data))); }
+
+void Image::setImage(std::shared_ptr<std::string> data) {
+    if (!data) {
+        data = std::make_shared<std::string>();
+    }
     this->image.reset();
     this->data = std::move(data);
 
@@ -55,10 +60,11 @@ void Image::setImage(std::string&& data) {
     // FIXME: awful hack to try to parse the format
     std::array<char*, 4096> buffer{};
     xoj::util::GObjectSPtr<GdkPixbufLoader> loader(gdk_pixbuf_loader_new(), xoj::util::adopt);
-    size_t remaining = this->data.size();
+    xoj::util::limitGdkPixbufLoaderPixels(loader.get());
+    size_t remaining = this->data->size();
     while (remaining > 0) {
         size_t readLen = std::min(remaining, buffer.size());
-        if (!gdk_pixbuf_loader_write(loader.get(), reinterpret_cast<const guchar*>(this->data.c_str()), readLen,
+        if (!gdk_pixbuf_loader_write(loader.get(), reinterpret_cast<const guchar*>(this->data->c_str()), readLen,
                                      nullptr))
             break;
         remaining -= readLen;
@@ -100,42 +106,27 @@ void Image::setImage(GdkPixbuf* img) {
     this->naturalSize = xoj::util::Size<double>(gdk_pixbuf_get_width(img), gdk_pixbuf_get_height(img));
     this->image = bufferFromPixbuf(img);
 
+    auto pngData = std::make_shared<std::string>();
     const cairo_write_func_t writeFunc = [](void* bufferPtr, const unsigned char* data,
                                             unsigned int length) -> cairo_status_t {
-        reinterpret_cast<decltype(Image::data)*>(bufferPtr)->append(reinterpret_cast<const char*>(data), length);
+        reinterpret_cast<std::string*>(bufferPtr)->append(reinterpret_cast<const char*>(data), length);
         return CAIRO_STATUS_SUCCESS;
     };
-    cairo_surface_write_to_png_stream(image.get(), writeFunc, &data);
+    cairo_surface_write_to_png_stream(image.get(), writeFunc, pngData.get());
+    this->data = std::move(pngData);
 }
 
 auto Image::renderBuffer() const -> std::optional<std::string> {
-    xoj_assert_message(data.length() > 0, "image has no data, cannot render it!");
+    xoj_assert_message(!data->empty(), "image has no data, cannot render it!");
     if (this->image) {
         // Already rendered
         return std::nullopt;
     }
     xoj::util::GObjectSPtr<GdkPixbufLoader> loader(gdk_pixbuf_loader_new(), xoj::util::adopt);
-    g_signal_connect(loader.get(), "size-prepared",
-                     G_CALLBACK(+[](GdkPixbufLoader* self, gint width, gint height, gpointer) {
-                         static constexpr uint64_t MAX_SIZE =
-                                 1 << 25;  ///< Max number of pixels: 32M = more than enough for A4 in 72pp
-                         if (width <= 0 || height <= 0) {
-                             g_warning("Image::renderBuffer(): non-positive width/height");
-                             return;
-                         }
-                         if (static_cast<uint64_t>(width) * static_cast<uint64_t>(height) > MAX_SIZE) {
-                             double ratio = static_cast<double>(width) / static_cast<double>(height);
-                             gint maxHeight = floor_cast<gint>(std::sqrt(MAX_SIZE / ratio));
-                             gint maxWidth = floor_cast<gint>(maxHeight * ratio);
-                             g_warning("Trying to open an image too big %d x %d. Resizing it to %d x %d", width, height,
-                                       maxWidth, maxHeight);
-                             gdk_pixbuf_loader_set_size(self, maxHeight, maxWidth);
-                         }
-                     }),
-                     nullptr);
+    xoj::util::limitGdkPixbufLoaderPixels(loader.get());
     GError* err = nullptr;
-    bool success = gdk_pixbuf_loader_write(loader.get(), reinterpret_cast<const guchar*>(this->data.c_str()),
-                                           this->data.length(), &err);
+    bool success = gdk_pixbuf_loader_write(loader.get(), reinterpret_cast<const guchar*>(this->data->c_str()),
+                                           this->data->length(), &err);
     if (!success) {
         if (err != nullptr) {
             std::string msg = std::string(_("Failed to load image")) + "\n" + _("Error: ") + err->message;
@@ -180,7 +171,7 @@ void Image::serialize(ObjectOutputStream& out) const {
 
     this->RectangularElement::serialize(out);
 
-    out.writeImage(this->data);
+    out.writeImage(*this->data);
 
     out.endObject();
 }
@@ -191,7 +182,7 @@ void Image::readSerialized(ObjectInputStream& in) {
     this->RectangularElement::readSerialized(in);
 
     this->image.reset();
-    this->data = in.readImage();
+    this->data = std::make_shared<std::string>(in.readImage());
 
     in.endObject();
     this->calcSize();
@@ -208,10 +199,12 @@ void Image::calcSize() const {
     this->sizeCalculated = true;
 }
 
-bool Image::hasData() const { return !this->data.empty(); }
+bool Image::hasData() const { return !this->data->empty(); }
 
-const unsigned char* Image::getRawData() const { return reinterpret_cast<const unsigned char*>(this->data.data()); }
+const unsigned char* Image::getRawData() const {
+    return reinterpret_cast<const unsigned char*>(this->data->data());
+}
 
-size_t Image::getRawDataLength() const { return this->data.size(); }
+size_t Image::getRawDataLength() const { return this->data->size(); }
 
 GdkPixbufFormat* Image::getImageFormat() const { return this->format; }

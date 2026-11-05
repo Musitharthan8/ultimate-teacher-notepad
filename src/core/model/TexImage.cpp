@@ -1,6 +1,8 @@
 #include "TexImage.h"
 
 #include <memory>
+#include <cstdint>
+#include <cstring>
 #include <utility>  // for move
 
 #include <poppler-document.h>  // for poppler_document_ge...
@@ -8,10 +10,29 @@
 
 #include "model/Element.h"                        // for Element, ELEMENT_TE...
 #include "util/Rectangle.h"                       // for Rectangle
+#include "util/BoundedPixbuf.h"                   // for MAX_DECODED_PIXBUF_PIXELS
 #include "util/matrix/RectangleMultiply.h"        // for operator*
 #include "util/raii/GObjectSPtr.h"                // for GObjectSPtr
 #include "util/serializing/ObjectInputStream.h"   // for ObjectInputStream
 #include "util/serializing/ObjectOutputStream.h"  // for ObjectOutputStream
+
+namespace {
+auto pngDimensionsWithinLimit(const std::string& data) -> bool {
+    static constexpr unsigned char PNG_SIGNATURE[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
+    if (data.size() < 24 || std::memcmp(data.data(), PNG_SIGNATURE, sizeof(PNG_SIGNATURE)) != 0 ||
+        std::memcmp(data.data() + 12, "IHDR", 4) != 0) {
+        return false;
+    }
+    auto read32 = [&](size_t offset) {
+        const auto* bytes = reinterpret_cast<const unsigned char*>(data.data() + offset);
+        return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+               (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+    };
+    const uint64_t width = read32(16);
+    const uint64_t height = read32(20);
+    return width != 0 && height != 0 && width <= xoj::util::MAX_DECODED_PIXBUF_PIXELS / height;
+}
+}  // namespace
 
 TexImage::TexImage(): RectangularElement(ELEMENT_TEXIMAGE) {}
 
@@ -34,7 +55,7 @@ auto TexImage::cloneTexImage() const -> std::unique_ptr<TexImage> {
     // Load a copy of our data (must be called after
     // giving the clone a copy of our PDF -- it may change
     // the PDF we've given it).
-    img->loadData(std::string(this->binaryData), nullptr);
+    img->loadData(this->binaryData, nullptr);
 
     return img;
 }
@@ -64,10 +85,10 @@ auto TexImage::getNativeSize() const -> xoj::util::Size<double> {
 
 auto TexImage::cairoReadFunction(TexImage* image, unsigned char* data, unsigned int length) -> cairo_status_t {
     for (unsigned int i = 0; i < length; i++, image->read++) {
-        if (image->read >= image->binaryData.length()) {
+        if (image->read >= image->binaryData->length()) {
             return CAIRO_STATUS_READ_ERROR;
         }
-        data[i] = static_cast<unsigned char>(image->binaryData[image->read]);
+        data[i] = static_cast<unsigned char>((*image->binaryData)[image->read]);
     }
 
     return CAIRO_STATUS_SUCCESS;
@@ -76,23 +97,28 @@ auto TexImage::cairoReadFunction(TexImage* image, unsigned char* data, unsigned 
 /**
  * Gets the binary data, a .PNG image or a .PDF
  */
-auto TexImage::getBinaryData() const -> std::string const& { return this->binaryData; }
+auto TexImage::getBinaryData() const -> std::string const& { return *this->binaryData; }
 
 void TexImage::setText(std::string text) { this->text = std::move(text); }
 
 auto TexImage::getText() const -> std::string { return this->text; }
 
 auto TexImage::loadData(std::string&& bytes, GError** err) -> bool {
+    return loadData(std::make_shared<std::string>(std::move(bytes)), err);
+}
+
+auto TexImage::loadData(std::shared_ptr<std::string> bytes, GError** err) -> bool {
     this->freeImageAndPdf();
-    this->binaryData = bytes;
-    if (this->binaryData.length() < 4) {
+    this->binaryData = bytes ? std::move(bytes) : std::make_shared<std::string>();
+    this->read = 0;
+    if (this->binaryData->length() < 4) {
         return false;
     }
 
-    const std::string type = binaryData.substr(1, 3);
+    const std::string type = this->binaryData->substr(1, 3);
     if (type == "PDF") {
         // Note: binaryData must not be modified while pdf is live.
-        auto* bytes = g_bytes_new_with_free_func(this->binaryData.data(), this->binaryData.size(), nullptr, nullptr);
+        auto* bytes = g_bytes_new_with_free_func(this->binaryData->data(), this->binaryData->size(), nullptr, nullptr);
         this->pdf.reset(poppler_document_new_from_bytes(bytes, nullptr, err), xoj::util::adopt);
         g_bytes_unref(bytes);
 
@@ -100,9 +126,16 @@ auto TexImage::loadData(std::string&& bytes, GError** err) -> bool {
             return false;
         }
     } else if (type == "PNG") {
+        if (!pngDimensionsWithinLimit(*this->binaryData)) {
+            return false;
+        }
         this->image.reset(cairo_image_surface_create_from_png_stream(
                                   reinterpret_cast<cairo_read_func_t>(&cairoReadFunction), this),
                           xoj::util::adopt);
+        if (cairo_surface_status(this->image.get()) != CAIRO_STATUS_SUCCESS) {
+            this->image.reset();
+            return false;
+        }
     } else {
         g_warning("Unknown Latex image type: \"%s\"", type.c_str());
     }
@@ -121,7 +154,7 @@ void TexImage::serialize(ObjectOutputStream& out) const {
 
     out.writeString(this->text);
 
-    out.writeString(this->binaryData);
+    out.writeString(*this->binaryData);
 
     out.endObject();
 }

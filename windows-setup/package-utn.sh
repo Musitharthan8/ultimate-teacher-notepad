@@ -7,6 +7,12 @@ mode=${2:-all}
 script_dir=$(cd "$(dirname "$0")" && pwd)
 prefix=${MSYSTEM_PREFIX:-/mingw64}
 version=0.2.1-beta
+# The bundled libzip opens untrusted documents. GHSA-m3wq-j48p-jxwh (algorithmic DoS in zip_open) is fixed in 1.12.
+libzip_version=$(pkg-config --modversion libzip)
+if [[ "$(printf '%s\n1.12\n' "$libzip_version" | sort -V | head -n1)" != 1.12 ]]; then
+    echo "Refusing to package: libzip $libzip_version has GHSA-m3wq-j48p-jxwh. Update it (pacman -S libzip) first." >&2
+    exit 1
+fi
 # Never delete a previous bundle: a tester may still be running it.
 setup_dir=$(mktemp -d "$build_dir/utn-dist.XXXXXX")
 output_dir="$build_dir/utn-release"

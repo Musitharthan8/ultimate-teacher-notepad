@@ -60,7 +60,7 @@ jobs:
         uses: ./.github/actions/build
         with:
           build_type: ${{ inputs.build_type }}
-          extra_cmake_flags: ${{ inputs.extra_cmake_flags }}
+          extra_cmake_flags: "${{ inputs.extra_cmake_flags }} -DUTN_REQUIRE_PATCHED_LIBZIP=ON"
           shell: msys2 {0}
       - name: 'Create installer'
         id: create-installer

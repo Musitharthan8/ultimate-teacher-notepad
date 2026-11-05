@@ -212,21 +212,3 @@ auto XmlParserHelper::parsePredefinedColor(string_utf8_view sv) -> std::optional
     // Color not found in predefined colors
     return {};
 }
-
-
-auto XmlParserHelper::decodeBase64(std::string_view base64data) -> std::string {
-    // Worst case: 3 bytes per 4 chars (round up)
-    const size_t maxDecodedSize = (base64data.size() / 4 + 1) * 3;
-    std::string result;
-    result.resize(maxDecodedSize);
-
-    // g_base64_decode requires a null-terminated C-string. Use the step decoding
-    // function instead and feed the whole string at once.
-    gint state = 0;
-    guint save = 0;
-    const size_t actualSize = g_base64_decode_step(base64data.data(), base64data.size(),
-                                                   reinterpret_cast<guchar*>(result.data()), &state, &save);
-    result.resize(actualSize);
-    result.shrink_to_fit();
-    return result;
-}

@@ -548,8 +548,7 @@ void XmlParser::parseImageTag(const XmlParserHelper::AttributeMap& attributeMap)
 
 void XmlParser::parseImageText(std::string_view text) {
     if (!isAllWhitespace(text)) {
-        std::string imageData = XmlParserHelper::decodeBase64(text);
-        this->builder.setImageData(std::move(imageData));
+        this->builder.setImageData(std::string{text});
     }
 }
 
@@ -574,8 +573,7 @@ void XmlParser::parseTexImageTag(const XmlParserHelper::AttributeMap& attributeM
 
 void XmlParser::parseTexImageText(std::string_view text) {
     if (!isAllWhitespace(text)) {
-        std::string imageData = XmlParserHelper::decodeBase64(text);
-        this->builder.setTexImageData(std::move(imageData));
+        this->builder.setTexImageData(std::string{text});
     }
 }
 
