@@ -27,6 +27,7 @@
 #include "control/jobs/CustomExportJob.h"
 #include "control/jobs/PdfExportJob.h"
 #include "control/jobs/SaveJob.h"
+#include "control/jobs/Job.h"
 #include "control/jobs/XournalScheduler.h"
 #include "control/layer/LayerController.h"
 #include "control/settings/Settings.h"
@@ -241,8 +242,11 @@ unsigned studentPixel(GtkWidget* student, double pageX, double pageY) {
 
 /**
  * The fixture builds Control and MainWindow without starting the job thread (XournalMain does that in the real
- * application), so queued render and autosave jobs never ran in these tests. The soak tests start it, once: Scheduler
- * cannot be restarted and its destructor stops it.
+ * application), so queued render and autosave jobs never ran in these tests. The soak tests start it, once. The fixture's
+ * Control is `inline static` (one per test suite, see `ClassroomWorkflow::control`), so there is exactly one Scheduler for
+ * the whole suite: it cannot be restarted (a second start() is a CRITICAL) and its destructor stops it. The process-wide flag
+ * below is therefore right. (Codex audit 3 read it as a bug, assuming a Control per test; it is not one. The test at the end
+ * of this file proves a later test's queued job still runs.)
  */
 void ensureSchedulerRunning(Control* control) {
     static bool started = false;
@@ -251,6 +255,19 @@ void ensureSchedulerRunning(Control* control) {
         started = true;
     }
 }
+
+/// A job that only records that the Scheduler really ran it
+class FlagJob: public Job {
+public:
+    explicit FlagJob(std::atomic<bool>& ran): ran(ran) {}
+    JobType getType() override { return JOB_TYPE_BLOCKING; }
+
+protected:
+    void run() override { ran = true; }
+
+private:
+    std::atomic<bool>& ran;
+};
 
 /**
  * Fails the test, loudly, when the temporary folder cannot be written and read back. Set TMP / TEMP / TMPDIR to a
@@ -9887,4 +9904,21 @@ TEST_F(ClassroomWorkflow, penPresetsAndRevealRefuseWhileBusyBlankOrQuietPresent)
         EXPECT_EQ(tools->getToolType(), TOOL_PEN);
     }
     control->selectTool(TOOL_PEN);
+}
+
+// Review (Codex, third pass) worried that the process-wide flag in ensureSchedulerRunning() leaves later tests with a Scheduler
+// that never runs. It does not: the fixture's Control, and so its Scheduler, is shared by the whole suite. This test pins that
+// down. Declared after the soak tests, it is a later user of the helper when run with one of them, and a job it queues must
+// still run.
+TEST_F(ClassroomWorkflow, theSuitesSchedulerStillRunsJobsQueuedByALaterTest) {
+    ensureSchedulerRunning(control.get());
+    std::atomic<bool> ran{false};
+    auto* job = new FlagJob(ran);
+    control->getScheduler()->addJob(job, JOB_PRIORITY_NONE);
+    job->unref();
+    for (int i = 0; i < 200 && !ran; ++i) {
+        g_usleep(25 * 1000);
+        settle();
+    }
+    EXPECT_TRUE(ran) << "this test's Scheduler never ran the job it was given";
 }
