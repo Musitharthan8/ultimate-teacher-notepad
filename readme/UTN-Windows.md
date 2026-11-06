@@ -14,6 +14,8 @@ The beta installer is unsigned; signing and Store certification remain release w
 
 Alternatively extract `UTN-<version>-Windows-x64-Portable.zip` into an empty folder,
 and run `bin/UTN.exe`. Keep the entire folder together. Settings still use the user profile.
+`UTN.exe` is the launcher: it starts the application, `bin/UTN-app.exe`, and shows a crash report if that program stops
+unexpectedly. Always start `UTN.exe`; `UTN-app.exe` must stay beside it.
 
 UTN has its own settings directory (`utn`), install directory and Open With registration.
 First launch copies existing `xournalpp` configuration if present, without changing the original.

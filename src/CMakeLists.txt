@@ -95,6 +95,13 @@ set_target_properties(xournalpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BIN
 if (WIN32)
   # Make sure Windows executable has all symbols
   target_link_options(xournalpp PRIVATE "-Wl,--export-all-symbols")
+
+  # UTN names on Windows. UTN.exe is the program people start: the launcher that catches crashes and then starts
+  # UTN-app.exe, the application itself. The CMake target names stay `xournalpp` and `xournalpp-wrapper`.
+  set(UTN_APP_NAME "UTN-app")
+  set_target_properties(xournalpp PROPERTIES OUTPUT_NAME "${UTN_APP_NAME}")
+  set_target_properties(xournalpp-wrapper PROPERTIES OUTPUT_NAME "UTN")
+  target_compile_definitions(xournalpp-wrapper PRIVATE UTN_APP_NAME="${UTN_APP_NAME}")
 endif()
 
 ###############################

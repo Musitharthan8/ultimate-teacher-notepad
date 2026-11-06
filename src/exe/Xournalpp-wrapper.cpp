@@ -121,7 +121,12 @@ auto main(int argc, char* argv[]) -> int {
         std::vector<const char*> subargv;
         std::cout << Util::getExePath() << std::endl;
 
+        // On Windows UTN's build names the application UTN-app.exe (see src/CMakeLists.txt); elsewhere it is `xournalpp`
+#ifdef UTN_APP_NAME
+        const std::u8string path = (Util::getExePath() / UTN_APP_NAME).u8string();
+#else
         const std::u8string path = (Util::getExePath() / "xournalpp").u8string();
+#endif
         subargv.emplace_back(char_cast(path.c_str()));  // Data is owned by `path` - Do not delete it
         errorlog << "Executing \"" << char_cast(path);
 

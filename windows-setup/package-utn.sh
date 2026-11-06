@@ -16,7 +16,7 @@ fi
 # Never delete a previous bundle: a tester may still be running it.
 setup_dir=$(mktemp -d "$build_dir/utn-dist.XXXXXX")
 output_dir="$build_dir/utn-release"
-[[ -f "$build_dir/xournalpp.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
+[[ -f "$build_dir/UTN-app.exe" && -f "$build_dir/UTN.exe" ]] || { echo 'Build UTN first.' >&2; exit 1; }
 # These are dedicated packaging directories, never the installed application.
 # Resolve existing symlinks before recursive removal and refuse escaped paths.
 for target in "$setup_dir" "$output_dir"; do
@@ -27,7 +27,8 @@ done
 rm -rf "$output_dir"
 mkdir -p "$setup_dir/lib" "$output_dir"
 cmake --install "$build_dir" --prefix "$setup_dir"
-cp "$setup_dir/bin/xournalpp-wrapper.exe" "$setup_dir/bin/UTN.exe"
+# cmake --install already put the launcher (UTN.exe) and the application (UTN-app.exe) in bin
+[[ -f "$setup_dir/bin/UTN.exe" && -f "$setup_dir/bin/UTN-app.exe" ]] || { echo "Missing UTN.exe or UTN-app.exe after install." >&2; exit 1; }
 
 # GTK modules and Lua plugins load libraries that do not appear in the main EXE imports.
 cp -r "$prefix/lib/gdk-pixbuf-2.0" "$setup_dir/lib/"

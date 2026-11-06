@@ -44,7 +44,7 @@ jobs:
           $setup = Start-Process $installer -ArgumentList "/S /D=$installDir" -WindowStyle Hidden -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
           if (!(Test-Path "$installDir\bin\UTN.exe")) { throw 'UTN launcher missing' }
-          $exe = Join-Path $installDir 'bin\xournalpp.exe'
+          $exe = Join-Path $installDir 'bin\UTN-app.exe'
           $version = Start-Process $exe -ArgumentList '--version' -WindowStyle Hidden -Wait -PassThru
           if ($version.ExitCode -ne 0) { throw "Packaged runtime failed: $($version.ExitCode)" }
           $fixture = (Resolve-Path 'test\files\packaged_xopp\text.xopp').Path

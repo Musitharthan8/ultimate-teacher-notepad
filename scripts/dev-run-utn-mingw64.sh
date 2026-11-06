@@ -12,12 +12,12 @@ ninja -C build
 cmake --build build --target install
 
 # Windows development builds can leave stale copies in the install tree.
-if [[ -f build/xournalpp.exe ]]; then
-    cp -f build/xournalpp.exe build/install/bin/xournalpp.exe
+if [[ -f build/UTN-app.exe ]]; then
+    cp -f build/UTN-app.exe build/install/bin/UTN-app.exe
 fi
 
-if [[ -f build/xournalpp-wrapper.exe ]]; then
-    cp -f build/xournalpp-wrapper.exe build/install/bin/xournalpp-wrapper.exe
+if [[ -f build/UTN.exe ]]; then
+    cp -f build/UTN.exe build/install/bin/UTN.exe
 fi
 
 if [[ -f build/resources-templates/toolbar.ini ]]; then

@@ -67,7 +67,7 @@ try {
         }
     }
     # Keep the CI window hidden and wait for the native GUI message loop.
-    $app = Start-Process -FilePath (Join-Path $extractRoot 'bin/xournalpp.exe') -WindowStyle Hidden -PassThru
+    $app = Start-Process -FilePath (Join-Path $extractRoot 'bin/UTN-app.exe') -WindowStyle Hidden -PassThru
     try {
         if (!$app.WaitForInputIdle(30000)) { throw 'GUI message loop did not become ready' }
         $app.Refresh()
