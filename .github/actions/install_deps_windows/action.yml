@@ -31,7 +31,6 @@ runs:
           mingw-w64-${{inputs.msys_package_env}}-imagemagick
           make
           mingw-w64-${{inputs.msys_package_env}}-gobject-introspection-runtime
-          mingw-w64-${{inputs.msys_package_env}}-lua-luarocks
           mingw-w64-${{inputs.msys_package_env}}-zstd
     - shell: msys2 {0}
       run: |
@@ -50,7 +49,15 @@ runs:
         else
           echo '::notice::QPDF unavailable; build will use Cairo PDF export.'
         fi
-        # install LuaGObject via luarocks as long as there is no MinGW package
-        # If this command fails because of a new Lua version, update package.sh as well
-        luarocks install --lua-version=5.5 LuaGObject
+        # LuaGObject is optional. MSYS2 no longer publishes a luarocks package (the build used to fail with
+        # "target not found: mingw-w64-x86_64-lua-luarocks"), and no plugin bundled with UTN needs LuaGObject.
+        # Install it through luarocks when luarocks can still be had; never block the build on it.
+        # If the luarocks command fails because of a new Lua version, update package.sh as well
+        luarocks_package=mingw-w64-${{inputs.msys_package_env}}-lua-luarocks
+        if pacman -Si "$luarocks_package" >/dev/null 2>&1 && pacman --noconfirm -S --needed "$luarocks_package"; then
+          luarocks install --lua-version=5.5 LuaGObject ||
+            echo '::warning::LuaGObject could not be installed; Lua plugins that need it will not work.'
+        else
+          echo '::notice::luarocks unavailable; building without LuaGObject (no plugin bundled with UTN needs it).'
+        fi
 

@@ -1,7 +1,7 @@
 name: UTN Windows Installer
 on:
   push:
-    branches: [feature/utn-shell, utn-dev]
+    branches: [feature/utn-teacher-ux-program, utn-dev]
   workflow_dispatch:
 concurrency:
   group: utn-windows-installer-${{ github.ref_name }}
