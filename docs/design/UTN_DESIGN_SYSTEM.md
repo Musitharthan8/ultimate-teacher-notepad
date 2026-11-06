@@ -1,8 +1,8 @@
 # UTN Design System (GTK3)
 
-Status: derived from code at `origin/feature/utn-teacher-ux-program` (5ac036b1f). This file records what the repo does today. It does not propose values. Where the code defines nothing, the entry says **not yet defined**.
+Status: first derived from code at `origin/feature/utn-teacher-ux-program` (5ac036b1f); the tables below are that snapshot except where a dated update (the 2026-11-05 provenance update, and the swatch rows rechecked against `ui/xournalpp.css` at `b6238b1be` on 2026-11-06) says otherwise. This file records what the repo does today. It does not propose values. Where the code defines nothing, the entry says **not yet defined**.
 
-> **Provenance update 2026-11-05.** Section 16 describes the source of `wip/phase6-chatgpt-design-system`. That stack is now integrated and was built and GTK-tested on Windows (see "Verification update, 2026-11-05" in `TEACHER_UX_IMPLEMENTATION.md`); native rendering, High Contrast, colour contrast and screen-reader checks are still not done. The Codex audit reports that a later CSS rule gives context-side swatches an effective 24x26 target (the 44 px touch rule needs the `utnTouch` class), which the 44 px palette test does not cover.
+> **Provenance update 2026-11-05.** Section 16 describes the source of `wip/phase6-chatgpt-design-system`. That stack is now integrated and was built and GTK-tested on Windows (see "Verification update, 2026-11-05" in `TEACHER_UX_IMPLEMENTATION.md`); native rendering, High Contrast, colour contrast and screen-reader checks are still not done. An earlier Codex audit reported that a later CSS rule gave context-side swatches an effective 24x26 target; that override was removed (see the swatch rows and section 16: side panel 34x34, 44x44 with `utnTouch`). The 44 px palette test still does not measure the real allocation.
 
 Source files cited throughout:
 
@@ -167,7 +167,7 @@ Mouse density (default) and touch density (`utnTouch`). Effective values after c
 | Rail width | 60 px fixed (`TEACHER_RAIL_WIDTH`, `LAYOUT`); `#utnRailHost` min 60 | same | `LAYOUT` line 21; CSS `#utnRailHost` |
 | App bar button | min-height 32, radius 9 | top bars padding 8px vertical | `#tbTop1 button` |
 | Context/side button | min-height 32, radius 7 | min-height 46 | `#utnContextSide button` |
-| Swatch (side panel) | 24x26 effective (later rule), 34x34 earlier rule | 44x44 | `.utn-swatches button` |
+| Swatch (side panel, `#utnContextSide`) | 34x34 (one rule; the old 24x26 override was removed) | 44x44 | `#utnContextSide .utn-swatches button` |
 | Swatch dot | 18x18 drawn | same | `UW` line 187 |
 | Shared `.utn-swatch` | 26x26, border 2px | 36x36 | `.utn-swatch` |
 | Paper palette button | 34x34 | not yet defined | `.utn-paper-palette button` |
@@ -352,7 +352,9 @@ This section supersedes earlier swatch/target counts where they conflict. It doc
 `wip/phase6-chatgpt-design-system`, now integrated. That integration was built and GTK-tested on Windows on 2026-11-05 (see
 "Verification update, 2026-11-05" in `TEACHER_UX_IMPLEMENTATION.md`). Native rendering in dark and High Contrast, a keyboard and
 screen-reader accessibility audit and colour-contrast measurement have still not been done. The context-side swatch size is now one
-rule (34x34, 44x44 with `utnTouch`); the earlier stray 24x26 override was removed.
+rule (34x34, 44x44 with `utnTouch`); the earlier stray 24x26 override was removed. That 34x34 is the side panel only: the swatches in
+the context bar and every other place that uses the shared `.utn-swatch` class are 26x26 (36x36 with `utnTouch`), and the palette
+grid uses 30x30 (44x44 with `utnTouch`). Sizes are CSS minimums read from `ui/xournalpp.css`, not measured on screen.
 
 ### Palette source and state
 

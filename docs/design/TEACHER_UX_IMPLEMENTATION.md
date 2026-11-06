@@ -265,9 +265,13 @@ Choosing a done step undoes back to before it; choosing an undone step redoes up
 
 ### Verification update, 2026-11-05 (Windows UCRT64): supersedes "not built, not run" below for this head
 
-The ChatGPT stack is `fe54f0749..24b849e7d` (64 commits: our own unfinished palette commit `b7c272007` plus 63 written by ChatGPT
-and never run by it). It was integrated on `integration/chatgpt-phase6` (pushed as `wip/phase6-integration`) and built and run on
-Windows 11 with MSYS2 UCRT64, `ninja -j2`. Claude's integration fixes follow it. The stack, those fixes and the XOPP attachment
+The ChatGPT stack is `fe54f0749..24b849e7d`: 64 commits, of which 63 are authored by `CapelessCrusader8` (the account the ChatGPT
+cloud hand-off pushed from) and one, our own unfinished palette commit `b7c272007`, by `Musitharthan8` (counted with
+`git log --format=%an`; git cannot show who or what wrote the 63, so "written by ChatGPT" is the hand-off's own account of it, not
+something the repository proves). The hand-off said it never built or ran that code. It was integrated on
+`integration/chatgpt-phase6` (since deleted; its tip is contained in the feature branch) and built and run on Windows 11 with MSYS2
+UCRT64, `ninja -j2`. Claude's integration fixes follow it. Every figure in this section is the author's own verification on the
+named head, not an independent one; the Codex audits are static reviews (nothing built or run). The stack, those fixes and the XOPP attachment
 hardening branch (`security/utn-xopp-attachment-hardening`) are all merged into `feature/utn-teacher-ux-program` (head at the time of
 the 2026-11-06 numbers below: `8c935cdcf`). Every other branch tip not contained in that head is pinned by an `archive/...` tag on
 origin (24 tags), and the superseded branches and worktrees were then removed. The statements further down that say "no CMake/Ninja ... ran" and "not compiled or executed" are the original
@@ -298,16 +302,29 @@ hand-off notes and are historical: this section replaces them for the head named
   segments. Addressed in `bf76a42a2` (presets, Reveal, Delete Box, honest marks) and `dd4f9a2ea` (non-finite result guard, one swatch
   size rule, stronger tests). Hide answers stays available while blocked on purpose (protective direction). This note does not claim
   the app is free of other classroom-gate gaps: the gate covers the controls named above and the audit checked those.
+- Third Codex audit (`utn-sdd-backup/codex-chatgpt-audit3.md`, static review of `3c74b630f`): verdict "not safe to merge into master,
+  not release-ready". Addressed so far: `dfa6eda82` (the shared tool, shape, size, fill, style, font and text actions, the Text,
+  Answer Box and Feedback selectors, the teaching-kit buttons and the classroom Image and Comment commands now refuse changes while
+  busy, under the Blank cover and in quiet Present, through `Control::toolChangeAllowed()`; its GTK test was shown red with the gate
+  forced open) and `b6238b1be` (a document that links to a background image or PDF outside its own folder no longer opens it until
+  the user agrees; command-line export and recovery still open everything). After those two commits (2026-11-06, author's runs):
+  units 648 passed, 1 skipped; GTK 196 of 196, run at the default DPI only. The ask-before-opening dialog itself has not been
+  exercised in the running app, and no test covers a symlink that points out of the folder.
+- Still open from that audit: unchecked degenerate arithmetic in the shape recogniser (zero-mass segments, parallel intersections,
+  `sqrt`, the `int` cast of the point count), the process-static scheduler flag in `ClassroomWorkflowTest.cpp` (so the soak tests
+  may not run their own scheduler; soak and stress tests are excluded from every figure here), the reduced handwriting gate, and
+  point-count assertions in `CircleRecognizerTest.cpp`. Not release-ready until these are closed.
 - Open, non-blocking: the corpus is synthetic (no real pen traces); missed clean shapes are capped at today's measured counts, not
   zero; the handwriting gate allows one documented false positive (D) and has no 8/O/0 cases; the colour-dialog path and the Answer
   Box style controls are gated but not covered by a GTK test; no test measures the real side-panel swatch allocation.
 - Still **not** verified: High Contrast and dark-mode native visual pass, NVDA/Narrator, touch and stylus, dual-display Student View,
   the menubar dropdowns (Classroom, File), shuffled test order, real handwriting traces.
 
-**Never treat this section as a verified Windows build.** All commits below were created through the
-GitHub connector and reviewed statically. No CMake/Ninja, C++ unit suite, GTK integration suite,
-Windows UCRT64 test, native screen capture or real-profile hash check ran. The affected
-`wip/` branches have **not** been merged into `feature/utn-teacher-ux-program`.
+**Historical hand-off note, superseded by the verification update above.** When it was written, all commits below had been created
+through the GitHub connector and reviewed statically: no CMake/Ninja, C++ unit suite, GTK integration suite, Windows UCRT64 test,
+native screen capture or real-profile hash check had run, and the `wip/` branches were not merged into
+`feature/utn-teacher-ux-program`. That is no longer true of the merged head named in the update above; the sentences below describe
+the state at hand-off, not today.
 
 The source ancestry is
 `fe54f0749` → original unfinished `wip/phase6-palette-redesign` (`b7c2720`) →

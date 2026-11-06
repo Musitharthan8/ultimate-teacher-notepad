@@ -2,6 +2,12 @@
 
 Status: investigation paused by product decision. No root cause is established. No fix has been applied or proposed.
 
+> **Dated snapshot, preserved as written on 2026-10-23.** Later work on `feature/utn-teacher-ux-program` added repeated-ink and
+> soak tests in `test/gtk_tests/toolbar/ClassroomWorkflowTest.cpp` (see "Verification update, 2026-11-05" in
+> `docs/design/TEACHER_UX_IMPLEMENTATION.md`). They are excluded from the verified runs, and none of them reproduced or explained
+> this hang. The statements below that no harness or fix exists describe 2026-10-23, not today. The root cause is still not
+> established.
+
 ## Build and environment
 
 - Candidate build: `f9535300210ce36e1dbf04cf46d64bf52a75755b` ("Fix visual-polish review findings: scrollbar, colour chooser, HC swatch, divider width"), branch `feature/utn-visual-polish-review-fix`.
