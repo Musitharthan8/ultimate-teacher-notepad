@@ -267,16 +267,18 @@ Choosing a done step undoes back to before it; choosing an undone step redoes up
 
 The ChatGPT stack is `fe54f0749..24b849e7d` (64 commits: our own unfinished palette commit `b7c272007` plus 63 written by ChatGPT
 and never run by it). It was integrated on `integration/chatgpt-phase6` (pushed as `wip/phase6-integration`) and built and run on
-Windows 11 with MSYS2 UCRT64, `ninja -j2`. Claude's integration fixes follow it. Not yet merged into `feature/utn-teacher-ux-program`
-at the time of this note. The statements further down that say "no CMake/Ninja ... ran" and "not compiled or executed" are the original
+Windows 11 with MSYS2 UCRT64, `ninja -j2`. Claude's integration fixes follow it. The stack, those fixes and the XOPP attachment
+hardening branch (`security/utn-xopp-attachment-hardening`) are all merged into `feature/utn-teacher-ux-program` (head at the time of
+the 2026-11-06 numbers below: `8c935cdcf`). Every other branch tip not contained in that head is pinned by an `archive/...` tag on
+origin (24 tags), and the superseded branches and worktrees were then removed. The statements further down that say "no CMake/Ninja ... ran" and "not compiled or executed" are the original
 hand-off notes and are historical: this section replaces them for the head named here.
 
 - Build: exit 0 for `xournalpp`, `test-units` and `test-gtk-integration`.
-- Units: 595 passed, 1 skipped (`CrashChild.run`).
-- GTK, full suite without soak, stress, `heavySession*`, `longSession*`: 194 of 194 at 96 DPI (`__COMPAT_LAYER=DPIUNAWARE`), 0 GTK
-  CRITICAL or ERROR. At 120 DPI the full run before the last test commit passed 193 of 194, 0 CRITICAL; the one failure
-  (`TextContextualSettings`, which toggled Bold with the pen active, now refused by the new text gate) was fixed and passes alone.
-  A full 120 DPI rerun after that fix was not made.
+- Units (head `8c935cdcf`): 643 passed, 1 skipped (`CrashChild.run`; it is the child process of the CrashHandler tests and skips
+  itself unless `UTN_CRASH_CHILD` and `UTN_CRASH_FILE` are set).
+- GTK, full suite without soak, stress, `heavySession*`, `longSession*` (head `8c935cdcf`): 195 of 195 at 120 DPI and 195 of 195 at
+  96 DPI (`__COMPAT_LAYER=DPIUNAWARE`, 2026-11-06, 533 s), 0 GTK CRITICAL or ERROR in both. An earlier 120 DPI run failed one test
+  (`TextContextualSettings`, which toggled Bold with the pen active, now refused by the new text gate); it was fixed and passes.
 - Real `%LOCALAPPDATA%\utn\settings.xml` unchanged before and after (SHA-256 starts `667441dd910`, 15181 bytes, mtime 2026-11-03 17:15:34).
   The first launch of the real app read that file because the isolating variables were set from bash; it was killed by PID
   within a minute without saving, and the file was verified identical. Later runs used a scratch profile started from PowerShell.
