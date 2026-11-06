@@ -600,6 +600,9 @@ struct ActionProperties<Action::SELECT_TOOL> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getActiveTool()->getToolType(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;  // busy, Blank cover or quiet Present: the action keeps the tool it has
+        }
         g_simple_action_set_state(ga, p);
         ToolType tt = getGVariantValue<ToolType>(p);
         xoj_assert(tt < TOOL_END_ENTRY);
@@ -612,7 +615,12 @@ struct ActionProperties<Action::SELECT_TOOL> {
 
 template <>
 struct ActionProperties<Action::SELECT_DEFAULT_TOOL> {
-    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->selectDefaultTool(); }
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
+        ctrl->selectDefaultTool();
+    }
 };
 
 /*
@@ -626,6 +634,9 @@ struct ActionPropDrawingTypes {
         return ctrl->getToolHandler()->getDrawingType() == type;
     }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;  // before any sibling state is cleared: the shape mode stays as it was
+        }
         auto* actionDB = ctrl->getActionDatabase();
 
         actionDB->setActionState(Action::TOOL_DRAW_SHAPE_RECOGNIZER, false);
@@ -666,6 +677,9 @@ struct ActionProperties<Action::SETSQUARE> {
     using state_type = bool;
     static constexpr state_type initialState(Control*) { return false; }
     static void callback(GSimpleAction* ga, GVariant*, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         // Only one GeometryTool is activated at a time
         ctrl->getActionDatabase()->setActionState(Action::COMPASS, false);
         g_simple_action_set_state(ga, makeGVariant(ctrl->toggleSetsquare()));
@@ -677,6 +691,9 @@ struct ActionProperties<Action::COMPASS> {
     using state_type = bool;
     static constexpr state_type initialState(Control*) { return false; }
     static void callback(GSimpleAction* ga, GVariant*, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         // Only one GeometryTool is activated at a time
         ctrl->getActionDatabase()->setActionState(Action::SETSQUARE, false);
         g_simple_action_set_state(ga, makeGVariant(ctrl->toggleCompass()));
@@ -690,6 +707,9 @@ struct ActionProperties<Action::TOOL_PEN_SIZE> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getPenSize(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         ToolSize size = getGVariantValue<ToolSize>(p);
         xoj_assert(size < TOOL_SIZE_NONE);
@@ -704,6 +724,9 @@ struct ActionProperties<Action::TOOL_PEN_LINE_STYLE> {
     using parameter_type = state_type;
     static std::string initialState(Control* ctrl) { return ctrl->getLineStyleToSelect().value_or("none"); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         const char* styleName = g_variant_get_string(p, nullptr);
         ctrl->setLineStyle(styleName);
@@ -715,6 +738,9 @@ struct ActionProperties<Action::TOOL_PEN_FILL> {
     using state_type = bool;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getTool(TOOL_PEN).getFill(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         bool enabled = g_variant_get_boolean(p);
         ctrl->getToolHandler()->setPenFillEnabled(enabled);
@@ -723,7 +749,11 @@ struct ActionProperties<Action::TOOL_PEN_FILL> {
 
 template <>
 struct ActionProperties<Action::TOOL_PEN_FILL_OPACITY> {
-    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->selectAlpha(OPACITY_FILL_PEN); }
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        if (ctrl->toolChangeAllowed()) {
+            ctrl->selectAlpha(OPACITY_FILL_PEN);
+        }
+    }
 };
 // Eraser submenu
 template <>
@@ -732,6 +762,9 @@ struct ActionProperties<Action::TOOL_ERASER_SIZE> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getEraserSize(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         ToolSize size = getGVariantValue<ToolSize>(p);
         xoj_assert(size < TOOL_SIZE_NONE);
@@ -746,6 +779,9 @@ struct ActionProperties<Action::TOOL_ERASER_TYPE> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getEraserType(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         EraserType type = getGVariantValue<EraserType>(p);
         ctrl->setEraserType(type);
@@ -759,6 +795,9 @@ struct ActionProperties<Action::TOOL_HIGHLIGHTER_SIZE> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getHighlighterSize(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         ToolSize size = getGVariantValue<ToolSize>(p);
         xoj_assert(size < TOOL_SIZE_NONE);
@@ -774,6 +813,9 @@ struct ActionProperties<Action::TOOL_HIGHLIGHTER_FILL> {
         return ctrl->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getFill();
     }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         bool enabled = g_variant_get_boolean(p);
         ctrl->getToolHandler()->setHighlighterFillEnabled(enabled);
@@ -782,13 +824,19 @@ struct ActionProperties<Action::TOOL_HIGHLIGHTER_FILL> {
 
 template <>
 struct ActionProperties<Action::TOOL_HIGHLIGHTER_FILL_OPACITY> {
-    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->selectAlpha(OPACITY_FILL_HIGHLIGHTER); }
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        if (ctrl->toolChangeAllowed()) {
+            ctrl->selectAlpha(OPACITY_FILL_HIGHLIGHTER);
+        }
+    }
 };
 
 template <>
 struct ActionProperties<Action::TOOL_SELECT_PDF_TEXT_MARKER_OPACITY> {
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
-        ctrl->selectAlpha(OPACITY_SELECT_PDF_TEXT_MARKER);
+        if (ctrl->toolChangeAllowed()) {
+            ctrl->selectAlpha(OPACITY_SELECT_PDF_TEXT_MARKER);
+        }
     }
 };
 
@@ -805,7 +853,11 @@ struct ActionProperties<Action::TOGGLE_TOUCH_DRAWING> {
 
 template <>
 struct ActionProperties<Action::SELECT_FONT> {
-    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->showFontDialog(); }
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        if (ctrl->toolChangeAllowed()) {
+            ctrl->showFontDialog();
+        }
+    }
 };
 
 template <>
@@ -814,6 +866,9 @@ struct ActionProperties<Action::FONT> {
     using parameter_type = state_type;
     static std::string initialState(Control* ctrl) { return ctrl->getSettings()->getFont().asString(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         ctrl->fontChanged(XojFont(g_variant_get_string(p, nullptr)));
     }
@@ -825,6 +880,9 @@ struct ActionProperties<Action::TEXT_ALIGNMENT> {
     using parameter_type = state_type;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getTextAlignment(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         TextAlignment al = getGVariantValue<TextAlignment::Value>(p);
         ctrl->getToolHandler()->setTextAlignment(al);
@@ -839,6 +897,9 @@ struct ActionProperties<Action::TEXT_JUSTIFY> {
     using state_type = bool;
     static state_type initialState(Control* ctrl) { return ctrl->getToolHandler()->getTextJustify(); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         bool justify = g_variant_get_boolean(p);
         ctrl->getToolHandler()->setTextJustify(justify);
@@ -988,6 +1049,9 @@ struct ActionProperties<Action::TOOL_SIZE> {
     }
     static bool initiallyEnabled(Control* ctrl) { return ctrl->getToolHandler()->hasCapability(TOOL_CAP_SIZE); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         ToolSize size = getGVariantValue<ToolSize>(p);
         xoj_assert(size < TOOL_SIZE_NONE);
@@ -1004,6 +1068,9 @@ struct ActionProperties<Action::TOOL_FILL> {
     }
     static bool initiallyEnabled(Control* ctrl) { return ctrl->getToolHandler()->hasCapability(TOOL_CAP_FILL); }
     static void callback(GSimpleAction* ga, GVariant* p, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         g_simple_action_set_state(ga, p);
         bool enabled = g_variant_get_boolean(p);
         ctrl->setFill(enabled);
@@ -1014,6 +1081,9 @@ template <>
 struct ActionProperties<Action::TOOL_FILL_OPACITY> {
     static bool initiallyEnabled(Control* ctrl) { return ctrl->getToolHandler()->hasCapability(TOOL_CAP_FILL); }
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) {
+        if (!ctrl->toolChangeAllowed()) {
+            return;
+        }
         if (auto tt = ctrl->getToolHandler()->getToolType(); tt == TOOL_PEN) {
             ctrl->selectAlpha(OPACITY_FILL_PEN);
         } else if (tt == TOOL_HIGHLIGHTER) {

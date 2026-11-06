@@ -57,7 +57,9 @@ auto ToolTextMode::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                          }
                          auto* self = static_cast<ToolTextMode*>(data);
                          // Clicking the active mode again keeps it; the button never turns itself off
-                         self->control->selectTextMode(self->mode);
+                         if (self->control->toolChangeAllowed()) {  // refused when busy, covered or in quiet Present
+                             self->control->selectTextMode(self->mode);
+                         }
                          self->syncButton();
                      }),
                      this);

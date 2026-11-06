@@ -414,6 +414,9 @@ public:
     void applyDisplayedColour(Color color, bool userSelection = true);
     /// UTN: whether a colour surface may change the colour now (the same gate as every other teacher control)
     bool colourChangeAllowed();
+    /// UTN: whether a tool, style, size or mode control may change the tool now. Same gate as colourChangeAllowed(): a
+    /// closed gate (busy, Blank cover, quiet Present) refuses menus, shortcuts and toolbars alike
+    bool toolChangeAllowed();
 
     GladeSearchpath* getGladeSearchPath() const;
 

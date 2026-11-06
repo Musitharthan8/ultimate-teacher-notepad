@@ -178,10 +178,16 @@ void addCommand(GtkBox* panel, GtkPopover* popover, Control* control, const char
                         ctrl->pasteImage();
                         break;
                     case Command::IMAGE:
+                        if (!ctrl->toolChangeAllowed()) {
+                            break;  // refused when busy, covered by Blank or hidden in quiet Present
+                        }
                         ctrl->clearSelectionEndText();
                         ctrl->selectTool(TOOL_IMAGE);
                         break;
                     case Command::COMMENT: {
+                        if (!ctrl->toolChangeAllowed()) {
+                            break;
+                        }
                         ctrl->clearSelectionEndText();
                         utn::applyAnswerBoxStyle(*ctrl->getToolHandler(), utn::MARKING_COMMENT_STYLE);
                         ctrl->selectTextMode(TextMode::AnswerBox);

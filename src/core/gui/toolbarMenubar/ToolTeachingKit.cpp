@@ -40,6 +40,9 @@ constexpr std::array<DrawingEntry, 7> DRAWING_TOOLS{{
 // Shapes are a Pen mode: select Pen (which starts freehand) and then apply the requested shape.
 // Control::setToolDrawingType refreshes the toolbar and properties bar.
 void chooseDrawingTool(Control* control, DrawingType type) {
+    if (!control->toolChangeAllowed()) {
+        return;  // refused when busy, covered by Blank or hidden in quiet Present
+    }
     control->selectTool(TOOL_PEN);
     control->setToolDrawingType(type);
 }
@@ -116,7 +119,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             "clicked",
             G_CALLBACK(+[](GtkButton*, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                ctrl->getActionDatabase()->fireChangeActionState(Action::SETSQUARE, true);
+                if (ctrl->toolChangeAllowed()) {
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::SETSQUARE, true);
+                }
             }),
             control);
     gtk_box_append(panel, setSquare);
@@ -127,7 +132,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             "clicked",
             G_CALLBACK(+[](GtkButton*, gpointer data) {
                 auto* ctrl = static_cast<Control*>(data);
-                ctrl->getActionDatabase()->fireChangeActionState(Action::COMPASS, true);
+                if (ctrl->toolChangeAllowed()) {
+                    ctrl->getActionDatabase()->fireChangeActionState(Action::COMPASS, true);
+                }
             }),
             control);
     gtk_box_append(panel, compass);
@@ -137,7 +144,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             equation,
             "clicked",
             G_CALLBACK(+[](GtkButton*, gpointer data) {
-                static_cast<Control*>(data)->selectTool(TOOL_LATEX);
+                if (auto* ctrl = static_cast<Control*>(data); ctrl->toolChangeAllowed()) {
+                    ctrl->selectTool(TOOL_LATEX);
+                }
             }),
             control);
     gtk_box_append(panel, equation);
@@ -147,7 +156,9 @@ auto ToolTeachingKit::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
             image,
             "clicked",
             G_CALLBACK(+[](GtkButton*, gpointer data) {
-                static_cast<Control*>(data)->selectTool(TOOL_IMAGE);
+                if (auto* ctrl = static_cast<Control*>(data); ctrl->toolChangeAllowed()) {
+                    ctrl->selectTool(TOOL_IMAGE);
+                }
             }),
             control);
     gtk_box_append(panel, image);

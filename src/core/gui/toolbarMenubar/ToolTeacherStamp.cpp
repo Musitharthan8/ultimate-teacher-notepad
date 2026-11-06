@@ -86,7 +86,9 @@ GtkWidget* createStampGrid(Control* control, GtkPopover* popover, const std::arr
                     auto* ctrl = static_cast<Control*>(g_object_get_data(G_OBJECT(button), "utn-control"));
                     auto* stamp = static_cast<const char*>(g_object_get_data(G_OBJECT(button), "utn-stamp-text"));
 
-                    ctrl->selectTextMode(TextMode::Feedback, stamp ? stamp : "");
+                    if (ctrl->toolChangeAllowed()) {  // refused when busy, covered or in quiet Present
+                        ctrl->selectTextMode(TextMode::Feedback, stamp ? stamp : "");
+                    }
 
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }),
@@ -158,7 +160,9 @@ auto ToolTeacherStamp::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                 const char* text = gtk_editable_get_text(entry);
 
                 if (text != nullptr && text[0] != '\0') {
-                    ctrl->selectTextMode(TextMode::Feedback, text);
+                    if (ctrl->toolChangeAllowed()) {  // refused when busy, covered or in quiet Present
+                        ctrl->selectTextMode(TextMode::Feedback, text);
+                    }
                     gtk_popover_popdown(GTK_POPOVER(data));
                 }
             }),

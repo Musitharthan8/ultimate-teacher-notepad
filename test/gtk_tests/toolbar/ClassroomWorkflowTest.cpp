@@ -9767,6 +9767,87 @@ TEST_F(ClassroomWorkflow, theColourActionAndTextEraserAndHighlightControlsRefuse
     control->selectTool(TOOL_PEN);
 }
 
+// Review (Codex, third pass): the shared tool actions (menus, shortcuts, command palette, toolbar) changed the tool, its
+// size, fill, style, drawing type, font and text layout without the classroom gate. Every one must be refused while busy,
+// under the Blank cover and in quiet Present, leave its action state where it was, and work again once the gate opens.
+TEST_F(ClassroomWorkflow, theSharedToolActionsRefuseEveryChangeWhileBusyBlankOrQuietPresent) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* tools = control->getToolHandler();
+    auto* actions = control->getActionDatabase();
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+
+    struct Gate {
+        const char* name;
+        std::function<void()> close;
+        std::function<void()> open;
+    };
+    const Gate gates[] = {
+            {"busy", [&] { control->block("gate test"); }, [&] { control->unblock(); }},
+            {"Blank", [&] { students->showTeacherBlankCover(true); }, [&] { students->showTeacherBlankCover(false); }},
+            {"quiet Present", [&] { window->toolbarSelected("UTN Present"); }, [&] { window->toolbarSelected("UTN Teacher"); }},
+    };
+    for (const Gate& gate: gates) {
+        SCOPED_TRACE(gate.name);
+        control->selectTool(TOOL_PEN);
+        control->setToolDrawingType(DRAWING_TYPE_DEFAULT);
+        tools->setPenSize(TOOL_SIZE_MEDIUM);
+        tools->setPenFillEnabled(false);
+        tools->setEraserSize(TOOL_SIZE_MEDIUM);
+        tools->setHighlighterSize(TOOL_SIZE_MEDIUM);
+        tools->setTextJustify(false);
+        settle();
+        const ToolSnapshot before = snapshotTools(control.get());
+        const auto penSizeBefore = tools->getPenSize();
+        const auto eraserSizeBefore = tools->getEraserSize();
+        const auto highlighterSizeBefore = tools->getHighlighterSize();
+        const auto drawingTypeBefore = tools->getDrawingType();
+        const bool fillBefore = tools->getTool(TOOL_PEN).getFill();
+        const bool justifyBefore = tools->getTextJustify();
+        const auto alignmentBefore = tools->getTextAlignment();
+        const std::string fontBefore = control->getSettings()->getFont().asString();
+
+        gate.close();
+        settle();
+        ASSERT_FALSE(control->toolChangeAllowed()) << "the gate is closed";
+
+        actions->fireChangeActionState(Action::SELECT_TOOL, TOOL_ERASER);
+        actions->fireChangeActionState(Action::TOOL_DRAW_RECTANGLE, true);
+        actions->fireChangeActionState(Action::TOOL_PEN_SIZE, TOOL_SIZE_THICK);
+        actions->fireChangeActionState(Action::TOOL_PEN_FILL, true);
+        actions->fireChangeActionState(Action::TOOL_ERASER_SIZE, TOOL_SIZE_THICK);
+        actions->fireChangeActionState(Action::TOOL_HIGHLIGHTER_SIZE, TOOL_SIZE_THICK);
+        actions->fireChangeActionState(Action::TOOL_SIZE, TOOL_SIZE_THICK);
+        actions->fireChangeActionState(Action::TOOL_FILL, true);
+        actions->fireChangeActionState(Action::TEXT_JUSTIFY, !justifyBefore);
+        actions->fireChangeActionState(Action::TEXT_ALIGNMENT, TextAlignment::RIGHT);
+        actions->fireChangeActionState(Action::FONT, "Serif Bold 31");
+        actions->fireActivateAction(Action::SELECT_DEFAULT_TOOL);
+        settle();
+
+        EXPECT_EQ(tools->getToolType(), TOOL_PEN) << "the tool must not change";
+        EXPECT_EQ(tools->getDrawingType(), drawingTypeBefore) << "the shape mode must not change";
+        EXPECT_EQ(tools->getPenSize(), penSizeBefore);
+        EXPECT_EQ(tools->getEraserSize(), eraserSizeBefore);
+        EXPECT_EQ(tools->getHighlighterSize(), highlighterSizeBefore);
+        EXPECT_EQ(tools->getTool(TOOL_PEN).getFill(), fillBefore);
+        EXPECT_EQ(tools->getTextJustify(), justifyBefore);
+        EXPECT_EQ(tools->getTextAlignment(), alignmentBefore);
+        EXPECT_EQ(control->getSettings()->getFont().asString(), fontBefore);
+        EXPECT_TRUE(snapshotTools(control.get()) == before) << "nothing else about the tools moved either";
+
+        gate.open();
+        settle();
+        ASSERT_TRUE(control->toolChangeAllowed());
+        actions->fireChangeActionState(Action::TOOL_PEN_SIZE, TOOL_SIZE_THICK);
+        settle();
+        EXPECT_EQ(tools->getPenSize(), TOOL_SIZE_THICK) << "and the same action works once the gate opens";
+    }
+    control->selectTool(TOOL_PEN);
+}
+
 // Review (Codex, second pass): a pen preset selects the tool, colour and size, and "Reveal" shows hidden answers to the
 // class. Both must wait for the same gate as every other teacher control: busy, the Blank cover and quiet Present.
 // Hiding stays available on purpose (it is the protective direction).

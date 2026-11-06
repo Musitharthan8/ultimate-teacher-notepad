@@ -86,9 +86,14 @@ TEST(SettingsTest, testReadWrite) {
 
 // A new profile starts on the light paper look; the system theme is no longer the default
 TEST(SettingsTest, aNewProfileStartsOnTheLightTheme) {
-    Settings settings{"non-existing-file-path"};
+    // A private path that is guaranteed not to exist: a relative name in the working directory is created by other
+    // tests, so the result would depend on which tests ran there before
+    const fs::path path = fs::temp_directory_path() / "xournalpp-test-units_Settings_newProfile.xml";
+    fs::remove(path);
+    Settings settings{path};
     settings.load();
     EXPECT_EQ(settings.getThemeVariant(), THEME_VARIANT_FORCE_LIGHT);
+    fs::remove(path);
 }
 
 // A profile that saved another theme keeps it: only the default for a new profile changed

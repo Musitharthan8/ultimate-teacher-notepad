@@ -426,6 +426,14 @@ void ToolUtnContextBar::populateTextSettingsPanel(Control* control, GtkBox* pane
                 const int active = gtk_combo_box_get_active(combo);
                 if (active >= 0 && active <= 1) {
                     auto* ctrl = static_cast<Control*>(data);
+                    if (!ctrl->toolChangeAllowed()) {
+                        // busy, Blank cover or quiet Present: show the mode the tool really has, without re-entering
+                        g_signal_handlers_block_matched(combo, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, ctrl);
+                        gtk_combo_box_set_active(
+                                combo, ctrl->getToolHandler()->getTextMode() == TextMode::AnswerBox ? 1 : 0);
+                        g_signal_handlers_unblock_matched(combo, G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, ctrl);
+                        return;
+                    }
                     GtkWidget* popover = gtk_widget_get_ancestor(GTK_WIDGET(combo), GTK_TYPE_POPOVER);
                     GtkWidget* focusTarget = popover == nullptr ? nullptr : gtk_popover_get_relative_to(GTK_POPOVER(popover));
                     ctrl->selectTextMode(active == 0 ? TextMode::Plain : TextMode::AnswerBox);

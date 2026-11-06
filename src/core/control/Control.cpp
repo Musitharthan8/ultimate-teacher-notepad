@@ -2410,6 +2410,8 @@ void Control::showFontDialog() {
 
 bool Control::colourChangeAllowed() { return ToolUtnContextBar::toolControlsReachable(this); }
 
+bool Control::toolChangeAllowed() { return ToolUtnContextBar::toolControlsReachable(this); }
+
 void Control::applyDisplayedColour(Color color, bool userSelection) {
     if (!colourChangeAllowed()) {
         return;  // busy, Blank cover or quiet Present: no colour surface may change the colour
