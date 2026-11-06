@@ -310,10 +310,19 @@ hand-off notes and are historical: this section replaces them for the head named
   the user agrees; command-line export and recovery still open everything). After those two commits (2026-11-06, author's runs):
   units 648 passed, 1 skipped; GTK 196 of 196, run at the default DPI only. The ask-before-opening dialog itself has not been
   exercised in the running app, and no test covers a symlink that points out of the folder.
-- Still open from that audit: unchecked degenerate arithmetic in the shape recogniser (zero-mass segments, parallel intersections,
-  `sqrt`, the `int` cast of the point count), the process-static scheduler flag in `ClassroomWorkflowTest.cpp` (so the soak tests
-  may not run their own scheduler; soak and stress tests are excluded from every figure here), the reduced handwriting gate, and
-  point-count assertions in `CircleRecognizerTest.cpp`. Not release-ready until these are closed.
+- Withdrawn after checking: the audit's claim that the process-static scheduler flag in `ClassroomWorkflowTest.cpp` leaves later
+  soak tests without a running scheduler. The fixture's `Control`, and so its `Scheduler`, is `inline static` (one per suite), so
+  starting it once is correct; starting it per test fails with a `Scheduler::start()` CRITICAL (tried and reverted on
+  2026-11-06). A test now pins that a later test's queued job still runs. Soak and stress tests remain excluded from every figure
+  here.
+- Fixed after that audit (2026-11-06, author's runs: units 655 passed, 1 skipped; GTK 197 of 197 at the default DPI): the legacy
+  shape recogniser's degenerate arithmetic. A segment with no mass or a non-finite fit is refused and the stroke stays ink with
+  the segment queue unchanged; near-parallel edges (under about 0.06 degrees) have no intersection, so no triangle or box; the
+  root of a rounding-negative spread is clamped; a stroke over 1,000,000 points is not recognised, so the `int` cast cannot
+  overflow. The second Smart Shape path (`fitClosedPolygon`) already guarded its divisions. Seven unit tests cover these.
+- Still open from that audit: the reduced handwriting gate (one tolerated D, ambiguous o/O/0 skipped) and point-count
+  assertions in `CircleRecognizerTest.cpp`. Not release-ready until these are closed, and the ask-before-opening dialog is
+  still unexercised in the running app.
 - Open, non-blocking: the corpus is synthetic (no real pen traces); missed clean shapes are capped at today's measured counts, not
   zero; the handwriting gate allows one documented false positive (D) and has no 8/O/0 cases; the colour-dialog path and the Answer
   Box style controls are gated but not covered by a GTK test; no test measures the real side-panel swatch allocation.

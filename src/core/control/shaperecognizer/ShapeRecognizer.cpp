@@ -96,8 +96,11 @@ auto ShapeRecognizer::tryTriangle() -> std::unique_ptr<Stroke> {
     s->applyStyleFrom(this->stroke);
 
     for (int i = 0; i <= 2; i++) {
-        Point p = rs[i].calcEdgeIsect(&rs[(i + 1) % 3]);
-        s->addPoint(p);
+        const auto p = rs[i].calcEdgeIsect(&rs[(i + 1) % 3]);
+        if (!p) {
+            return nullptr;  // two sides that never meet are not a triangle
+        }
+        s->addPoint(*p);
     }
 
     s->addPoint(s->getPoint(0));
@@ -166,8 +169,11 @@ auto ShapeRecognizer::tryRectangle() -> std::unique_ptr<Stroke> {
     }
 
     for (int i = 0; i <= 3; i++) {
-        Point p = rs[i].calcEdgeIsect(&rs[(i + 1) % 4]);
-        s->addPoint(p);
+        const auto p = rs[i].calcEdgeIsect(&rs[(i + 1) % 4]);
+        if (!p) {
+            return nullptr;  // two sides that never meet are not a box
+        }
+        s->addPoint(*p);
     }
 
     s->addPoint(s->getPoint(0));
@@ -551,6 +557,13 @@ auto ShapeRecognizer::recognizePatterns(Stroke* stroke) -> std::unique_ptr<Strok
 auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stroke> {
     this->stroke = stroke;
 
+    // The legacy polygon search indexes the points with int. No hand produces a stroke this long, so it stays ordinary
+    // ink instead of risking an overflowing cast (and a long run on the UI thread).
+    constexpr size_t MAX_RECOGNIZER_POINTS = 1'000'000;
+    if (stroke->getPointCount() > MAX_RECOGNIZER_POINTS) {
+        return nullptr;
+    }
+
     // Every later step squares, multiplies and divides coordinates. Reject a stroke whose points are not finite, or so
     // far off the page that those products could overflow, before anything (even the cached bounds) sees it.
     for (const Point& point: stroke->getPointVector()) {
@@ -573,8 +586,21 @@ auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stro
     // first see if it's a polygon
     int n = findPolygonal(stroke->getPoints(), 0, static_cast<int>(stroke->getPointCount()) - 1, MAX_POLYGON_SIDES, brk,
                           ss);
+    RecoSegment fresh[MAX_POLYGON_SIDES];
     if (n > 0) {
         optimizePolygonal(stroke->getPoints(), n, brk, ss);
+        // Fit every side before anything is queued: a degenerate fit (no mass, not finite) means ordinary ink, never a
+        // polygon, and leaves the queue as it was
+        for (int i = 0; i < n; i++) {
+            fresh[i].startpt = brk[i];
+            fresh[i].endpt = brk[i + 1];
+            if (!fresh[i].calcSegmentGeometry(stroke->getPoints(), brk[i], brk[i + 1], ss + i)) {
+                n = 0;
+                break;
+            }
+        }
+    }
+    if (n > 0) {
 #ifdef DEBUG_RECOGNIZER
         g_message("--");
         g_message("ShapeReco:: Polygon, %d edges:", n);
@@ -600,9 +626,7 @@ auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stro
         this->queueLength += n;
 
         for (int i = 0; i < n; i++) {
-            rs[i].startpt = brk[i];
-            rs[i].endpt = brk[i + 1];
-            rs[i].calcSegmentGeometry(stroke->getPoints(), brk[i], brk[i + 1], ss + i);
+            rs[i] = fresh[i];
         }
 
         if (auto result = tryTriangle(); result != nullptr) {

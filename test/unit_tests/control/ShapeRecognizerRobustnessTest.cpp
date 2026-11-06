@@ -7,11 +7,15 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <span>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "control/shaperecognizer/CircleRecognizer.h"
+#include "control/shaperecognizer/Inertia.h"
+#include "control/shaperecognizer/RecoSegment.h"
 #include "control/shaperecognizer/ShapeRecognizer.h"
 #include "model/Point.h"
 #include "model/Stroke.h"
@@ -417,5 +421,93 @@ TEST(ShapeRecognizerRobustness, degenerateStrokesNeverYieldNonFinitePoints) {
         for (const Point& point: result->getPointVector()) {
             EXPECT_TRUE(std::isfinite(point.x) && std::isfinite(point.y)) << "stroke " << i;
         }
+    }
+}
+
+// ---- Degenerate arithmetic in the legacy segment fit (Codex audit 3) ----
+
+TEST(ShapeRecognizerArithmetic, ParallelOrNearlyParallelEdgesHaveNoIntersection) {
+    RecoSegment a;
+    RecoSegment b;
+    a.angle = 0.3;
+    b.angle = 0.3;
+    b.xcenter = 40;
+    b.ycenter = 9;
+    EXPECT_FALSE(a.calcEdgeIsect(&b).has_value()) << "exactly parallel";
+    b.angle = 0.3 + 1e-4;
+    EXPECT_FALSE(a.calcEdgeIsect(&b).has_value()) << "parallel to within a hundredth of a degree";
+    b.angle = 0.3 + PI;
+    EXPECT_FALSE(a.calcEdgeIsect(&b).has_value()) << "parallel, pointing the other way";
+}
+
+TEST(ShapeRecognizerArithmetic, EdgesAtRightAnglesMeetWhereTheyCross) {
+    RecoSegment horizontal;  // the x axis
+    RecoSegment vertical;    // the line x = 5
+    vertical.angle = PI / 2;
+    vertical.xcenter = 5;
+    vertical.ycenter = 3;
+    const auto corner = horizontal.calcEdgeIsect(&vertical);
+    ASSERT_TRUE(corner.has_value());
+    EXPECT_NEAR(corner->x, 5.0, 1e-9);
+    EXPECT_NEAR(corner->y, 0.0, 1e-9);
+}
+
+TEST(ShapeRecognizerArithmetic, ANonFiniteEdgeHasNoIntersection) {
+    RecoSegment a;
+    RecoSegment b;
+    b.angle = PI / 2;
+    b.xcenter = std::numeric_limits<double>::infinity();
+    EXPECT_FALSE(a.calcEdgeIsect(&b).has_value());
+}
+
+TEST(ShapeRecognizerArithmetic, ASegmentWhosePointsAllCoincideHasNoGeometry) {
+    const Point points[2] = {Point(1, 1), Point(1, 1)};
+    Inertia inertia;
+    inertia.calc(std::span<const Point>(points, 2));
+    ASSERT_EQ(inertia.getMass(), 0.0);
+    RecoSegment segment;
+    EXPECT_FALSE(segment.calcSegmentGeometry(points, 0, 1, &inertia)) << "no mass: the centre would divide by zero";
+}
+
+TEST(ShapeRecognizerArithmetic, ASegmentWithANonFinitePointHasNoGeometry) {
+    const Point points[3] = {Point(0, 0), Point(std::numeric_limits<double>::quiet_NaN(), 5), Point(10, 0)};
+    Inertia inertia;
+    inertia.calc(std::span<const Point>(points, 3));
+    RecoSegment segment;
+    EXPECT_FALSE(segment.calcSegmentGeometry(points, 0, 2, &inertia));
+}
+
+TEST(ShapeRecognizerArithmetic, ARealStraightSegmentStillGetsItsGeometry) {
+    std::vector<Point> points;
+    for (int i = 0; i <= 10; ++i) {
+        points.emplace_back(10.0 * i, 0.0);
+    }
+    Inertia inertia;
+    inertia.calc(std::span<const Point>(points.data(), points.size()));
+    RecoSegment segment;
+    ASSERT_TRUE(segment.calcSegmentGeometry(points.data(), 0, 10, &inertia));
+    EXPECT_NEAR(segment.angle, 0.0, 1e-9);
+    EXPECT_NEAR(segment.x1, 0.0, 1e-9);
+    EXPECT_NEAR(segment.x2, 100.0, 1e-9);
+    EXPECT_TRUE(std::isfinite(segment.radius) && segment.radius > 0.0);
+}
+
+TEST(ShapeRecognizerArithmetic, AStrokeBeyondThePointLimitStaysInkAndTheSameLineBelowItIsRecognised) {
+    const auto lineOf = [](size_t count) {
+        auto stroke = std::make_unique<Stroke>();
+        for (size_t i = 0; i < count; ++i) {
+            stroke->addPoint(Point(300.0 * static_cast<double>(i) / static_cast<double>(count - 1), 0.0));
+        }
+        return stroke;
+    };
+    {
+        auto stroke = lineOf(1000);
+        ShapeRecognizer recognizer;
+        EXPECT_NE(recognizer.recognizePatterns(stroke.get()), nullptr) << "the ordinary case still works";
+    }
+    {
+        auto stroke = lineOf(1'000'001);
+        ShapeRecognizer recognizer;
+        EXPECT_EQ(recognizer.recognizePatterns(stroke.get()), nullptr) << "beyond the limit it stays ordinary ink";
     }
 }
