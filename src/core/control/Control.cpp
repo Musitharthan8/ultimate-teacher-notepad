@@ -1969,15 +1969,20 @@ static auto formatErrorMessages(const std::vector<std::string>& errorMessages) -
     return result;
 }
 
-void Control::openXoppFile(fs::path filepath, int scrollToPage, std::function<void(bool)> callback) {
+void Control::openXoppFile(fs::path filepath, int scrollToPage, std::function<void(bool)> callback,
+                           bool allowExternalFiles) {
     std::unique_ptr<Document> doc{};
     std::optional<MissingPdfData> missingPdf{};
     int fileVersion{};
     std::vector<std::string> errorMessages{};
+    std::vector<fs::path> blockedFiles{};
 
     try {
         LoadHandler loadHandler(&errorMessages);
+        loadHandler.setExternalFilePolicy(allowExternalFiles ? LoadHandler::ExternalFilePolicy::AllowAll :
+                                                               LoadHandler::ExternalFilePolicy::BlockOutsideDocumentFolder);
         doc = loadHandler.loadDocument(filepath);
+        blockedFiles = loadHandler.getBlockedExternalFiles();
 
         if (!loadHandler.getMissingPdfFilename().empty() || loadHandler.isAttachedPdfMissing()) {
             missingPdf = {loadHandler.isAttachedPdfMissing(), loadHandler.getMissingPdfFilename()};
@@ -2014,25 +2019,57 @@ void Control::openXoppFile(fs::path filepath, int scrollToPage, std::function<vo
         }
     };
 
-    if (fileVersion > FILE_FORMAT_VERSION) {
-        enum { YES = 1, NO };
-        std::vector<XojMsgBox::Button> buttons = {{_("Yes"), YES}, {_("No"), NO}};
+    auto proceed = [ctrl = this, afterOpen = std::move(afterOpen), callback, fileVersion]() mutable {
+        if (fileVersion > FILE_FORMAT_VERSION) {
+            enum { YES = 1, NO };
+            std::vector<XojMsgBox::Button> buttons = {{_("Yes"), YES}, {_("No"), NO}};
+            XojMsgBox::askQuestion(
+                    ctrl->getGtkWindow(), _("File version mismatch"),
+                    _("The file being loaded has a file format version newer than the one currently supported by this "
+                      "version of Xournal++, so it may not load properly. Open anyways?"),
+                    buttons, [afterOpen = std::move(afterOpen), callback](int response) mutable {
+                        if (response == YES) {
+                            afterOpen();
+                            callback(true);
+                        } else {
+                            callback(false);
+                        }
+                    });
+        } else {
+            afterOpen();
+            callback(true);
+        }
+    };
+
+    if (!blockedFiles.empty()) {
+        // The document links to files outside its own folder (a hostile file could use this to read other files on
+        // this computer). Nothing was opened: ask first, and reload with permission if the user agrees.
+        enum { OPEN_LINKED = 1, KEEP_BLOCKED };
+        constexpr size_t MAX_LISTED = 5;
+        std::string list;
+        for (size_t i = 0; i < blockedFiles.size() && i < MAX_LISTED; ++i) {
+            list += FS(_F("\n{1}") % blockedFiles[i].u8string());
+        }
+        if (blockedFiles.size() > MAX_LISTED) {
+            list += "\n" + FS(_F("... and {1} more") % (blockedFiles.size() - MAX_LISTED));
+        }
+        std::vector<XojMsgBox::Button> buttons = {{_("Open the linked files"), OPEN_LINKED},
+                                                  {_("Do not open them"), KEEP_BLOCKED}};
         XojMsgBox::askQuestion(
-                this->getGtkWindow(), _("File version mismatch"),
-                _("The file being loaded has a file format version newer than the one currently supported by this "
-                  "version of Xournal++, so it may not load properly. Open anyways?"),
-                buttons, [afterOpen = std::move(afterOpen), callback = std::move(callback)](int response) mutable {
-                    if (response == YES) {
-                        afterOpen();
-                        callback(true);
+                this->getGtkWindow(), _("This document links to files outside its folder"),
+                FS(_F("Only open them if you trust where this document came from. The document asks to load:{1}") %
+                   list),
+                buttons,
+                [ctrl = this, proceed = std::move(proceed), callback, filepath, scrollToPage](int response) mutable {
+                    if (response == OPEN_LINKED) {
+                        ctrl->openXoppFile(filepath, scrollToPage, callback, true);
                     } else {
-                        callback(false);
+                        proceed();
                     }
                 });
-    } else {
-        afterOpen();
-        callback(true);
+        return;
     }
+    proceed();
 }
 
 bool Control::openPdfFile(fs::path filepath, bool attachToDocument, int scrollToPage) {

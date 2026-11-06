@@ -580,8 +580,12 @@ private:
      * opened document with the new one. Asks the user in case of doubts (e.g. wrong file version) and aborts if the
      * document was not correctly and entirely parsed. Calls callback afterwards, with boolean parameter true on
      * success. WARNING: Be sure the active document has been saved (or discarded) before calling openXoppFile()
+     *
+     * Background images and PDFs the document links to outside its own folder are not opened until the user agrees
+     * (`allowExternalFiles` is set by that agreement and reloads the document).
      */
-    void openXoppFile(fs::path filepath, int scrollToPage, std::function<void(bool)> callback);
+    void openXoppFile(fs::path filepath, int scrollToPage, std::function<void(bool)> callback,
+                      bool allowExternalFiles = false);
 
     /**
      * Opens the provided path and parse it as a PDF file. Then forcibly replaces the currently opened document with a

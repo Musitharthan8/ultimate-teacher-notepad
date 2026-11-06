@@ -241,6 +241,39 @@ void LoadHandler::finalizePage() {
 
 void LoadHandler::setAttachmentLimits(const xoj::load::AttachmentLimits& newLimits) { this->limits = newLimits; }
 
+void LoadHandler::setExternalFilePolicy(ExternalFilePolicy policy) { this->externalFilePolicy = policy; }
+
+auto LoadHandler::getBlockedExternalFiles() const -> const std::vector<fs::path>& { return this->blockedExternalFiles; }
+
+bool LoadHandler::blocksExternalFile(const fs::path& file) {
+    if (this->externalFilePolicy == ExternalFilePolicy::AllowAll) {
+        return false;
+    }
+    fs::path folder = this->xournalFilepath.parent_path();
+    if (folder.empty()) {
+        folder = ".";
+    }
+    // Symlinks and ".." are resolved first. Anything that cannot be resolved is treated as outside (fail closed).
+    std::error_code ec;
+    const fs::path resolvedFile = fs::weakly_canonical(file, ec);
+    bool inside = false;
+    if (!ec) {
+        const fs::path resolvedFolder = fs::weakly_canonical(folder, ec);
+        if (!ec) {
+            const fs::path relative = resolvedFile.lexically_relative(resolvedFolder);
+            inside = !relative.empty() && *relative.begin() != "..";
+        }
+    }
+    if (inside) {
+        return false;
+    }
+    if (std::find(this->blockedExternalFiles.begin(), this->blockedExternalFiles.end(), file) ==
+        this->blockedExternalFiles.end()) {
+        this->blockedExternalFiles.push_back(file);
+    }
+    return true;
+}
+
 auto LoadHandler::decodeInlineImage(std::string_view encoded, uint64_t perImageLimit) -> std::shared_ptr<std::string> {
     if (encoded.empty()) {
         return {};
@@ -475,6 +508,9 @@ void LoadHandler::setBgSolid(const PageType& bg, Color color) {
 void LoadHandler::setBgPixmap(bool attach, const fs::path& filename) {
     if (this->isGzFile || !attach) {
         const fs::path fileToLoad = getAbsoluteFilepath(filename, attach);
+        if (blocksExternalFile(fileToLoad)) {
+            return;  // outside the document's folder: not opened until the user agrees
+        }
         BackgroundImage img;
         xoj::util::GErrorGuard error{};
         img.loadFile(fileToLoad, xoj::util::out_ptr(error));
@@ -549,6 +585,14 @@ void LoadHandler::loadBgPdf(bool attach, const fs::path& filename) {
     if (this->isGzFile || !attach) {
         // Resolve correct file path
         const fs::path pdfFilepath = getAbsoluteFilepath(filename, attach);
+
+        if (blocksExternalFile(pdfFilepath)) {
+            // Outside the document's folder: not opened until the user agrees. The document still remembers the
+            // PDF, so saving does not silently drop the background.
+            this->doc->setPdfAttributes(pdfFilepath, attach);
+            this->pdfFilenameParsed = true;
+            return;
+        }
 
         // pdfFilepath should point to the background PDF file
         if (fs::is_regular_file(pdfFilepath)) {

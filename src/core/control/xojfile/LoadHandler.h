@@ -95,6 +95,20 @@ public:
      */
     void setAttachmentLimits(const xoj::load::AttachmentLimits& limits);
 
+    /** How a background image or PDF that lives outside the document's own folder is treated. */
+    enum class ExternalFilePolicy {
+        AllowAll,                   ///< Open every linked file (the default: command-line export, recovery, tests)
+        BlockOutsideDocumentFolder  ///< Do not open files outside the document's folder; list them instead
+    };
+    /** Call before `loadDocument()`. A path is judged after symlinks and ".." are resolved. */
+    void setExternalFilePolicy(ExternalFilePolicy policy);
+
+    /**
+     * Files the document links to outside its folder that were not opened because of the policy. The document still
+     * remembers the PDF it linked to, so saving does not drop the background. Valid after `loadDocument()`.
+     */
+    const std::vector<fs::path>& getBlockedExternalFiles() const;
+
 private:
     // interface for XmlParser
     void addDocument(std::u8string creator, int fileVersion) override;
@@ -220,7 +234,12 @@ private:
      */
     fs::path getAbsoluteFilepath(const fs::path& filename, bool attach) const;
 
+    /** @return true (and remember the file) when the policy forbids opening `file` */
+    bool blocksExternalFile(const fs::path& file);
+
 private:
+    ExternalFilePolicy externalFilePolicy = ExternalFilePolicy::AllowAll;
+    std::vector<fs::path> blockedExternalFiles;
     fs::path xournalFilepath;
     std::string imageStrokeData;
     std::string imageBase64Data;

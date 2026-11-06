@@ -1000,3 +1000,97 @@ TEST(XoppAttachmentLoad, AttachmentThatIsNotAPictureDoesNotAbortTheProgram) {
     EXPECT_EQ(countErrorsContaining(r, "damaged"), 1U);
     EXPECT_EQ(firstImage(*r.doc), nullptr);
 }
+
+// ---- Background files outside the document's folder: not opened until the user agrees ----
+namespace {
+struct ExternalLoad {
+    std::unique_ptr<Document> doc;
+    std::vector<std::string> errors;
+    std::vector<fs::path> blocked;
+};
+
+ExternalLoad loadWithPolicy(const fs::path& p, LoadHandler::ExternalFilePolicy policy) {
+    ExternalLoad r;
+    LoadHandler h(&r.errors);
+    h.setExternalFilePolicy(policy);
+    r.doc = h.loadDocument(p);
+    r.blocked = h.getBlockedExternalFiles();
+    return r;
+}
+
+std::string pageWithExternalBg(const char* type, const std::string& filename) {
+    return std::string("<page width=\"200\" height=\"200\"><background type=\"") + type +
+           "\" domain=\"absolute\" filename=\"" + filename + "\"" + (std::string(type) == "pdf" ? " pageno=\"1\"" : "") +
+           "/><layer/></page>\n";
+}
+
+/// A document at <tmp>/attachment-limits/<name>.xopp, a file beside it and a file in a different folder
+struct ExternalFixture {
+    fs::path doc;
+    fs::path inside;
+    fs::path outside;
+    explicit ExternalFixture(const std::string& name, const std::string& bgXml, bool outsideLink = true) {
+        inside = Util::getTmpDirSubfolder("attachment-limits") / (name + "-inside.pdf");
+        outside = Util::getTmpDirSubfolder("attachment-limits-outside") / (name + "-outside.pdf");
+        fs::create_directories(outside.parent_path());
+        for (const auto& f: {inside, outside}) {
+            std::ofstream(f, std::ios::binary) << "not really a pdf";
+        }
+        (void)outsideLink;
+        doc = makeXopp(name, wrapXml(bgXml), {});
+    }
+    ~ExternalFixture() {
+        std::error_code ec;
+        fs::remove(inside, ec);
+        fs::remove(outside, ec);
+        fs::remove(doc, ec);
+    }
+};
+}  // namespace
+
+TEST(XoppExternalBackground, AFileOutsideTheDocumentFolderIsNotOpenedAndIsListed) {
+    const auto outsidePath = (Util::getTmpDirSubfolder("attachment-limits-outside") / "blocked-pdf-outside.pdf");
+    ExternalFixture fx("blocked-pdf", pageWithExternalBg("pdf", outsidePath.generic_string()));
+    auto r = loadWithPolicy(fx.doc, LoadHandler::ExternalFilePolicy::BlockOutsideDocumentFolder);
+    ASSERT_TRUE(r.doc);
+    ASSERT_EQ(r.blocked.size(), 1U) << "the link outside the folder must be listed for the user";
+    EXPECT_EQ(r.blocked[0].filename(), "blocked-pdf-outside.pdf");
+    EXPECT_EQ(countErrorsContaining({nullptr, r.errors, false, ""}, "Error reading PDF"), 0U)
+            << "the file must not even be opened";
+    EXPECT_EQ(r.doc->getPdfFilepath().filename(), "blocked-pdf-outside.pdf")
+            << "the document remembers the link, so saving does not drop the background";
+}
+
+TEST(XoppExternalBackground, AFileBesideTheDocumentIsOpenedWithoutAsking) {
+    const auto insidePath = (Util::getTmpDirSubfolder("attachment-limits") / "inside-pdf-inside.pdf");
+    ExternalFixture fx("inside-pdf", pageWithExternalBg("pdf", insidePath.generic_string()));
+    auto r = loadWithPolicy(fx.doc, LoadHandler::ExternalFilePolicy::BlockOutsideDocumentFolder);
+    ASSERT_TRUE(r.doc);
+    EXPECT_TRUE(r.blocked.empty()) << "a file in the document's own folder needs no question";
+}
+
+TEST(XoppExternalBackground, ParentFolderTricksAreJudgedAfterTheyAreResolved) {
+    // Starts in the document's folder, then climbs out of it
+    ExternalFixture fx("dotdot", pageWithExternalBg("pdf", "../attachment-limits-outside/dotdot-outside.pdf"));
+    auto r = loadWithPolicy(fx.doc, LoadHandler::ExternalFilePolicy::BlockOutsideDocumentFolder);
+    ASSERT_TRUE(r.doc);
+    EXPECT_EQ(r.blocked.size(), 1U) << "\"..\" must not be a way past the check";
+}
+
+TEST(XoppExternalBackground, ABlockedPictureBackgroundIsListedAndNotLoaded) {
+    const auto outsidePath = (Util::getTmpDirSubfolder("attachment-limits-outside") / "blocked-png-outside.pdf");
+    ExternalFixture fx("blocked-png", pageWithExternalBg("pixmap", outsidePath.generic_string()));
+    auto r = loadWithPolicy(fx.doc, LoadHandler::ExternalFilePolicy::BlockOutsideDocumentFolder);
+    ASSERT_TRUE(r.doc);
+    ASSERT_EQ(r.blocked.size(), 1U);
+    EXPECT_EQ(countErrorsContaining({nullptr, r.errors, false, ""}, "Could not read image"), 0U)
+            << "the picture must not even be opened";
+}
+
+TEST(XoppExternalBackground, TheDefaultKeepsOpeningEverythingSoExportAndRecoveryAreUnchanged) {
+    const auto outsidePath = (Util::getTmpDirSubfolder("attachment-limits-outside") / "default-outside.pdf");
+    ExternalFixture fx("default-policy", pageWithExternalBg("pdf", outsidePath.generic_string()));
+    auto r = loadWithPolicy(fx.doc, LoadHandler::ExternalFilePolicy::AllowAll);
+    ASSERT_TRUE(r.doc);
+    EXPECT_TRUE(r.blocked.empty());
+}
