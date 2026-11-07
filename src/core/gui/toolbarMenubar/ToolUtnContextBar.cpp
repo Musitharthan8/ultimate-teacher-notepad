@@ -968,7 +968,8 @@ void ToolUtnContextBar::appendShapeControls(DrawingType type) {
 
 void ToolUtnContextBar::appendOpacityControl() {
     Color colour = control->getToolHandler()->getTool(TOOL_HIGHLIGHTER).getColor();
-    GtkWidget* opacity = newScale(10.0, 100.0, 5.0, 100.0 * static_cast<double>(colour.alpha) / 255.0, 0);
+    GtkWidget* opacity = newScale(10.0, 100.0, 1.0, 100.0 * static_cast<double>(colour.alpha) / 255.0, 0);
+    gtk_range_set_increments(GTK_RANGE(opacity), 1.0, 10.0);
     gtk_widget_set_size_request(opacity, 110, -1);
     gtk_widget_set_tooltip_text(opacity, _("Opacity: lower values let more of the page show through"));
     utn::setAccessibleName(opacity, _("Opacity"));
@@ -1070,7 +1071,7 @@ void ToolUtnContextBar::appendEraserControls() {
                 gtk_radio_button_new_with_label(nullptr, _(entry.label));
         first = first ? first : button;
         gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
-        // The side panel never scrolls sideways, so a long mode name ("Eraser (pen, highlighter, shapes)") has to wrap
+        // The side panel never scrolls sideways, so a long mode name ("Eraser for (pen, highlighter, shapes & objects)") has to wrap
         // to the panel width instead of asking for its one-line width and being clipped at the panel edge.
         if (GtkWidget* text = gtk_bin_get_child(GTK_BIN(button)); text && GTK_IS_LABEL(text)) {
             gtk_label_set_line_wrap(GTK_LABEL(text), true);
@@ -1151,7 +1152,7 @@ void ToolUtnContextBar::appendEraserControls() {
     gtk_box_append(box, scale);
 
     appendSeparator();
-    appendHint(_("Ink and Stroke erase handwriting. Choose Object to erase text, answer boxes or pictures. Undo restores them."));
+    appendHint(_("The eraser rubs out ink and removes text, answer boxes or pictures it touches. Whole stroke removes entire strokes. Undo restores them."));
 }
 
 void ToolUtnContextBar::appendTextControls() {

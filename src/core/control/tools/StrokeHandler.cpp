@@ -285,9 +285,11 @@ bool StrokeHandler::straightenSmartHighlighterStroke(Range& repaintRange) {
             doc->unlock_shared();
 
             if (pdf) {
-                const auto selectionStyle = snapMode == SmartHighlighterSnapMode::Word ?
-                                                    XojPdfPageSelectionStyle::Word :
-                                                    XojPdfPageSelectionStyle::Line;
+                // Only Snap to line covers a whole text line. Word, Underline and Strikethrough cover just the words
+                // the stroke spans; a Line selection here made every underline/strike-through run the full line.
+                const auto selectionStyle = snapMode == SmartHighlighterSnapMode::Line ?
+                                                    XojPdfPageSelectionStyle::Line :
+                                                    XojPdfPageSelectionStyle::Word;
 
                 XojPdfRectangle selection(first.x, averageY, last.x, averageY);
                 auto textSelection = pdf->selectTextLines(selection, selectionStyle);

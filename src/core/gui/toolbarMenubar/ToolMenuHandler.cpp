@@ -209,7 +209,11 @@ void syncPaletteWidth(GtkPopover* popover, Control* ctrl) {
     const ToolSize size = paletteSize(tools);
     if (size != TOOL_SIZE_NONE) {
         g_object_set_data(G_OBJECT(popover), "utn-width-syncing", GINT_TO_POINTER(1));
-        gtk_range_set_value(GTK_RANGE(scale), static_cast<double>(size));
+        // Move the thumb only when it no longer stands for this size: the slider is continuous, so snapping it to the
+        // whole step while it is dragged is what made it jump between presets
+        if (std::lround(gtk_range_get_value(GTK_RANGE(scale))) != static_cast<long>(size)) {
+            gtk_range_set_value(GTK_RANGE(scale), static_cast<double>(size));
+        }
         g_object_set_data(G_OBJECT(popover), "utn-width-syncing", nullptr);
         const std::string words = widthWords(paletteThicknessPt(tools, size));
         gtk_label_set_text(GTK_LABEL(label), words.c_str());
@@ -609,7 +613,9 @@ public:
         GtkWidget* widthBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
         gtk_box_append(GTK_BOX(widthBox), sectionCaption(_("Width")));
         GtkWidget* widthRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-        GtkWidget* widthScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK, 1);
+        GtkWidget* widthScale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, TOOL_SIZE_VERY_FINE, TOOL_SIZE_VERY_THICK, 0.01);
+        // Continuous thumb (no whole-number rounding); arrow keys and the wheel still move one preset at a time
+        gtk_range_set_increments(GTK_RANGE(widthScale), 1.0, 1.0);
         gtk_scale_set_draw_value(GTK_SCALE(widthScale), false);
         gtk_widget_set_hexpand(widthScale, true);
         gtk_widget_add_css_class(widthScale, "utn-pop-slider");
@@ -1022,7 +1028,7 @@ constexpr TeacherToolText TEACHER_TOOL_TEXT[] = {
         {"PEN", nullptr, N_("Write and draw freehand")},
         {"SMART_HIGHLIGHTER", nullptr, N_("Highlight text. The arrow chooses freehand, snapping or underline")},
         {"UTN_COLOURS", N_("Colours"), N_("Quick swatches and a full custom colour picker")},
-        {"ERASER", nullptr, N_("Choose Ink, Stroke or Object Eraser. Object Eraser removes text and Answer Boxes.")},
+        {"ERASER", nullptr, N_("Choose the eraser (pen, highlighter, shapes & objects), Whole stroke or White out.")},
         {"UTN_TEXT", nullptr, N_("Click the page to type")},
         {"ANSWER_BOX", nullptr, N_("Click the page to add a styled box for an answer")},
         {"TEACHER_STAMP", N_("Feedback"), N_("Place a comment from the Feedback Bank")},
@@ -1417,10 +1423,9 @@ void ToolMenuHandler::initToolItems() {
 
     this->eraserTypePopover = std::make_unique<StylePopoverFactory>(
             Action::TOOL_ERASER_TYPE,
-            std::vector<StylePopoverFactory::Entry>{{_("standard"), ERASER_TYPE_DEFAULT},
-                                                    {_("whiteout"), ERASER_TYPE_WHITEOUT},
-                                                    {_("delete stroke"), ERASER_TYPE_DELETE_STROKE},
-                                                    {_("delete object"), ERASER_TYPE_DELETE_OBJECT}});
+            std::vector<StylePopoverFactory::Entry>{{_("Eraser for (pen, highlighter, shapes & objects)"), ERASER_TYPE_DEFAULT},
+                                                    {_("Whole stroke"), ERASER_TYPE_DELETE_STROKE},
+                                                    {_("White out"), ERASER_TYPE_WHITEOUT}});
     emplaceCustomItemWithTargetAndMenu("ERASER", Cat::TOOLS, Action::SELECT_TOOL, TOOL_ERASER, "tool-eraser",
                                        _("Eraser"), this->eraserTypePopover.get());
 

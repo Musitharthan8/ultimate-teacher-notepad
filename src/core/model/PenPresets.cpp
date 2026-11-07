@@ -202,7 +202,7 @@ std::vector<PenPreset> PenPresetStore::builtIns() {
     std::vector<PenPreset> defaults(3);
     defaults[0] = {RED_MARKING_ID, _("Red marking pen"), PresetTool::Pen, 0xD32F2F, 2, 255};
     defaults[1] = {BLUE_EXPLANATION_ID, _("Blue explanation pen"), PresetTool::Pen, 0x1E5BD8, 2, 255};
-    defaults[2] = {YELLOW_HIGHLIGHTER_ID, _("Yellow highlighter"), PresetTool::Highlighter, 0xFFEB3B, 3, 128};
+    defaults[2] = {YELLOW_HIGHLIGHTER_ID, _("Yellow highlighter"), PresetTool::Highlighter, 0xFFEB3B, 3, 178};
     return defaults;
 }
 

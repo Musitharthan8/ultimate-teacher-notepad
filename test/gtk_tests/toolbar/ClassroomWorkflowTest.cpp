@@ -1025,7 +1025,7 @@ TEST_F(ClassroomWorkflow, applyingAPresetSetsTheRealToolAndOnlyThenIsItSelected)
     ASSERT_TRUE(control->applyPenPreset(utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID));
     EXPECT_EQ(tools->getToolType(), TOOL_HIGHLIGHTER);
     EXPECT_EQ(toolRgb(control.get()), 0xFFEB3Bu);
-    EXPECT_EQ(tools->getColor().alpha, 128);
+    EXPECT_EQ(tools->getColor().alpha, 178);
     EXPECT_EQ(tools->getHighlighterSize(), TOOL_SIZE_THICK);
     EXPECT_EQ(control->activePenPresetId(), utn::PenPresetStore::YELLOW_HIGHLIGHTER_ID);
 
@@ -1958,7 +1958,7 @@ TEST_F(ClassroomWorkflow, activeInkToolOpensOptionsWithoutReselectingAndKeepsEra
     }
     auto* eraser = button("Eraser");
     auto* options = GTK_WIDGET(gtk_menu_button_get_popover(menuFor(eraser)));
-    auto* wholeStroke = buttonNamed(options, "delete stroke");
+    auto* wholeStroke = buttonNamed(options, "Whole stroke");
     ASSERT_NE(wholeStroke, nullptr);
     gtk_button_clicked(GTK_BUTTON(eraser));
     gtk_button_clicked(GTK_BUTTON(wholeStroke));

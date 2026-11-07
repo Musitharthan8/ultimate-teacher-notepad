@@ -36,7 +36,7 @@ private:
     const Stroke* s;
 
 public:
-    static constexpr double OPACITY_HIGHLIGHTER = 0.47;
+    static constexpr double OPACITY_HIGHLIGHTER = 0.70;  // drawn with MULTIPLY, so text underneath stays readable
     static constexpr double MINIMAL_ALPHA = 0.04;
 
     //  Must match the enum StrokeCapStyle in Stroke.h

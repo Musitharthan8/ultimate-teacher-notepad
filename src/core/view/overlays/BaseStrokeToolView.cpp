@@ -8,6 +8,7 @@
 #include "util/Range.h"
 #include "view/Mask.h"
 #include "view/Repaintable.h"
+#include "view/StrokeView.h"
 #include "view/overlays/OverlayView.h"
 
 using namespace xoj::view;
@@ -24,7 +25,7 @@ BaseStrokeToolView::~BaseStrokeToolView() noexcept = default;
 Color BaseStrokeToolView::strokeColorWithAlpha(const Stroke& s) {
     Color c = s.getColor();
     if (s.getToolType() == StrokeTool::HIGHLIGHTER) {
-        c.alpha = s.getFill() == -1 ? 120U : static_cast<uint8_t>(s.getFill());
+        c.alpha = s.getFill() == -1 ? static_cast<uint8_t>(std::lround(StrokeView::OPACITY_HIGHLIGHTER * 255.0)) : static_cast<uint8_t>(s.getFill());
     } else {
         c.alpha = 255U;
     }
