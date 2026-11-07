@@ -28,6 +28,7 @@
 #include "model/DocumentListener.h"
 
 #include "AbstractToolItem.h"
+#include "StudentViewport.h"
 
 class Control;
 class XojPage;
@@ -98,6 +99,13 @@ public:
 private:
     void setStudentFullscreen(bool enabled);
 
+    /// Student View zoom, independent of the teacher's canvas. The anchor is in window pixels.
+    void zoomStudentView(double factor, double anchorX, double anchorY);
+    /// Fit the whole page (false) or the page width (true)
+    void setStudentFit(bool fitWidth);
+    void viewportChanged();
+    bool pageSizeForViewport(double& pageWidth, double& pageHeight);
+
     /// True when the Student View window sits on a different monitor from the teacher's window
     bool isOnSeparateMonitor() const;
     static int monitorCount();
@@ -131,6 +139,9 @@ private:
 
     static gboolean drawStudentView(GtkWidget* widget, cairo_t* cr, gpointer data);
     static gboolean studentViewKeyPressed(GtkWidget* widget, GdkEventKey* event, gpointer data);
+    static gboolean studentViewScrolled(GtkWidget* widget, GdkEventScroll* event, gpointer data);
+    static gboolean studentViewButton(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean studentViewMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data);
     static void studentViewDestroyed(GtkWidget* widget, gpointer data);
 
 private:
@@ -139,6 +150,10 @@ private:
     std::thread::id uiThread = std::this_thread::get_id();
     GtkWidget* window = nullptr;
     GtkWidget* drawingArea = nullptr;
+    utn::StudentViewport viewport;
+    double pinchLastScale = 1.0;
+    double dragX = 0.0;
+    double dragY = 0.0;
     bool fullscreen = false;
     bool frozen = false;
     bool blanked = false;

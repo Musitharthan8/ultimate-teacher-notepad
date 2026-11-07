@@ -9,6 +9,7 @@
 #include "ToolStudentView.h"
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -35,6 +36,7 @@
 #include "view/DocumentView.h"
 #include "view/PresentationOverlay.h"
 
+#include "StudentViewport.h"
 #include "UtnWidgets.h"
 
 namespace {
@@ -73,8 +75,9 @@ void setAccessibleDescription(GtkWidget* widget, const char* description) {
     }
 }
 
-/// Draw the current page as students may see it, centred and scaled into width × height
-void renderStudentFrame(Control* control, cairo_t* cr, double width, double height,
+/// Draw the current page as students may see it, placed in width × height by the viewport (fit page, fit width or
+/// zoomed in)
+void renderStudentFrame(Control* control, cairo_t* cr, double width, double height, utn::StudentViewport& viewport,
                         StudentFrameContent* content = nullptr) {
     cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
     cairo_paint(cr);
@@ -106,11 +109,14 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
     if (pageWidth <= 0 || pageHeight <= 0) {
         return;
     }
-    const double scale = std::min(width / pageWidth, height / pageHeight);
+    const auto layout = viewport.resolve(width, height, pageWidth, pageHeight);
 
     cairo_save(cr);
-    cairo_translate(cr, 0.5 * (width - pageWidth * scale), 0.5 * (height - pageHeight * scale));
-    cairo_scale(cr, scale, scale);
+    cairo_translate(cr, layout.offsetX, layout.offsetY);
+    cairo_scale(cr, layout.scale, layout.scale);
+    // Zoomed in, most of the page is off screen: do not draw it
+    cairo_rectangle(cr, 0, 0, pageWidth, pageHeight);
+    cairo_clip(cr);
 
     DocumentView view;
     if (auto* mainWindow = control->getWindow()) {
@@ -633,7 +639,7 @@ void ToolStudentView::refreshLiveFrame() {
         liveFrame = createFrameSurface(drawingArea, width, height);
     }
     cairo_t* cr = cairo_create(liveFrame);
-    renderStudentFrame(control, cr, width, height, &liveContent);
+    renderStudentFrame(control, cr, width, height, viewport, &liveContent);
     cairo_destroy(cr);
     frameDirty = false;
 
@@ -671,7 +677,10 @@ bool ToolStudentView::studentAudienceChanged() {
     return changed;
 }
 
-void ToolStudentView::pageSelected(size_t) { requestRedraw(studentAudienceChanged()); }
+void ToolStudentView::pageSelected(size_t) {
+    viewport.scrollToTop();  // a zoomed-in view of the last page is no place to start the next one
+    requestRedraw(studentAudienceChanged());
+}
 void ToolStudentView::pageChanged(size_t) { requestRedraw(studentAudienceChanged()); }
 void ToolStudentView::pageSizeChanged(size_t) { requestRedraw(); }
 void ToolStudentView::documentChanged(DocumentChangeType) { requestRedraw(studentAudienceChanged()); }
@@ -856,6 +865,31 @@ void ToolStudentView::showStudentView() {
     gtk_container_add(GTK_CONTAINER(window), drawingArea);
 
     g_signal_connect(drawingArea, "draw", G_CALLBACK(&ToolStudentView::drawStudentView), this);
+
+    // Zoom: Ctrl+wheel and pinch magnify; the wheel and a drag scroll a magnified page; double click toggles fit width
+    gtk_widget_add_events(drawingArea, GDK_SCROLL_MASK | GDK_SMOOTH_SCROLL_MASK | GDK_BUTTON_PRESS_MASK |
+                                               GDK_BUTTON_RELEASE_MASK | GDK_BUTTON1_MOTION_MASK);
+    g_signal_connect(drawingArea, "scroll-event", G_CALLBACK(&ToolStudentView::studentViewScrolled), this);
+    g_signal_connect(drawingArea, "button-press-event", G_CALLBACK(&ToolStudentView::studentViewButton), this);
+    g_signal_connect(drawingArea, "motion-notify-event", G_CALLBACK(&ToolStudentView::studentViewMotion), this);
+    GtkGesture* pinch = gtk_gesture_zoom_new(drawingArea);
+    g_object_set_data_full(G_OBJECT(drawingArea), "utn-pinch", pinch, g_object_unref);  // lives as long as the area
+    g_signal_connect(pinch, "begin", G_CALLBACK(+[](GtkGesture*, GdkEventSequence*, gpointer data) {
+                         static_cast<ToolStudentView*>(data)->pinchLastScale = 1.0;
+                     }),
+                     this);
+    g_signal_connect(pinch, "scale-changed", G_CALLBACK(+[](GtkGestureZoom* gesture, gdouble scale, gpointer data) {
+                         auto* self = static_cast<ToolStudentView*>(data);
+                         double x = 0;
+                         double y = 0;
+                         if (!gtk_gesture_get_bounding_box_center(GTK_GESTURE(gesture), &x, &y) || scale <= 0 ||
+                             self->pinchLastScale <= 0) {
+                             return;
+                         }
+                         self->zoomStudentView(scale / self->pinchLastScale, x, y);
+                         self->pinchLastScale = scale;
+                     }),
+                     this);
     g_signal_connect(window, "key-press-event", G_CALLBACK(&ToolStudentView::studentViewKeyPressed), this);
     g_signal_connect(window, "destroy", G_CALLBACK(&ToolStudentView::studentViewDestroyed), this);
     // Moving the window between monitors changes whether hidden answers may be ghosted for the teacher
@@ -1146,8 +1180,126 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
     return FALSE;
 }
 
+bool ToolStudentView::pageSizeForViewport(double& pageWidth, double& pageHeight) {
+    PageRef page = control->getCurrentPage();
+    if (!page || !drawingArea) {
+        return false;
+    }
+    pageWidth = page->getWidth();
+    pageHeight = page->getHeight();
+    return pageWidth > 0 && pageHeight > 0;
+}
+
+void ToolStudentView::viewportChanged() {
+    // Magnifying shows more of what students may already see, never other content, so the throttled path is enough
+    requestRedraw();
+}
+
+void ToolStudentView::zoomStudentView(double factor, double anchorX, double anchorY) {
+    double pageWidth = 0, pageHeight = 0;
+    if (!pageSizeForViewport(pageWidth, pageHeight)) {
+        return;
+    }
+    const double width = std::max(1, gtk_widget_get_allocated_width(drawingArea));
+    const double height = std::max(1, gtk_widget_get_allocated_height(drawingArea));
+    viewport.zoomBy(factor, anchorX, anchorY, width, height, pageWidth, pageHeight);
+    viewportChanged();
+}
+
+void ToolStudentView::setStudentFit(bool fitWidth) {
+    if (fitWidth) {
+        viewport.setFitWidth();
+    } else {
+        viewport.setFitPage();
+    }
+    viewportChanged();
+}
+
+gboolean ToolStudentView::studentViewScrolled(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
+    auto* self = static_cast<ToolStudentView*>(data);
+    double pageWidth = 0, pageHeight = 0;
+    if (!self->pageSizeForViewport(pageWidth, pageHeight)) {
+        return FALSE;
+    }
+    double dx = 0, dy = 0;
+    switch (event->direction) {
+        case GDK_SCROLL_UP: dy = -1; break;
+        case GDK_SCROLL_DOWN: dy = 1; break;
+        case GDK_SCROLL_LEFT: dx = -1; break;
+        case GDK_SCROLL_RIGHT: dx = 1; break;
+        case GDK_SCROLL_SMOOTH: gdk_event_get_scroll_deltas(reinterpret_cast<GdkEvent*>(event), &dx, &dy); break;
+        default: break;
+    }
+    if (dx == 0 && dy == 0) {
+        return FALSE;
+    }
+    if (event->state & GDK_CONTROL_MASK) {
+        // Wheel up zooms in, a small multiplicative step per notch
+        self->zoomStudentView(std::pow(1.1, -dy), event->x, event->y);
+        return TRUE;
+    }
+    const double width = std::max(1, gtk_widget_get_allocated_width(widget));
+    const double height = std::max(1, gtk_widget_get_allocated_height(widget));
+    constexpr double PIXELS_PER_NOTCH = 60.0;
+    self->viewport.panBy(dx * PIXELS_PER_NOTCH, dy * PIXELS_PER_NOTCH, width, height, pageWidth, pageHeight);
+    self->viewportChanged();
+    return TRUE;
+}
+
+gboolean ToolStudentView::studentViewButton(GtkWidget*, GdkEventButton* event, gpointer data) {
+    auto* self = static_cast<ToolStudentView*>(data);
+    if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        self->dragX = event->x;
+        self->dragY = event->y;
+    } else if (event->type == GDK_2BUTTON_PRESS && event->button == 1) {
+        // Double click toggles between the whole page and the page width
+        self->setStudentFit(self->viewport.getMode() == utn::StudentViewport::Mode::FitPage);
+    }
+    return TRUE;
+}
+
+gboolean ToolStudentView::studentViewMotion(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
+    auto* self = static_cast<ToolStudentView*>(data);
+    double pageWidth = 0, pageHeight = 0;
+    if (!(event->state & GDK_BUTTON1_MASK) || !self->pageSizeForViewport(pageWidth, pageHeight)) {
+        return FALSE;
+    }
+    const double width = std::max(1, gtk_widget_get_allocated_width(widget));
+    const double height = std::max(1, gtk_widget_get_allocated_height(widget));
+    self->viewport.panBy(self->dragX - event->x, self->dragY - event->y, width, height, pageWidth, pageHeight);
+    self->dragX = event->x;
+    self->dragY = event->y;
+    self->viewportChanged();
+    return TRUE;
+}
+
 gboolean ToolStudentView::studentViewKeyPressed(GtkWidget*, GdkEventKey* event, gpointer data) {
     auto* self = static_cast<ToolStudentView*>(data);
+    if (self->drawingArea) {
+        // The teacher's zoom keys, handled here because this window answers no application shortcuts
+        const double cx = 0.5 * gtk_widget_get_allocated_width(self->drawingArea);
+        const double cy = 0.5 * gtk_widget_get_allocated_height(self->drawingArea);
+        switch (event->keyval) {
+            case GDK_KEY_plus:
+            case GDK_KEY_equal:
+            case GDK_KEY_KP_Add:
+                self->zoomStudentView(utn::StudentViewport::BUTTON_STEP, cx, cy);
+                return TRUE;
+            case GDK_KEY_minus:
+            case GDK_KEY_KP_Subtract:
+                self->zoomStudentView(1.0 / utn::StudentViewport::BUTTON_STEP, cx, cy);
+                return TRUE;
+            case GDK_KEY_0:
+            case GDK_KEY_KP_0:
+                self->setStudentFit(false);  // whole page
+                return TRUE;
+            case GDK_KEY_1:
+            case GDK_KEY_KP_1:
+                self->setStudentFit(true);  // page width
+                return TRUE;
+            default: break;
+        }
+    }
     if (event->keyval == GDK_KEY_F11) {
         self->setStudentFullscreen(!self->fullscreen);
         return TRUE;
