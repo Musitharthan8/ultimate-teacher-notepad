@@ -42,13 +42,12 @@ auto RecognizerUndoAction::undo(Control* control) -> bool {
 }
 
 auto RecognizerUndoAction::redo(Control* control) -> bool {
-    Element::Index pos = 0;
-
     Document* doc = control->getDocument();
     doc->lock();
     auto [owned, posi] = this->layer->removeElement(original);
     this->originalOwned = std::move(owned);
-    this->layer->insertElement(std::move(this->recognizedOwned), pos);
+    // Put the shape where the freehand stroke was; inserting at 0 sent it behind everything on the layer.
+    this->layer->insertElement(std::move(this->recognizedOwned), posi);
     doc->unlock();
 
     this->page->fireElementChanged(original);
