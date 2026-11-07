@@ -2696,6 +2696,40 @@ TEST_F(ClassroomWorkflow, escapeLeavesAnOverlayOrTheTeachersBlankCoverAndOtherwi
     settle();
 }
 
+// TB-02: Blank from Off. One display: only the teacher cover goes up and no Student View opens. Extended displays:
+// Blank opens Student View blanked, unblanking leaves it open and live, and the quick button says so beforehand.
+TEST_F(ClassroomWorkflow, blankFromOffHasADocumentedLifecycleOnOneAndManyDisplays) {
+    auto* students = window->getToolMenuHandler()->getStudentView();
+    ASSERT_NE(students, nullptr);
+    ASSERT_FALSE(students->isWindowOpen());
+    GdkDisplay* display = gdk_display_get_default();
+    const bool extended = display && gdk_display_get_n_monitors(display) > 1;
+
+    students->setBlanked(true);
+    settle();
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Blank);
+    if (extended) {
+        EXPECT_TRUE(students->isWindowOpen()) << "with a second screen, Blank starts Student View";
+        EXPECT_FALSE(students->isTeacherCoverShown()) << "the teacher's canvas stays usable";
+    } else {
+        EXPECT_FALSE(students->isWindowOpen()) << "with one display there is no projector to open";
+        EXPECT_TRUE(students->isTeacherCoverShown());
+    }
+
+    students->setBlanked(false);
+    settle();
+    EXPECT_FALSE(students->isBlanked());
+    EXPECT_FALSE(students->isTeacherCoverShown()) << "unblanking always takes the cover down";
+    if (extended) {
+        EXPECT_TRUE(students->isWindowOpen()) << "turning Blank off leaves Student View open";
+        EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+        students->closeStudentView();
+        settle();
+    }
+    EXPECT_FALSE(students->isWindowOpen());
+    EXPECT_NE(students->getState(), ToolStudentView::State::Blank);
+}
+
 TEST_F(ClassroomWorkflow, repeatedInkThroughPageInputRetainsHistoryAndRoundTrips) {
     struct Heartbeat {
         gint64 last = g_get_monotonic_time();

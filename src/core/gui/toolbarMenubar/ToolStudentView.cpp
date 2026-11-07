@@ -357,8 +357,14 @@ void ToolStudentView::updateState() {
     if (blankQuick) {
         gtk_button_set_label(GTK_BUTTON(blankQuick), blanked ? _("Show page") : _("Blank"));
         utn::syncToggle(GTK_TOGGLE_BUTTON(blankQuick), blanked);
+        // With a second screen and no Student View, Blank opens Student View (blanked) and turning Blank off leaves it
+        // open and live. Say so up front rather than letting the state change look like a surprise (TB-02).
+        const bool opensStudentView = !blanked && !open && monitorCount() > 1;
         gtk_widget_set_tooltip_text(blankQuick, blanked ? _("Students see a blank screen. Choose to show the page again.") :
-                                                          _("Hide the page from students until you turn this off"));
+                                    opensStudentView ?
+                                                    _("Hide the page from students. This opens Student View on the second "
+                                                      "screen, and it stays open when you show the page again.") :
+                                                    _("Hide the page from students until you turn this off"));
         utn::setAccessibleName(blankQuick, quickBlankName(blanked));
     }
     if (pill) {
