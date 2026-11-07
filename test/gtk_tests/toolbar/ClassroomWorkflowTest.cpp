@@ -3347,6 +3347,24 @@ TEST_F(ClassroomWorkflow, revealAllNeedsASecondPressOnlyWhileTheClassMayWatchAnd
     control->setStudentsMayWatch(false);
 }
 
+// TB-03: Reveal on a page with nothing hidden must say so instead of looking broken, and must change nothing.
+TEST_F(ClassroomWorkflow, revealWithNoHiddenAnswersSaysSoAndChangesNothing) {
+    window->show(nullptr);
+    control->setStudentsMayWatch(false);
+    utn::cancelRevealAllConfirmation();
+    window->getToast()->hide();
+    ASSERT_FALSE(answersShowing(control.get()));
+
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), false), utn::RevealOutcome::NothingToReveal);
+    EXPECT_EQ(window->getToast()->currentMessage(), "No hidden answers on this page");
+    EXPECT_FALSE(answersShowing(control.get())) << "an empty reveal must not create or show an answers layer";
+
+    window->getToast()->hide();
+    EXPECT_EQ(utn::revealAnswersFromUi(control.get(), true), utn::RevealOutcome::NothingToReveal);
+    EXPECT_EQ(window->getToast()->currentMessage(), "No hidden answers in this lesson");
+    EXPECT_FALSE(answersShowing(control.get()));
+}
+
 // Hidden answers shown faintly on the teacher canvas are a leak when that window is screen-shared or recorded, so the
 // teacher has to ask for them. Off by default; the choice is remembered; with one display it never applies.
 TEST_F(ClassroomWorkflow, ghostedHiddenAnswersAreOptInAndRememberedAndNeverShownOnASingleDisplay) {
