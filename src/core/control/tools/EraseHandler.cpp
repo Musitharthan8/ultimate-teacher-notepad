@@ -211,10 +211,6 @@ void EraseHandler::erase(double x, double y) {
     if (!std::isfinite(halfEraserSize) || halfEraserSize <= 0) { previousPoint.reset(); return; }
     const auto start = previousPoint.value_or(xoj::util::Point<double>{x, y});
     previousPoint = xoj::util::Point<double>{x, y};
-    if (handler->getEraserType() == ERASER_TYPE_DEFAULT) {
-        eraseWithMask(l, start.x, start.y, x, y, halfEraserSize);
-        return;
-    }
     const double distance = std::hypot(x - start.x, y - start.y);
     // Sample the pointer path densely. Between two samples a disc of radius R leaves a gap of width up to the spacing,
     // so the samples are at most R / SAMPLES_PER_RADIUS apart and each sample disc is enlarged to cover the gap
@@ -241,7 +237,7 @@ void EraseHandler::erase(double x, double y) {
     // before any whole-element removals. Sorting hits within an individual event is not
     // enough: the first event may have already shifted the indices seen by later events.
     const auto eraserType = handler->getEraserType();
-    if ((eraserType == ERASER_TYPE_DELETE_STROKE || eraserType == ERASER_TYPE_DELETE_OBJECT) &&
+    if ((eraserType == ERASER_TYPE_DELETE_STROKE || eraserType == ERASER_TYPE_DEFAULT) &&
         originalDeletePositions.empty() && !eraseDeleteUndoAction) {
         std::ptrdiff_t index = 0;
         for (const auto& element: l->getElements()) {
@@ -249,8 +245,9 @@ void EraseHandler::erase(double x, double y) {
         }
     }
 
-    if (handler->getEraserType() == ERASER_TYPE_DELETE_OBJECT) {
-        // Object eraser: removes text, images and other non-stroke elements. Strokes are never touched.
+    if (eraserType == ERASER_TYPE_DEFAULT) {
+        // Standard eraser also removes whole non-stroke objects (text, images, ...) the pointer touches.
+        // Ink is handled below by the partial (mask) eraser.
         {
             // Decide every hit first (a hit depends only on the object's own box and the pointer samples), then remove
             // from the highest index down. Each removal then happens at the element's original index, which is the
@@ -280,6 +277,7 @@ void EraseHandler::erase(double x, double y) {
                 eraseObject(l, hit.second, rerenderRange);
             }
         }
+        eraseWithMask(l, start.x, start.y, x, y, halfEraserSize);
     } else {
         std::vector<Stroke*> candidates;
         // Removing whole strokes invalidates the layer's iterators.

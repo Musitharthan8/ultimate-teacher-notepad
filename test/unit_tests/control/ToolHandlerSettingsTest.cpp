@@ -45,15 +45,14 @@ EraserType roundTripEraserType(EraserType written) {
 }
 }  // namespace
 
-TEST(ToolHandlerSettings, deleteObjectEraserSurvivesRestart) {
-    EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_OBJECT), ERASER_TYPE_DELETE_OBJECT);
+TEST(ToolHandlerSettings, legacyDeleteObjectEraserMapsToStandardEraser) {
+    EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_OBJECT), ERASER_TYPE_DEFAULT);
 }
 
 TEST(ToolHandlerSettings, everyEraserModeRoundTrips) {
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DEFAULT), ERASER_TYPE_DEFAULT);
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_STROKE), ERASER_TYPE_DELETE_STROKE);
     EXPECT_EQ(roundTripEraserType(ERASER_TYPE_WHITEOUT), ERASER_TYPE_WHITEOUT);
-    EXPECT_EQ(roundTripEraserType(ERASER_TYPE_DELETE_OBJECT), ERASER_TYPE_DELETE_OBJECT);
 }
 
 // A new pen writes in the palette's Blue, not an indigo that no swatch stands for

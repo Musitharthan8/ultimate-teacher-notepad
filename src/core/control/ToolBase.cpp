@@ -44,7 +44,10 @@ auto ToolBase::getEraserType() const -> EraserType { return this->eraserType; }
 /**
  * @param eraserType type of eraser
  */
-void ToolBase::setEraserType(EraserType eraserType) { this->eraserType = eraserType; }
+void ToolBase::setEraserType(EraserType eraserType) {
+    // The separate "Objects" eraser was folded into the standard eraser. Map legacy values to a valid mode.
+    this->eraserType = eraserType == ERASER_TYPE_DELETE_OBJECT ? ERASER_TYPE_DEFAULT : eraserType;
+}
 
 /**
  * @return Fill of the shape is enabled

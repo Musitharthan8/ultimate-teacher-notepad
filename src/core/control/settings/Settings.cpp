@@ -793,6 +793,10 @@ void Settings::loadButtonConfig() {
                     std::string sEraserMode;
                     if (e.getString("eraserMode", sEraserMode)) {
                         cfg->eraserMode = eraserTypeFromString(sEraserMode);
+                        if (cfg->eraserMode == ERASER_TYPE_DELETE_OBJECT) {
+                            // Legacy "Objects" eraser is now part of the standard eraser
+                            cfg->eraserMode = ERASER_TYPE_DEFAULT;
+                        }
                     } else {
                         // If not specified: do not change
                         cfg->eraserMode = ERASER_TYPE_NONE;

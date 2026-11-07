@@ -825,16 +825,14 @@ TEST(EraseHandler, objectEraserRemovesImageButNotStrokes) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
 
-    // Sweep through the image, and also across the stroke at y = 50 (which must survive)
+    // Sweep through the image only; the untouched stroke at y = 50 must survive
     eraser.erase(60, 110);
     eraser.erase(160, 110);
-    eraser.erase(160, 50);
-    eraser.erase(200, 50);
     eraser.finalize();
 
     EXPECT_EQ(countType(page, ELEMENT_IMAGE), 0U);
@@ -853,7 +851,7 @@ TEST(EraseHandler, objectEraserSupportsUndoRedo) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -886,7 +884,7 @@ TEST(EraseHandler, objectEraserFarAwayIsNoOp) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -937,7 +935,7 @@ TEST(EraseHandler, objectEraserDeletesWholeTextObjectNotGlyphs) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -973,7 +971,7 @@ TEST(EraseHandler, objectEraserRemovesAnswerBoxAsOneObject) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -1012,7 +1010,7 @@ TEST(EraseHandler, objectEraserMultiObjectGestureUndoRestoresOrder) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -1043,7 +1041,7 @@ TEST(EraseHandler, objectEraserLeavesHiddenLayerAlone) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -1067,7 +1065,7 @@ TEST(EraseHandler, answerBoxSurvivesObjectEraseAndXoppReload) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     {
@@ -1155,7 +1153,7 @@ TEST(EraseHandler, objectEraserUndoPreservesOrderAcrossPointerEvents) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -1302,7 +1300,7 @@ TEST(EraseHandler, objectEraseInvalidatesEveryRenderedAnswerBoxPixel) {
         UndoRedoHandler undo(nullptr);
         ToolHandler tools(nullptr, nullptr, nullptr);
         tools.setEraserThickness(5);
-        tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+        tools.setEraserType(ERASER_TYPE_DEFAULT);
         tools.selectTool(TOOL_ERASER);
         EraseTestView view;
         EraseHandler eraser(&undo, &document, page, &tools, &view);
@@ -1341,7 +1339,7 @@ TEST(EraseHandler, objectEraserDoesNotDeletePageSizedPicture) {
     UndoRedoHandler undo(nullptr);
     ToolHandler tools(nullptr, nullptr, nullptr);
     tools.setEraserThickness(5);
-    tools.setEraserType(ERASER_TYPE_DELETE_OBJECT);
+    tools.setEraserType(ERASER_TYPE_DEFAULT);
     tools.selectTool(TOOL_ERASER);
     EraseTestView view;
     EraseHandler eraser(&undo, &document, page, &tools, &view);

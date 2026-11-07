@@ -87,12 +87,13 @@ TEST(UtnContextLayout, teachingToolsKeepOneOrderInEveryTeacherProfile) {
     }
 }
 
-TEST(UtnContextLayout, eraserModesExposeObjectEraseAndKeepSavedEnumValues) {
-    ASSERT_EQ(utn::ERASER_MODES.size(), 4U);
+TEST(UtnContextLayout, eraserModesExposeExactlyThreeAndKeepSavedEnumValues) {
+    ASSERT_EQ(utn::ERASER_MODES.size(), 3U);
     EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DEFAULT), 0);
     EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DELETE_STROKE), 1);
-    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DELETE_OBJECT), 2);
-    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_WHITEOUT), 3);
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_WHITEOUT), 2);
+    // The retired Objects mode falls back to the standard eraser
+    EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_DELETE_OBJECT), 0);
     EXPECT_EQ(utn::eraserModeIndex(ERASER_TYPE_NONE), 0);
 
     for (const auto& mode: utn::ERASER_MODES) {

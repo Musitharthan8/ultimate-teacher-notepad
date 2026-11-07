@@ -304,15 +304,3 @@ TEST(UniversalEraser, strokeEraserDeletesAnyInkKindWhenTouchingRenderedInk) {
     for (const auto& f: failures) ADD_FAILURE() << "stroke eraser missed touching ink: " << f;
 }
 
-// Mode limitation, not a hit-test defect: the Object eraser must never remove ink (documented "Ink stays").
-TEST(UniversalEraser, objectEraserLeavesAllInkAlone) {
-    for (StrokeTool tool: {StrokeTool::PEN, StrokeTool::HIGHLIGHTER}) {
-        auto page = std::make_shared<XojPage>(SIZE, SIZE);
-        Shape line{"line", {{40, 100}, {160, 100}}, -1};
-        page->getSelectedLayer()->addElement(makeStroke(line, tool, 12, StrokeCapStyle::ROUND, false));
-        Document document(nullptr);
-        UndoRedoHandler undo(nullptr);
-        runGesture(page, ERASER_TYPE_DELETE_OBJECT, 10, {100, 100}, {100, 100}, undo, document);
-        EXPECT_EQ(page->getSelectedLayer()->getElements().size(), 1U);
-    }
-}

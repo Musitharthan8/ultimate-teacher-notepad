@@ -22,11 +22,10 @@ struct EraserMode {
     EraserType type;
 };
 
-inline constexpr std::array<EraserMode, 4> ERASER_MODES{{
-        {N_("Eraser (pen, highlighter, shapes)"), N_("Everyday eraser: rubs out parts of pen ink, highlighter and drawn shapes"), ERASER_TYPE_DEFAULT},
+inline constexpr std::array<EraserMode, 3> ERASER_MODES{{
+        {N_("Eraser for (pen, highlighter, shapes & objects)"), N_("Everyday eraser: rubs out parts of pen ink, highlighter and drawn shapes, and removes text boxes and pictures it touches. Page-sized pictures are not deleted by sweeping."), ERASER_TYPE_DEFAULT},
         {N_("Whole stroke"), N_("Remove an entire pen, highlighter or shape stroke in one touch"), ERASER_TYPE_DELETE_STROKE},
-        {N_("Delete object"), N_("Deliberately remove a whole text box, Answer Box or picture. Ink stays. Page-sized pictures are not deleted by sweeping."), ERASER_TYPE_DELETE_OBJECT},
-        {N_("Whiteout"), N_("Cover ink with white rather than deleting it"), ERASER_TYPE_WHITEOUT},
+        {N_("White out"), N_("Cover ink with white rather than deleting it"), ERASER_TYPE_WHITEOUT},
 }};
 
 inline constexpr int eraserModeIndex(EraserType type) {
