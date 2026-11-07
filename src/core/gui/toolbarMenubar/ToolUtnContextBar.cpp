@@ -1070,6 +1070,14 @@ void ToolUtnContextBar::appendEraserControls() {
                 gtk_radio_button_new_with_label(nullptr, _(entry.label));
         first = first ? first : button;
         gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(button), false);
+        // The side panel never scrolls sideways, so a long mode name ("Eraser (pen, highlighter, shapes)") has to wrap
+        // to the panel width instead of asking for its one-line width and being clipped at the panel edge.
+        if (GtkWidget* text = gtk_bin_get_child(GTK_BIN(button)); text && GTK_IS_LABEL(text)) {
+            gtk_label_set_line_wrap(GTK_LABEL(text), true);
+            gtk_label_set_max_width_chars(GTK_LABEL(text), 20);
+            gtk_label_set_xalign(GTK_LABEL(text), 0.0f);
+            gtk_widget_set_halign(text, GTK_ALIGN_START);
+        }
         gtk_widget_add_css_class(button, "utn-eraser-mode");
         gtk_widget_set_focus_on_click(button, false);
         gtk_widget_set_tooltip_text(button, _(entry.hint));
