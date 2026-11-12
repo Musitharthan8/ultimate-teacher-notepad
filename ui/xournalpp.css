@@ -1819,3 +1819,6 @@ window.utnShell.utnHighContrast toolbar .utn-sv-quick button.utn-needs-student-v
     color: #a0a0a0;
     border: 1px dashed #a0a0a0;
 }
+window.utnShell .utn-sv-independent .utn-sv-dot { color: #1f7a9a; }
+window.utnShell .utn-sv-independent { background-color: alpha(#1f7a9a, 0.16); }
+window.utnShell.darkMode .utn-sv-independent .utn-sv-dot { color: #6fd0ee; }

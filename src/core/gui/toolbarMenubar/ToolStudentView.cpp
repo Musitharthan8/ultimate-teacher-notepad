@@ -24,13 +24,16 @@
 #include "control/settings/Settings.h"
 #include "gui/CommandPalette.h"
 #include "gui/MainWindow.h"
+#include "gui/Layout.h"
 #include "gui/PageView.h"
+#include "gui/scroll/ScrollHandling.h"
 #include "gui/XournalView.h"
 #include "model/Document.h"
 #include "model/Layer.h"
 #include "model/LayerAudience.h"
 #include "model/StudentVisibility.h"
 #include "model/XojPage.h"
+#include "util/Util.h"  // for npos
 #include "util/gtk4_helper.h"
 #include "util/i18n.h"
 #include "view/DocumentView.h"
@@ -47,7 +50,8 @@ constexpr guint REDRAW_INTERVAL_MS = 40;
 constexpr double REDRAW_COST_FACTOR = 6.0;
 constexpr guint REDRAW_INTERVAL_MAX_MS = 1000;
 
-constexpr const char* STATE_CLASSES[] = {"utn-sv-off", "utn-sv-same", "utn-sv-live", "utn-sv-frozen", "utn-sv-blank"};
+constexpr const char* STATE_CLASSES[] = {"utn-sv-off",    "utn-sv-same",  "utn-sv-live",
+                                         "utn-sv-frozen", "utn-sv-blank", "utn-sv-independent"};
 
 /// A choice in the Students menu closes it, like its other entries; otherwise the next click only dismissed the menu
 void closeMenu(GtkWidget* entry) {
@@ -77,7 +81,12 @@ void setAccessibleDescription(GtkWidget* widget, const char* description) {
 
 /// Draw the current page as students may see it, placed in width × height by the viewport (fit page, fit width or
 /// zoomed in)
-void renderStudentFrame(Control* control, cairo_t* cr, double width, double height, utn::StudentViewport& viewport,
+///
+/// @param page the page to show: the teacher's page when following, the pinned page when independent
+/// @param follow true: the viewport takes the part of the page the teacher's window shows. false: it keeps its own.
+/// @return false when @p page is no longer in the document (an independent page that was deleted)
+bool renderStudentFrame(Control* control, cairo_t* cr, double width, double height, utn::StudentViewport& viewport,
+                        const PageRef& page, bool follow, bool followScrollPosition,
                         StudentFrameContent* content = nullptr) {
     cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
     cairo_paint(cr);
@@ -85,12 +94,15 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
         *content = {};
     }
 
-    PageRef page = control->getCurrentPage();
     if (!page) {
-        return;
+        return true;
     }
     auto* doc = control->getDocument();
     std::shared_lock lock(*doc);
+    const size_t pageNo = doc->indexOf(page);
+    if (pageNo == npos) {
+        return false;
+    }
     if (content) {
         // What this frame shows, recorded under the same lock that draws it, so a frozen copy can later tell whether
         // students would now be allowed to see less
@@ -107,7 +119,36 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
     const double pageWidth = page->getWidth();
     const double pageHeight = page->getHeight();
     if (pageWidth <= 0 || pageHeight <= 0) {
-        return;
+        return true;
+    }
+    XojPageView* teacherPageView = nullptr;
+    if (auto* mainWindow = control->getWindow()) {
+        if (auto* xournal = mainWindow->getXournal()) {
+            teacherPageView = xournal->getViewFor(pageNo);
+            if (follow && !followScrollPosition) {
+                viewport.setFitPage();  // follows the page, not the teacher's scroll position: always the whole page
+            } else if (follow) {
+                // Students see the part of the page the teacher's window shows, so scrolling, zooming and changing page
+                // all carry over. Not on screen at all (or no window): the whole page.
+                utn::StudentViewport::Region region;
+                bool shown = false;
+                // A teacher window that is not on screen (hidden, minimised) has no view to follow
+                if (auto* teacherLayout = xournal->getLayout();
+                    teacherLayout && teacherPageView && gtk_widget_get_mapped(xournal->getWidget())) {
+                    const auto visible = teacherLayout->getVisibleRect();
+                    const auto corner = teacherPageView->getPixelPosition();
+                    shown = utn::StudentViewport::visibleRegionOfPage(visible.x, visible.y, visible.width,
+                                                                      visible.height, corner.x, corner.y,
+                                                                      teacherPageView->getZoom(), pageWidth, pageHeight,
+                                                                      region);
+                }
+                if (shown) {
+                    viewport.showRegion(region, width, height, pageWidth, pageHeight);
+                } else {
+                    viewport.setFitPage();
+                }
+            }
+        }
     }
     const auto layout = viewport.resolve(width, height, pageWidth, pageHeight);
 
@@ -128,6 +169,16 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
     view.setLayerFilter([](const Layer& layer) { return utn::visibleToStudents(layer); });
     view.drawPage(page, cr, true);
 
+    // What the teacher is writing right now (a stroke being drawn, text being typed) is not on the page yet. Students
+    // watch it happen, but only if it is going into a layer they are allowed to see: it lands in the selected layer, so
+    // writing in a teacher-only or hidden-answers layer stays off the students' screen while it is written.
+    if (teacherPageView) {
+        const Layer* target = page->getSelectedLayer();
+        if (target && utn::visibleToStudents(*target)) {
+            teacherPageView->drawLiveToolViews(cr);
+        }
+    }
+
     // Spotlight and Curtain must cover the projected page too, not only the teacher's canvas
     auto* tools = control->getToolHandler();
     if (tools->isSpotlightEnabled() || tools->isCurtainEnabled()) {
@@ -146,6 +197,7 @@ void renderStudentFrame(Control* control, cairo_t* cr, double width, double heig
                                             teacherZoom, xoj::view::CURTAIN_STUDENT_ALPHA);
     }
     cairo_restore(cr);
+    return true;
 }
 
 /// A surface for one student frame that keeps the screen's device scale, so a HiDPI projector stays sharp
@@ -192,6 +244,7 @@ ToolStudentView::ToolStudentView(std::string id, Control* control):
 ToolStudentView::~ToolStudentView() {
     utn::removeStudentVisibilityListener(visibilityListenerId);  // returns only when no call is running
     *alive = false;                                              // a queued check must not touch this object
+    stopWatchingTeacherScrolling();
     control->removeCanvasChangedListener(canvasListenerId);
     if (guint source = redrawSource.exchange(0)) {
         g_source_remove(source);
@@ -257,6 +310,9 @@ auto ToolStudentView::getState() const -> State {
     if (window && frozen) {
         return State::Frozen;
     }
+    if (window && independent) {
+        return State::Independent;
+    }
     if (window) {
         return State::Live;
     }
@@ -275,6 +331,8 @@ auto ToolStudentView::stateLabel(State state) -> const char* {
             return _("Students: Frozen");
         case State::Blank:
             return _("Students: Blank");
+        case State::Independent:
+            return _("Students: Independent");
     }
     return "";
 }
@@ -291,6 +349,8 @@ auto ToolStudentView::stateShortWord(State state) -> const char* {
             return _("Frozen");
         case State::Blank:
             return _("Blank");
+        case State::Independent:
+            return _("Own view");
     }
     return "";
 }
@@ -307,7 +367,15 @@ void ToolStudentView::updateState() {
 
     const State state = getState();
     // Revealing everything asks for a second press while the class may be looking
-    control->setStudentsMayWatch(state == State::Live || state == State::SameScreen);
+    control->setStudentsMayWatch(state == State::Live || state == State::SameScreen || state == State::Independent);
+    if (followToggle) {
+        gtk_widget_set_sensitive(followToggle, window != nullptr);
+        utn::syncToggle(GTK_TOGGLE_BUTTON(followToggle), window && !independent && !frozen && !blanked);
+    }
+    if (independentToggle) {
+        gtk_widget_set_sensitive(independentToggle, window != nullptr);
+        utn::syncToggle(GTK_TOGGLE_BUTTON(independentToggle), window && independent);
+    }
     if (pill) {
         for (const char* cls: STATE_CLASSES) {
             gtk_widget_remove_css_class(pill, cls);
@@ -380,7 +448,10 @@ void ToolStudentView::updateState() {
                                                "the page without your tools.") :
                 state == State::SameScreen ? _("The projector shows this screen, so students see your tools and private "
                                                "notes. Open Student View on a second screen to keep them private.") :
-                state == State::Live       ? _("Students see the page only: no tools, private notes or hidden answers.") :
+                state == State::Live       ? _("Students follow you: the page, your scrolling and what you write, but no "
+                                               "tools, private notes or hidden answers.") :
+                state == State::Independent ? _("Students stay on their own page and zoom while you move on. They still "
+                                                "see what is written there, never private notes or hidden answers.") :
                 state == State::Frozen     ? _("Students see a frozen picture of the page. Your screen can move on.") :
                                              _("Students see a blank screen.");
         // A tight app bar shows one word, so the tooltip leads with the whole phrase
@@ -426,6 +497,97 @@ void ToolStudentView::restoreNormal() {
     }
     if (frozen) {
         setFrozen(false);
+    }
+    setSyncMode(SyncMode::Follow);
+}
+
+void ToolStudentView::followTeacher() { restoreNormal(); }
+
+PageRef ToolStudentView::getStudentPage() {
+    if (independent && pinnedPage) {
+        return pinnedPage;
+    }
+    return control->getCurrentPage();
+}
+
+void ToolStudentView::setSyncMode(SyncMode mode) {
+    const bool wantIndependent = mode == SyncMode::Independent && window != nullptr;
+    if (wantIndependent == independent) {
+        updateState();
+        return;
+    }
+    if (wantIndependent) {
+        // Students keep exactly what they are looking at now: the frozen picture's page when frozen, otherwise the
+        // page they follow. The viewport already holds what they see, so nothing jumps.
+        pinnedPage = (frozen && frozenContent.page) ? frozenContent.page : control->getCurrentPage();
+        independent = pinnedPage != nullptr;
+    } else {
+        independent = false;
+        pinnedPage = nullptr;  // the next frame takes the teacher's page and region again
+    }
+    // Which page students see changed, not what they may see of it: the layer filter applies to every frame, so a
+    // normal (throttled after a quiet spell, immediate) redraw is enough. A frozen picture stays as it is.
+    requestRedraw();
+    if (drawingArea) {
+        gtk_widget_queue_draw(drawingArea);
+    }
+    updateState();
+}
+
+bool ToolStudentView::navigationAllowed() {
+    if (independent) {
+        return true;
+    }
+    // Following: the teacher's window drives the zoom and position. Say so, but not on every notch of a wheel.
+    static gint64 lastTold = 0;
+    const gint64 now = g_get_monotonic_time();
+    if (now - lastTold > 4 * G_USEC_PER_SEC) {
+        lastTold = now;
+        if (auto* win = control->getWindow()) {
+            win->showToast(_("Student View is following you. Choose \"Independent\" in the Students menu to zoom or "
+                             "move it separately."));
+        }
+    }
+    return false;
+}
+
+void ToolStudentView::watchTeacherScrolling() {
+    stopWatchingTeacherScrolling();
+    auto* mainWindow = control->getWindow();
+    auto* xournal = mainWindow ? mainWindow->getXournal() : nullptr;
+    auto* scrolling = xournal ? xournal->getScrollHandling() : nullptr;
+    if (!scrolling) {
+        return;
+    }
+    GtkAdjustment* adjustments[2] = {scrolling->getHorizontal(), scrolling->getVertical()};
+    for (int i = 0; i < 2; ++i) {
+        if (!adjustments[i]) {
+            continue;
+        }
+        auto* object = G_OBJECT(adjustments[i]);
+        teacherAdjustments[i] = object;
+        g_object_add_weak_pointer(object, reinterpret_cast<gpointer*>(&teacherAdjustments[i]));
+        auto onScroll = +[](GtkAdjustment*, gpointer data) {
+            auto* self = static_cast<ToolStudentView*>(data);
+            // The teacher moved or zoomed: a following Student View moves with them. Independent students stay put.
+            if (!self->independent && self->drawingArea) {
+                self->requestRedraw();
+            }
+        };
+        teacherAdjustmentHandlers[2 * i] = g_signal_connect(object, "value-changed", G_CALLBACK(onScroll), this);
+        teacherAdjustmentHandlers[2 * i + 1] = g_signal_connect(object, "changed", G_CALLBACK(onScroll), this);
+    }
+}
+
+void ToolStudentView::stopWatchingTeacherScrolling() {
+    for (int i = 0; i < 2; ++i) {
+        if (GObject* object = teacherAdjustments[i]) {
+            g_signal_handler_disconnect(object, teacherAdjustmentHandlers[2 * i]);
+            g_signal_handler_disconnect(object, teacherAdjustmentHandlers[2 * i + 1]);
+            g_object_remove_weak_pointer(object, reinterpret_cast<gpointer*>(&teacherAdjustments[i]));
+            teacherAdjustments[i] = nullptr;
+        }
+        teacherAdjustmentHandlers[2 * i] = teacherAdjustmentHandlers[2 * i + 1] = 0;
     }
 }
 
@@ -639,9 +801,21 @@ void ToolStudentView::refreshLiveFrame() {
         liveFrame = createFrameSurface(drawingArea, width, height);
     }
     cairo_t* cr = cairo_create(liveFrame);
-    renderStudentFrame(control, cr, width, height, viewport, &liveContent);
+    const bool pageStillThere =
+            renderStudentFrame(control, cr, width, height, viewport, getStudentPage(), !independent, followScroll, &liveContent);
     cairo_destroy(cr);
     frameDirty = false;
+    if (!pageStillThere && independent) {
+        // The page students were kept on was deleted. Never leave them on a stale picture: follow the teacher again.
+        independent = false;
+        pinnedPage = nullptr;
+        if (auto* win = control->getWindow()) {
+            win->showToast(_("The page students were viewing was removed. Student View follows you again."));
+        }
+        updateState();
+        refreshLiveFrame();
+        return;
+    }
 
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     lastFrameEnd = g_get_monotonic_time();
@@ -662,7 +836,8 @@ bool ToolStudentView::studentAudienceChanged() {
     uint64_t signature = 1469598103934665603ULL;
     signature = (signature ^ (static_cast<uint64_t>(currentOverlay(control)) + 7U)) * 1099511628211ULL;
     // doc->getPage, not Control::getCurrentPage(): that takes the Document lock again, and the lock is not recursive
-    if (PageRef page = doc->getPage(control->getCurrentPageNo())) {
+    // (the page students look at: the pinned one when independent)
+    if (PageRef page = (independent && pinnedPage) ? pinnedPage : doc->getPage(control->getCurrentPageNo())) {
         size_t index = 0;
         for (const Layer* layer: page->getLayersView()) {
             signature = (signature ^ (utn::visibleToStudents(*layer) ? 2U : 1U)) * 1099511628211ULL;
@@ -678,7 +853,10 @@ bool ToolStudentView::studentAudienceChanged() {
 }
 
 void ToolStudentView::pageSelected(size_t) {
-    viewport.scrollToTop();  // a zoomed-in view of the last page is no place to start the next one
+    if (!independent) {
+        // Following: the next frame takes the teacher's page and region. Independent students stay where they are.
+        viewport.scrollToTop();
+    }
     requestRedraw(studentAudienceChanged());
 }
 void ToolStudentView::pageChanged(size_t) { requestRedraw(studentAudienceChanged()); }
@@ -695,6 +873,43 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                          static_cast<ToolStudentView*>(data)->showStudentView();
                      }),
                      this);
+
+    // What students follow: the teacher (default), nothing (Freeze, below) or a page of their own
+    followToggle = gtk_toggle_button_new_with_label(_("Follow me"));
+    gtk_widget_set_tooltip_text(followToggle, _("Students see what you see: your page, your scrolling, and what you "
+                                                "write as you write it. This is the normal setting."));
+    g_signal_connect(followToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                         if (utn::isSyncing(GTK_WIDGET(button))) {
+                             return;
+                         }
+                         closeMenu(GTK_WIDGET(button));
+                         auto* self = static_cast<ToolStudentView*>(data);
+                         if (gtk_toggle_button_get_active(button)) {
+                             self->followTeacher();
+                         } else {
+                             self->updateState();  // following is the normal state: choosing it again changes nothing
+                         }
+                     }),
+                     this);
+    g_object_set_data(G_OBJECT(followToggle), "utn-popover", popover);
+    gtk_box_append(panel, followToggle);
+
+    independentToggle = gtk_toggle_button_new_with_label(_("Students stay on this page"));
+    gtk_widget_set_tooltip_text(independentToggle,
+                                _("Students keep this page and zoom, and can zoom and move it themselves, while you go "
+                                  "elsewhere. They still see what is written on it. Choose Follow me to bring them back."));
+    g_signal_connect(independentToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
+                         if (utn::isSyncing(GTK_WIDGET(button))) {
+                             return;
+                         }
+                         closeMenu(GTK_WIDGET(button));
+                         static_cast<ToolStudentView*>(data)->setSyncMode(gtk_toggle_button_get_active(button) ?
+                                                                                  SyncMode::Independent :
+                                                                                  SyncMode::Follow);
+                     }),
+                     this);
+    g_object_set_data(G_OBJECT(independentToggle), "utn-popover", popover);
+    gtk_box_append(panel, independentToggle);
 
     freezeToggle = gtk_toggle_button_new_with_label(_("Freeze this page"));
     g_signal_connect(freezeToggle, "toggled", G_CALLBACK(+[](GtkToggleButton* button, gpointer data) {
@@ -784,6 +999,8 @@ auto ToolStudentView::createItem(bool horizontal) -> xoj::util::WidgetSPtr {
                              self->pillPrefix = nullptr;
                              self->pillShort = nullptr;
                              self->freezeToggle = nullptr;
+                             self->followToggle = nullptr;
+                             self->independentToggle = nullptr;
                              self->blankToggle = nullptr;
                              self->ghostToggle = nullptr;
                              self->openButton = nullptr;
@@ -900,6 +1117,11 @@ void ToolStudentView::showStudentView() {
                      this);
 
     gtk_widget_show_all(window);
+
+    viewport.setFitPage();
+    independent = false;
+    pinnedPage = nullptr;
+    watchTeacherScrolling();  // a following Student View moves when the teacher scrolls or zooms
 
     // With a second monitor, go straight to full screen on the monitor the teacher is not using
     GdkDisplay* display = gdk_display_get_default();
@@ -1181,7 +1403,7 @@ gboolean ToolStudentView::drawStudentView(GtkWidget* widget, cairo_t* cr, gpoint
 }
 
 bool ToolStudentView::pageSizeForViewport(double& pageWidth, double& pageHeight) {
-    PageRef page = control->getCurrentPage();
+    PageRef page = getStudentPage();
     if (!page || !drawingArea) {
         return false;
     }
@@ -1197,7 +1419,7 @@ void ToolStudentView::viewportChanged() {
 
 void ToolStudentView::zoomStudentView(double factor, double anchorX, double anchorY) {
     double pageWidth = 0, pageHeight = 0;
-    if (!pageSizeForViewport(pageWidth, pageHeight)) {
+    if (!navigationAllowed() || !pageSizeForViewport(pageWidth, pageHeight)) {
         return;
     }
     const double width = std::max(1, gtk_widget_get_allocated_width(drawingArea));
@@ -1207,6 +1429,9 @@ void ToolStudentView::zoomStudentView(double factor, double anchorX, double anch
 }
 
 void ToolStudentView::setStudentFit(bool fitWidth) {
+    if (!navigationAllowed()) {
+        return;
+    }
     if (fitWidth) {
         viewport.setFitWidth();
     } else {
@@ -1232,6 +1457,9 @@ gboolean ToolStudentView::studentViewScrolled(GtkWidget* widget, GdkEventScroll*
     }
     if (dx == 0 && dy == 0) {
         return FALSE;
+    }
+    if (!(event->state & GDK_CONTROL_MASK) && !self->navigationAllowed()) {
+        return TRUE;  // following the teacher: the wheel does not move the students' page (Ctrl+wheel says so itself)
     }
     if (event->state & GDK_CONTROL_MASK) {
         // Wheel up zooms in, a small multiplicative step per notch
@@ -1263,6 +1491,9 @@ gboolean ToolStudentView::studentViewMotion(GtkWidget* widget, GdkEventMotion* e
     double pageWidth = 0, pageHeight = 0;
     if (!(event->state & GDK_BUTTON1_MASK) || !self->pageSizeForViewport(pageWidth, pageHeight)) {
         return FALSE;
+    }
+    if (!self->independent) {
+        return TRUE;  // following the teacher: dragging does not move the page (a double click or key says why)
     }
     const double width = std::max(1, gtk_widget_get_allocated_width(widget));
     const double height = std::max(1, gtk_widget_get_allocated_height(widget));
@@ -1319,6 +1550,9 @@ void ToolStudentView::studentViewDestroyed(GtkWidget*, gpointer data) {
     self->fullscreen = false;
     self->frozen = false;
     self->blanked = false;
+    self->independent = false;
+    self->pinnedPage = nullptr;
+    self->stopWatchingTeacherScrolling();
     if (self->frozenFrame) {
         cairo_surface_destroy(self->frozenFrame);
         self->frozenFrame = nullptr;

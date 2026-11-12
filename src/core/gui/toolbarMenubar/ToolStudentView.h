@@ -26,6 +26,7 @@
 #include <gtk/gtk.h>
 
 #include "model/DocumentListener.h"
+#include "model/PageRef.h"
 
 #include "AbstractToolItem.h"
 #include "StudentViewport.h"
@@ -48,8 +49,14 @@ enum class OverlayKind { None, Spotlight, Curtain };
 
 class ToolStudentView: public AbstractToolItem, public DocumentListener {
 public:
-    /// What students can see right now
-    enum class State { Off, SameScreen, Live, Frozen, Blank };
+    /// What students can see right now. Live means they follow the teacher; Independent means they stay on a page of
+    /// their own (still live: they see what is written there) while the teacher moves on. Appended last so the values
+    /// of the older states are unchanged.
+    enum class State { Off, SameScreen, Live, Frozen, Blank, Independent };
+
+    /// How the open Student View window decides what page and region to show. Freeze and Blank are separate: they stop
+    /// or cover the window whichever of these is chosen.
+    enum class SyncMode { Follow, Independent };
 
     ToolStudentView(std::string id, Control* control);
     ~ToolStudentView() override;
@@ -71,6 +78,23 @@ public:
     void setBlanked(bool blanked);
     /// Turn Freeze and Blank off, so students see the live page again. The Student View window stays open.
     void restoreNormal();
+    /**
+     * Follow (the default): students see the page and the part of it the teacher sees, scrolling, zooming and changing
+     * page with the teacher. Independent: students stay on the page and region they were showing, with their own zoom
+     * and pan, while the teacher navigates elsewhere. They still see what is written on that page as it happens.
+     * Neither mode changes what students are allowed to see: teacher-only layers and unrevealed answers stay hidden.
+     */
+    void setSyncMode(SyncMode mode);
+    SyncMode getSyncMode() const { return independent ? SyncMode::Independent : SyncMode::Follow; }
+    /// "Follow me": back to following the teacher and live, whatever was chosen before (Freeze, Independent)
+    void followTeacher();
+    /// The page students are looking at: the teacher's page when following, the pinned page when independent
+    PageRef getStudentPage();
+    /// false: while following, always show the whole page (page changes still carry over, scrolling and zoom do not)
+    void setFollowScrollPosition(bool follow) {
+        followScroll = follow;
+        requestRedraw();
+    }
     bool isFrozen() const { return frozen; }
     bool isBlanked() const { return blanked; }
     bool isWindowOpen() const { return window != nullptr; }
@@ -157,6 +181,21 @@ private:
     bool fullscreen = false;
     bool frozen = false;
     bool blanked = false;
+    bool independent = false;
+    bool followScroll = true;
+    /// Independent mode: the page students stay on. Held by reference, so a page deleted meanwhile cannot dangle; it is
+    /// dropped (and students follow the teacher again) as soon as it is no longer in the document.
+    PageRef pinnedPage;
+    /// The teacher's scroll bars, watched so a following Student View moves with them. Weak: they are the window's.
+    GObject* teacherAdjustments[2] = {nullptr, nullptr};
+    gulong teacherAdjustmentHandlers[4] = {0, 0, 0, 0};
+    void watchTeacherScrolling();
+    void stopWatchingTeacherScrolling();
+    /// Student View navigation (zoom, pan) only belongs to the students in Independent mode; say so when following
+    bool navigationAllowed();
+    GtkWidget* followToggle = nullptr;
+    GtkWidget* independentToggle = nullptr;
+    GtkWidget* syncHint = nullptr;
 
     /// Last frame shown to students, kept while frozen
     cairo_surface_t* frozenFrame = nullptr;

@@ -59,6 +59,7 @@
 #include "gui/sidebar/Sidebar.h"
 #include "gui/toolbarMenubar/ToolLessonNavigator.h"
 #include "gui/toolbarMenubar/ToolPresentationKit.h"
+#include "gui/scroll/ScrollHandling.h"
 #include "gui/toolbarMenubar/ToolStudentView.h"
 #include "gui/toolbarMenubar/ToolUtnContextBar.h"
 #include "gui/toolbarMenubar/UndoHistoryPanel.h"
@@ -238,6 +239,33 @@ unsigned studentPixel(GtkWidget* student, double pageX, double pageY) {
     const unsigned pixel = reinterpret_cast<unsigned*>(row)[x] & 0xFFFFFF;
     cairo_surface_destroy(surface);
     return pixel;
+}
+
+/// True when any pixel in the page rectangle (page units, the whole page shown) is not paper white on the student window
+bool studentRegionHasInk(GtkWidget* student, double x0, double y0, double x1, double y1) {
+    auto* area = gtk_bin_get_child(GTK_BIN(student));
+    const int width = gtk_widget_get_allocated_width(area);
+    const int height = gtk_widget_get_allocated_height(area);
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+    auto* cr = cairo_create(surface);
+    gboolean handled = false;
+    g_signal_emit_by_name(area, "draw", cr, &handled);
+    cairo_destroy(cr);
+    cairo_surface_flush(surface);
+    const double scale = std::min(width / 600.0, height / 800.0);
+    const double left = (width - 600 * scale) / 2, top = (height - 800 * scale) / 2;
+    bool ink = false;
+    for (int y = static_cast<int>(top + y0 * scale); y < static_cast<int>(top + y1 * scale) && !ink; ++y) {
+        auto* row = cairo_image_surface_get_data(surface) + y * cairo_image_surface_get_stride(surface);
+        for (int x = static_cast<int>(left + x0 * scale); x < static_cast<int>(left + x1 * scale); ++x) {
+            if ((reinterpret_cast<unsigned*>(row)[x] & 0xFFFFFF) != 0xFFFFFFU) {
+                ink = true;
+                break;
+            }
+        }
+    }
+    cairo_surface_destroy(surface);
+    return ink;
 }
 
 /**
@@ -1604,7 +1632,7 @@ TEST_F(ClassroomWorkflow, studentsPillShowsOneWordWhenTightAndKeepsItsWholeName)
     std::set<std::string> shortWords;
     std::set<std::string> fullWords;
     using State = ToolStudentView::State;
-    for (State state: {State::Off, State::SameScreen, State::Live, State::Frozen, State::Blank}) {
+    for (State state: {State::Off, State::SameScreen, State::Live, State::Frozen, State::Blank, State::Independent}) {
         shortWords.insert(ToolStudentView::stateShortWord(state));
         const std::string full = ToolStudentView::stateLabel(state);
         fullWords.insert(full.substr(full.find(": ") + 2));
@@ -2955,6 +2983,10 @@ TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
 }
 
 TEST_F(ClassroomWorkflow, studentWindowPrivacyFreezeBlankNavigationAndReopen) {
+    // Student View follows the teacher's window; studentPixel() reads the whole page, so the teacher shows all of it
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());  // no visible area to follow: students see the whole page
+    settle();
     auto page = control->getCurrentPage();
     addMarker(page->getSelectedLayer(), 100);
     control->startAnswersLayer();
@@ -3031,6 +3063,304 @@ TEST_F(ClassroomWorkflow, studentWindowPrivacyFreezeBlankNavigationAndReopen) {
     GList* overlays = gtk_container_get_children(GTK_CONTAINER(window->get("mainOverlay")));
     EXPECT_EQ(g_list_length(overlays), initialOverlayCount) << "Student overlays must not outlive their tool";
     g_list_free(overlays);
+}
+
+TEST_F(ClassroomWorkflow, studentViewFollowsTheTeacherByDefaultAndIndependentKeepsItsOwnPage) {
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());  // no visible area to follow: students see the whole page
+    settle();
+    auto first = control->getCurrentPage();
+    addMarker(first->getSelectedLayer(), 100);
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto click = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+    click("Open on the projector");
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+
+    // Default: follow the teacher
+    EXPECT_EQ(students->getSyncMode(), ToolStudentView::SyncMode::Follow);
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(students->getStudentPage(), first);
+    EXPECT_EQ(studentPixel(student, 100, 100), 0U);
+    control->firePageSelected(1);
+    settle();
+    EXPECT_NE(control->getCurrentPage(), first);
+    EXPECT_EQ(students->getStudentPage(), control->getCurrentPage()) << "students follow a page change";
+    EXPECT_EQ(studentPixel(student, 100, 100), 0xFFFFFFU) << "page two is empty";
+    control->firePageSelected(0);
+    settle();
+
+    // Independent: students keep page one while the teacher goes to page two
+    click("Students stay on this page");
+    EXPECT_EQ(students->getSyncMode(), ToolStudentView::SyncMode::Independent);
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Independent);
+    control->firePageSelected(1);
+    settle();
+    EXPECT_NE(control->getCurrentPage(), first);
+    EXPECT_EQ(students->getStudentPage(), first);
+    EXPECT_EQ(studentPixel(student, 100, 100), 0U) << "students still see page one";
+    // ...and still see new writing on it, live
+    addMarker(first->getSelectedLayer(), 300);
+    control->notifyCanvasChanged(first.get());
+    settle();
+    EXPECT_EQ(studentPixel(student, 100, 300), 0U) << "independent students still get live content";
+
+    // Freeze takes over whichever sync mode is on, and Follow me clears everything
+    click("Freeze this page");
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Frozen);
+    click("Follow me");
+    EXPECT_EQ(students->getSyncMode(), ToolStudentView::SyncMode::Follow);
+    EXPECT_FALSE(students->isFrozen());
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(students->getStudentPage(), control->getCurrentPage());
+    EXPECT_EQ(studentPixel(student, 100, 100), 0xFFFFFFU) << "back on the teacher's page two";
+
+    // A pinned page that is deleted must not leave students on a stale picture
+    control->firePageSelected(0);
+    settle();
+    click("Students stay on this page");
+    ASSERT_EQ(students->getStudentPage(), first);
+    ASSERT_EQ(control->getCurrentPage(), first);
+    control->deletePage();  // the teacher deletes the very page students were kept on
+    settle();
+    EXPECT_NE(students->getStudentPage(), first);
+    EXPECT_EQ(students->getState(), ToolStudentView::State::Live);
+    EXPECT_EQ(students->getSyncMode(), ToolStudentView::SyncMode::Follow);
+
+    click("Close Student View");
+    EXPECT_EQ(students->getSyncMode(), ToolStudentView::SyncMode::Follow) << "closing resets to following";
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, studentsFollowTheTeachersScrollingWithinAZoomedPageUnlessIndependentOrFrozen) {
+    // Comprehension lesson: paragraph one at the top of the page, paragraph three near the bottom
+    auto page = control->getCurrentPage();
+    addMarker(page->getSelectedLayer(), 100);
+    addMarker(page->getSelectedLayer(), 700);
+    // The teacher's window must really be on screen, or it has no visible area to follow
+    gtk_widget_show(window->getWindow());
+    gtk_window_resize(GTK_WINDOW(window->getWindow()), 1200, 800);
+    settle();
+    control->getZoomControl()->setZoomFitMode(false);
+    control->getZoomControl()->setZoom(2.0);
+    settle();
+    auto* vertical = window->getXournal()->getScrollHandling()->getVertical();
+    gtk_adjustment_set_value(vertical, 0);
+    settle();
+    ASSERT_GT(gtk_adjustment_get_page_size(vertical), 100.0) << "the teacher's window has an area on screen";
+    ASSERT_GT(gtk_adjustment_get_upper(vertical) - gtk_adjustment_get_page_size(vertical), 100.0)
+            << "the zoomed page must be taller than the teacher's window for this test to mean anything";
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto click = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+    click("Open on the projector");
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+    auto blackPixels = [&]() {
+        auto* area = gtk_bin_get_child(GTK_BIN(student));
+        const int width = gtk_widget_get_allocated_width(area), height = gtk_widget_get_allocated_height(area);
+        auto* surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+        auto* cr = cairo_create(surface);
+        gboolean handled = false;
+        g_signal_emit_by_name(area, "draw", cr, &handled);
+        cairo_destroy(cr);
+        cairo_surface_flush(surface);
+        double sumY = 0;
+        int count = 0;
+        for (int y = 0; y < height; ++y) {
+            auto* row = reinterpret_cast<unsigned*>(cairo_image_surface_get_data(surface) +
+                                                    y * cairo_image_surface_get_stride(surface));
+            for (int x = 0; x < width; ++x) {
+                if ((row[x] & 0xFFFFFF) == 0U) {
+                    ++count;
+                    sumY += y;
+                }
+            }
+        }
+        cairo_surface_destroy(surface);
+        // Where the ink sits in the students' window, 0 (top) to 1 (bottom); -1 when there is none
+        return count ? sumY / count / height : -1.0;
+    };
+    auto scrollTeacher = [&](double fraction) {
+        // 0 = top of page one, 1 = page one's bottom edge at the bottom of the teacher's window (still on page one)
+        const double pageOneBottom = 10 + 800 * control->getZoomControl()->getZoom();
+        gtk_adjustment_set_value(vertical, fraction * (pageOneBottom - gtk_adjustment_get_page_size(vertical)));
+        settle();
+    };
+
+    const double atTop = blackPixels();
+    ASSERT_GE(atTop, 0.0) << "students see paragraph one";
+    EXPECT_LT(atTop, 0.5) << "paragraph one is in the upper half of the students' window";
+    scrollTeacher(1.0);
+    const double atBottom = blackPixels();
+    ASSERT_GE(atBottom, 0.0) << "students followed the teacher down to paragraph three";
+    EXPECT_GT(atBottom, 0.5) << "paragraph three is in the lower half: the students' view scrolled with the teacher";
+
+    // Freeze: the teacher goes back up and students keep what they had
+    click("Freeze this page");
+    scrollTeacher(0.0);
+    EXPECT_NEAR(blackPixels(), atBottom, 0.01) << "a frozen Student View does not move with the teacher";
+    click("Follow me");
+    scrollTeacher(0.0);
+    EXPECT_NEAR(blackPixels(), atTop, 0.01) << "following again: the same part of the page as the teacher";
+
+    // Independent: students stay where they are while the teacher scrolls
+    click("Students stay on this page");
+    const double pinned = blackPixels();
+    scrollTeacher(1.0);
+    EXPECT_NEAR(blackPixels(), pinned, 0.01) << "independent students do not follow the scrolling";
+    click("Follow me");
+    scrollTeacher(1.0);
+    EXPECT_NEAR(blackPixels(), atBottom, 0.01);
+
+    click("Close Student View");
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());  // leave the fixture as found: later tests read the whole page
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, hiddenAnswersAndTeacherNotesStayOffTheStudentScreenInEveryModeAndTransition) {
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());  // no visible area to follow: students see the whole page
+    settle();
+    auto page = control->getCurrentPage();
+    addMarker(page->getSelectedLayer(), 100);
+    control->startAnswersLayer();
+    addMarker(page->getSelectedLayer(), 200);
+    control->getLayerController()->addNewLayer(false);
+    auto* notes = page->getSelectedLayer();
+    notes->setAudience(LayerAudience::TeacherOnly);
+    addMarker(notes, 300);
+    control->setAnswersRevealed(false, false);
+
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto click = [&](const char* label) {
+        auto* button = buttonNamed(menu, label);
+        ASSERT_NE(button, nullptr) << label;
+        gtk_button_clicked(GTK_BUTTON(button));
+        settle();
+    };
+    click("Open on the projector");
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+    auto expectPrivate = [&](const char* where) {
+        EXPECT_EQ(studentPixel(student, 100, 100), 0U) << where << ": public content shows";
+        EXPECT_EQ(studentPixel(student, 100, 200), 0xFFFFFFU) << where << ": hidden answers leaked";
+        EXPECT_EQ(studentPixel(student, 100, 300), 0xFFFFFFU) << where << ": teacher-only note leaked";
+    };
+    expectPrivate("following");
+    click("Students stay on this page");
+    expectPrivate("independent");
+    control->firePageSelected(1);
+    settle();
+    EXPECT_EQ(students->getStudentPage(), page);
+    expectPrivate("independent, teacher elsewhere");
+    control->firePageSelected(0);
+    settle();
+    click("Follow me");
+    expectPrivate("back to following");
+
+    // Reveal, then hide again, in independent mode: hiding is immediate
+    click("Students stay on this page");
+    control->setAnswersRevealed(true, false);
+    settle();
+    EXPECT_EQ(studentPixel(student, 100, 200), 0U) << "revealed answers show";
+    EXPECT_EQ(studentPixel(student, 100, 300), 0xFFFFFFU) << "teacher notes stay private even when answers are shown";
+    control->setAnswersRevealed(false, false);
+    settle();
+    expectPrivate("hidden again");
+
+    // Freeze while independent, then switching mode must not reveal anything
+    click("Freeze this page");
+    expectPrivate("frozen");
+    click("Follow me");
+    expectPrivate("follow after freeze");
+    click("Close Student View");
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, studentsSeeTextAsItIsTypedButNotWhatIsTypedIntoAPrivateLayer) {
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());  // no visible area to follow: students see the whole page
+    settle();
+    auto page = control->getCurrentPage();
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    auto* open = buttonNamed(menu, "Open on the projector");
+    ASSERT_NE(open, nullptr);
+    gtk_button_clicked(GTK_BUTTON(open));
+    settle();
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+
+    auto typeInto = [&](const char* text) {
+        view->startText(100, 400);
+        ASSERT_NE(view->getTextEditor(), nullptr);
+        gtk_clipboard_set_text(gtk_widget_get_clipboard(window->getXournal()->getWidget(), GDK_SELECTION_CLIPBOARD), text,
+                               -1);
+        view->getTextEditor()->pasteFromClipboard();
+        settle();
+    };
+
+    EXPECT_FALSE(studentRegionHasInk(student, 90, 380, 400, 440));
+    typeInto("The frightened boy ran");
+    ASSERT_NE(view->getTextEditor(), nullptr) << "still typing: the edit is not finished";
+    EXPECT_TRUE(studentRegionHasInk(student, 90, 380, 400, 440))
+            << "students see the words while they are being typed, not only after the edit ends";
+    view->endText();
+    settle();
+    EXPECT_TRUE(studentRegionHasInk(student, 90, 380, 400, 440)) << "and the finished text stays";
+
+    // Typing into a teacher-only layer never reaches the students, while it is typed or after
+    control->getLayerController()->addNewLayer(false);
+    auto* notes = page->getSelectedLayer();
+    notes->setAudience(LayerAudience::TeacherOnly);
+    settle();
+    auto* secondLine = "Private marking note";
+    view->startText(100, 600);
+    ASSERT_NE(view->getTextEditor(), nullptr);
+    gtk_clipboard_set_text(gtk_widget_get_clipboard(window->getXournal()->getWidget(), GDK_SELECTION_CLIPBOARD),
+                           secondLine, -1);
+    view->getTextEditor()->pasteFromClipboard();
+    settle();
+    EXPECT_FALSE(studentRegionHasInk(student, 90, 580, 400, 640)) << "a private note must not appear while typed";
+    view->endText();
+    settle();
+    EXPECT_FALSE(studentRegionHasInk(student, 90, 580, 400, 640)) << "nor after";
+
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Close Student View")));
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
 }
 
 TEST_F(ClassroomWorkflow, hidingDuringAnswerEditKeepsContentOnPrivateLayer) {
@@ -3545,6 +3875,7 @@ TEST_F(ClassroomWorkflow, frozenStudentViewNeverKeepsWhatStudentsMayNoLongerSee)
     addMarker(answers, 200);
 
     auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
     auto pill = students->createItem(true);
     auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
     auto click = [&](const char* label) {
@@ -3662,6 +3993,7 @@ struct FrozenRig {
         answers = page->getSelectedLayer();
         addMarker(answers, 200);
         students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control);
+        students->setFollowScrollPosition(false);
         pill = students->createItem(true);
         menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
         click("Open on the projector");
@@ -3849,6 +4181,7 @@ TEST_F(ClassroomWorkflow, movingVisibleInkToAPrivateLayerBlanksTheFrozenStudentV
     ASSERT_EQ(page->getSelectedLayer(), open);
 
     auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
     auto pill = students->createItem(true);
     auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
     auto click = [&](const char* label) {
@@ -4001,6 +4334,7 @@ TEST_F(ClassroomWorkflow, spotlightAndCurtainAlsoCoverTheStudentViewFrame) {
     addMarker(page->getSelectedLayer(), 100);
 
     auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
     auto pill = students->createItem(true);
     auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
     ASSERT_NE(buttonNamed(menu, "Open on the projector"), nullptr);
@@ -4216,6 +4550,7 @@ TEST_F(ClassroomWorkflow, heavySessionWithErasingHighlightingStudentViewAndAutos
 
     // The class is watching: Student View is open and redraws while the teacher writes
     auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
     auto pill = students->createItem(true);
     auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
     ASSERT_NE(buttonNamed(menu, "Open on the projector"), nullptr);

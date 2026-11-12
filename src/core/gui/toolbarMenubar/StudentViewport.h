@@ -46,6 +46,58 @@ public:
     /// Scroll back to the top of the page, e.g. after another page is selected
     void scrollToTop() { originX = originY = 0.0; }
 
+    /// A rectangle of the page, in page units
+    struct Region {
+        double x = 0.0, y = 0.0, width = 0.0, height = 0.0;
+    };
+
+    /**
+     * Follow Teacher: show the part of the page the teacher's window shows. The region is scaled to fill the window as
+     * far as it fits both ways and centred, so a teacher looking at the whole page gives plain fit page, and a teacher
+     * scrolled down a zoomed-in page gives the same part of the page. An empty or whole-page region is fit page.
+     */
+    void showRegion(const Region& region, double width, double height, double pageW, double pageH) {
+        if (width <= 0 || height <= 0 || pageW <= 0 || pageH <= 0 || !(region.width > 0) || !(region.height > 0)) {
+            setFitPage();
+            return;
+        }
+        const double fitPage = std::min(width / pageW, height / pageH);
+        const double wanted = std::min(width / region.width, height / region.height);
+        const double zoom = std::clamp(wanted / fitPage, 1.0, MAX_MAGNIFICATION);
+        if (zoom < 1.0 + 1e-3) {
+            setFitPage();
+            return;
+        }
+        mode = Mode::Custom;
+        magnification = zoom;
+        const double scale = fitPage * zoom;
+        // The page point at the centre of the region goes to the centre of the window; resolve() clamps to the page
+        originX = region.x + 0.5 * region.width - 0.5 * width / scale;
+        originY = region.y + 0.5 * region.height - 0.5 * height / scale;
+        resolve(width, height, pageW, pageH);
+    }
+
+    /**
+     * The part of a page that a scrolled and zoomed window shows, in page units. @p viewX/@p viewY/@p viewWidth/
+     * @p viewHeight are the window's visible rectangle in the document layout (pixels); @p pageX/@p pageY the page's
+     * top-left in the same layout; @p zoom the layout's pixels per page unit. False when none of the page is visible.
+     */
+    static bool visibleRegionOfPage(double viewX, double viewY, double viewWidth, double viewHeight, double pageX,
+                                    double pageY, double zoom, double pageW, double pageH, Region& out) {
+        if (!(zoom > 0) || viewWidth <= 0 || viewHeight <= 0 || pageW <= 0 || pageH <= 0) {
+            return false;
+        }
+        const double left = std::max(0.0, (viewX - pageX) / zoom);
+        const double top = std::max(0.0, (viewY - pageY) / zoom);
+        const double right = std::min(pageW, (viewX + viewWidth - pageX) / zoom);
+        const double bottom = std::min(pageH, (viewY + viewHeight - pageY) / zoom);
+        if (!(right > left) || !(bottom > top)) {
+            return false;
+        }
+        out = {left, top, right - left, bottom - top};
+        return true;
+    }
+
     /// Resolve the placement for a window of width x height showing a page of pageW x pageH. Clamps the scroll position.
     Layout resolve(double width, double height, double pageW, double pageH) {
         Layout layout;

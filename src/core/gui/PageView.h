@@ -77,6 +77,13 @@ public:
      *      Used to avoid blinking when a tool finished editing an element
      */
     void drawAndDeleteToolView(xoj::view::ToolView* v, const Range& rg) override;
+
+    /**
+     * Draw what the teacher is making right now and has not yet put on the page: the stroke or shape being drawn, the
+     * text being typed, space being inserted. No cursor, frame or other drawing aids. The context is in page units.
+     * Student View uses this so students watch the writing happen; the caller decides whether students may see it.
+     */
+    void drawLiveToolViews(cairo_t* cr) const;
     /**
      * @brief Simply deletes an overlay and any trace of it on the display (provided the overlay is contained in the
      * given range)
@@ -195,9 +202,10 @@ public:  // listener
     void elementChanged(const Element* elem) override;
     void elementsChanged(const std::vector<const Element*>& elements, const Range& range) override;
 
-private:
+    /// Start editing text at (x, y), in page units. Public so the text tool can be driven without pointer events.
     void startText(double x, double y);
 
+private:
     void startLink();
 
     void drawLoadingPage(cairo_t* cr);

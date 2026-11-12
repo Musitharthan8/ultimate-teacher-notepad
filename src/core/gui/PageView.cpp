@@ -941,7 +941,22 @@ void XojPageView::repaintArea(double x1, double y1, double x2, double y2) const 
                                                   ceil_cast<int>(x2 * zoom), ceil_cast<int>(y2 * zoom));
 }
 
-void XojPageView::flagDirtyRegion(const Range& rg) const { repaintArea(rg.minX, rg.minY, rg.maxX, rg.maxY); }
+void XojPageView::flagDirtyRegion(const Range& rg) const {
+    repaintArea(rg.minX, rg.minY, rg.maxX, rg.maxY);
+    // Strokes and text being made are drawn by overlays, which only flag a region: the page itself has not changed yet.
+    // Student View listens here so students see them as they are made (it rate limits its own redraws).
+    this->xournal->getControl()->notifyCanvasChanged(this->page.get());
+}
+
+void XojPageView::drawLiveToolViews(cairo_t* cr) const {
+    for (const auto& overlay: this->overlayViews) {
+        const auto* view = dynamic_cast<const xoj::view::ToolView*>(overlay.get());
+        if (view && (view->isViewOf(this->inputHandler.get()) || view->isViewOf(this->verticalSpace.get()) ||
+                     view->isViewOf(this->textEditor.get()))) {
+            view->drawWithoutDrawingAids(cr);
+        }
+    }
+}
 
 void XojPageView::drawAndDeleteToolView(xoj::view::ToolView* v, const Range& rg) {
     if (v->isViewOf(this->inputHandler.get()) || v->isViewOf(this->verticalSpace.get()) ||
