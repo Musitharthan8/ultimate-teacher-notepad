@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
@@ -51,7 +52,7 @@ struct Rng {
 
 using Pt = std::pair<double, double>;
 
-enum class Outcome { Freehand, Line, Triangle, Rectangle, Round };
+enum class Outcome { Freehand, Line, Triangle, Rectangle, Round, Arrow };
 const char* name(Outcome o) {
     switch (o) {
         case Outcome::Freehand: return "freehand";
@@ -59,6 +60,7 @@ const char* name(Outcome o) {
         case Outcome::Triangle: return "triangle";
         case Outcome::Rectangle: return "rectangle";
         case Outcome::Round: return "round";
+        case Outcome::Arrow: return "arrow";
     }
     return "?";
 }
@@ -148,7 +150,7 @@ std::vector<Pt> perturb(std::vector<Pt> pts, double size, const Quality& q, doub
     return pts;
 }
 
-enum class Kind { Line, Rectangle, Square, Triangle, Circle, Ellipse };
+enum class Kind { Line, Rectangle, Square, Triangle, Circle, Ellipse, Arrow };
 struct Sample {
     std::string label;      // ground truth group
     Outcome expected;       // what the teacher would want
@@ -165,6 +167,15 @@ std::vector<Pt> ideal(Kind k, double S, Rng& rng, bool& closed) {
         case Kind::Line:
             closed = false;
             return {{cx - S / 2, cy}, {cx + S / 2, cy}};
+        case Kind::Arrow: {
+            // shaft to the tip, out along one wing and back, then out along the other (how a pen draws it)
+            closed = false;
+            const double wing = S * rng.range(0.22, 0.34), a = rng.range(25, 45) * M_PI / 180;
+            const double tx = cx + S / 2, ty = cy;
+            const Pt w1{tx - wing * std::cos(a), ty + wing * std::sin(a)};
+            const Pt w2{tx - wing * std::cos(a), ty - wing * std::sin(a)};
+            return {{cx - S / 2, cy}, {tx, ty}, w1, {tx, ty}, w2};
+        }
         case Kind::Square:
             return {{cx - S / 2, cy - S / 2}, {cx + S / 2, cy - S / 2}, {cx + S / 2, cy + S / 2}, {cx - S / 2, cy + S / 2}};
         case Kind::Rectangle: {
@@ -189,7 +200,9 @@ std::vector<Pt> ideal(Kind k, double S, Rng& rng, bool& closed) {
     return {};
 }
 
-std::vector<Sample> positives() {
+/// variant 0: the standard set. variant 1: polygons, lines and arrows rotated by any angle. variant 2: loops left open
+/// by a 10-16 % gap (circles and boxes whose ends do not meet).
+std::vector<Sample> positives(int variant = 0) {
     std::vector<Sample> all;
     const struct {
         Kind kind;
@@ -200,8 +213,9 @@ std::vector<Sample> positives() {
                  {Kind::Square, "square", Outcome::Rectangle},
                  {Kind::Triangle, "triangle", Outcome::Triangle},
                  {Kind::Circle, "circle", Outcome::Round},
-                 {Kind::Ellipse, "ellipse", Outcome::Round}};
-    uint64_t seed = 1;
+                 {Kind::Ellipse, "ellipse", Outcome::Round},
+                 {Kind::Arrow, "arrow", Outcome::Arrow}};
+    uint64_t seed = 1 + 100000ULL * static_cast<uint64_t>(variant);
     for (const auto& k : kinds) {
         for (double size : SIZES) {
             for (const auto& q : QUALITIES) {
@@ -229,11 +243,16 @@ std::vector<Sample> positives() {
                     }
                     if (!smooth) v = roundCorners(v, q.rounding, closed);
                     const double spacingMin = size < 50 ? 1.0 : 1.5, spacingMax = size < 50 ? 2.5 : 4.5;
-                    const double ov = closed ? 1.0 + rng.range(-q.closure, q.closure) : 1.0;
+                    double ov = closed ? 1.0 + rng.range(-q.closure, q.closure) : 1.0;
+                    if (variant == 2) {
+                        if (!closed) continue;  // only loops have ends that should meet
+                        ov = 1.0 - rng.range(0.05, 0.12);
+                    }
                     // a hand starts anywhere on a loop, but usually at a corner or the top
                     auto dense = densify(v, ov, closed, spacingMin, spacingMax, rng, startOffset);
                     // tilt: mostly upright, sometimes a few degrees; lines are drawn at any angle
-                    const double tilt = (k.kind == Kind::Line ? rng.range(0, M_PI) : rng.range(-0.12, 0.12));
+                    double tilt = (k.kind == Kind::Line ? rng.range(0, M_PI) : rng.range(-0.12, 0.12));
+                    if (variant == 1 && !smooth) tilt = rng.range(0, 2 * M_PI);
                     Sample s;
                     s.label = k.label;
                     s.expected = k.expected;
@@ -265,7 +284,11 @@ std::vector<std::pair<std::string, std::vector<Pt>>> negativeShapes(Rng& rng) {
     out.push_back({"W", {{0, 0}, {0.25, 1}, {0.5, 0.2}, {0.75, 1}, {1, 0}}});
     out.push_back({"wave", sine(2, 60)});
     out.push_back({"S", sine(1, 40)});
-    out.push_back({"arrow", {{0, 0.5}, {1, 0.5}, {0.8, 0.72}, {1, 0.5}, {0.8, 0.28}}});
+    // An arrow is now a positive (Kind::Arrow). These look like one but are not: they must stay handwriting.
+    out.push_back({"M", {{0, 1}, {0.25, 0}, {0.5, 0.7}, {0.75, 0}, {1, 1}}});
+    out.push_back({"arc", {{0, 0.6}, {0.25, 0.43}, {0.5, 0.4}, {0.75, 0.43}, {1, 0.6}}});  // shallow bow, not a line
+    out.push_back({"hookedLine", {{0, 0.5}, {0.85, 0.5}, {1, 0.2}}});                      // a line with a flick
+    out.push_back({"halfArrow", {{0, 0.5}, {1, 0.5}, {0.8, 0.72}}});                       // one wing only
     {
         std::vector<Pt> spiral;
         for (int i = 0; i <= 90; ++i) {
@@ -342,7 +365,12 @@ Outcome classify(Stroke* original, Stroke* result) {
     const size_t n = result->getPointCount();
     if (n == 2) return Outcome::Line;
     if (n == 4) return Outcome::Triangle;
-    if (n == 5) return Outcome::Rectangle;
+    if (n == 5) {
+        // An arrow repeats its tip (tail, tip, wing, tip, wing); a rectangle repeats its first corner at the end.
+        const Point& a = result->getPoint(1);
+        const Point& b = result->getPoint(3);
+        return (a.x == b.x && a.y == b.y) ? Outcome::Arrow : Outcome::Rectangle;
+    }
     return Outcome::Round;
 }
 
@@ -422,7 +450,7 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
         EXPECT_EQ(t.wrong, 0U) << label << " was turned into a different shape";
         EXPECT_EQ(t.distorted, 0U) << label << " was replaced by a shape that drifts from the ink";
     }
-    for (const char* doodle : {"L", "N", "S", "V", "W", "Z", "arrow", "checkmark", "figureEight", "letterC", "scribble",
+    for (const char* doodle : {"L", "M", "N", "S", "V", "W", "Z", "arc", "halfArrow", "hookedLine", "checkmark", "figureEight", "letterC", "scribble",
                                "spiral", "star", "wave"}) {
         EXPECT_EQ(byLabel[doodle].correct, byLabel[doodle].total) << doodle << " handwriting was modified";
     }
@@ -433,10 +461,11 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
         return static_cast<double>(byLabel[label].correct) / static_cast<double>(byLabel[label].total);
     };
     EXPECT_GE(recall("circle"), 0.98);
-    EXPECT_GE(recall("line"), 0.62);
-    EXPECT_GE(recall("rectangle"), 0.60);
-    EXPECT_GE(recall("square"), 0.75);
-    EXPECT_GE(recall("triangle"), 0.70);
+    EXPECT_GE(recall("line"), 0.80);
+    EXPECT_GE(recall("arrow"), 0.70);
+    EXPECT_GE(recall("rectangle"), 0.74);
+    EXPECT_GE(recall("square"), 0.80);
+    EXPECT_GE(recall("triangle"), 0.73);
     // Ellipses are recognised as ovals now (the smooth-loop fit); the few left alone are the sloppiest.
     EXPECT_GE(recall("ellipse"), 0.95);
 
@@ -444,8 +473,9 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
     // misses measured on 2026-11-05; they must not grow. Circles and ellipses miss none.
     EXPECT_EQ(byLabel["circle"].missedClean, 0U);
     EXPECT_EQ(byLabel["ellipse"].missedClean, 0U);
-    EXPECT_LE(byLabel["line"].missedClean, 7U);
-    EXPECT_LE(byLabel["rectangle"].missedClean, 7U);
+    EXPECT_LE(byLabel["line"].missedClean, 3U);
+    EXPECT_LE(byLabel["arrow"].missedClean, 8U);
+    EXPECT_LE(byLabel["rectangle"].missedClean, 4U);
     EXPECT_LE(byLabel["square"].missedClean, 4U);
     EXPECT_LE(byLabel["triangle"].missedClean, 7U);
 
@@ -456,4 +486,134 @@ TEST(ShapeCorpus, measurePositivesAndHandwriting) {
             EXPECT_GE(d.second * 5, d.first * 4) << label << " neat corner start at size " << size;
         }
     }
+}
+
+// Rotated shapes (any angle) and loops left open by a gap. Same zero-tolerance for wrong shapes and drift as above.
+TEST(ShapeCorpus, rotatedAndGappedShapes) {
+    struct Tally {
+        size_t total = 0, correct = 0, wrong = 0, distorted = 0;
+    };
+    std::map<std::string, Tally> byLabel;
+    for (int variant : {1, 2}) {
+        for (auto& s : positives(variant)) {
+            ShapeRecognizer reco;
+            auto result = reco.recognizePatterns(s.stroke.get());
+            const Outcome got = classify(s.stroke.get(), result.get());
+            auto& t = byLabel[std::string(variant == 1 ? "rotated " : "gapped ") + s.label];
+            ++t.total;
+            if (got == s.expected) {
+                ++t.correct;
+                if (result && meanDeviation(*s.stroke, *result, s.size) > 0.10) ++t.distorted;
+            } else if (got != Outcome::Freehand) {
+                ++t.wrong;
+                std::cout << "WRONG " << s.label << "/" << s.quality << "/" << static_cast<int>(s.size) << " -> "
+                          << name(got) << "\n";
+            }
+        }
+    }
+    for (const auto& [label, t] : byLabel) {
+        std::cout << std::left << std::setw(20) << label << t.correct << "/" << t.total << "\n";
+        EXPECT_EQ(t.wrong, 0U) << label << " was turned into a different shape";
+        EXPECT_EQ(t.distorted, 0U) << label << " drifted from the ink";
+    }
+    auto recall = [&](const char* label) {
+        return static_cast<double>(byLabel[label].correct) / static_cast<double>(byLabel[label].total);
+    };
+    EXPECT_GE(recall("rotated rectangle"), 0.70);
+    EXPECT_GE(recall("rotated square"), 0.78);
+    EXPECT_GE(recall("rotated triangle"), 0.70);
+    EXPECT_GE(recall("rotated arrow"), 0.65);
+    EXPECT_GE(recall("gapped circle"), 0.95);
+    EXPECT_GE(recall("gapped square"), 0.80);
+    EXPECT_GE(recall("gapped rectangle"), 0.70);
+    EXPECT_GE(recall("gapped triangle"), 0.75);
+    EXPECT_GE(recall("gapped ellipse"), 0.85);
+    EXPECT_GE(recall("rotated line"), 0.80);
+}
+
+// Fixed decisions: a clear one-stroke pen arrow is recognised; a plain line and ordinary handwriting never become one.
+namespace {
+std::unique_ptr<Stroke> polyline(const std::vector<Pt>& corners, double step) {
+    auto s = std::make_unique<Stroke>();
+    for (size_t i = 1; i < corners.size(); ++i) {
+        const double len = std::hypot(corners[i].first - corners[i - 1].first, corners[i].second - corners[i - 1].second);
+        const int pieces = std::max(1, static_cast<int>(len / step));
+        for (int k = (i == 1 ? 0 : 1); k <= pieces; ++k) {
+            const double t = static_cast<double>(k) / pieces;
+            s->addPoint(Point(corners[i - 1].first + (corners[i].first - corners[i - 1].first) * t,
+                              corners[i - 1].second + (corners[i].second - corners[i - 1].second) * t));
+        }
+    }
+    return s;
+}
+Outcome recognise(Stroke* s) {
+    ShapeRecognizer reco;
+    auto result = reco.recognizePatterns(s);
+    return classify(s, result.get());
+}
+}  // namespace
+
+TEST(ShapeArrow, cleanArrowsAtSeveralAnglesBecomeArrows) {
+    for (double deg : {0.0, 30.0, 90.0, 135.0, 200.0, 315.0}) {
+        const double a = deg * M_PI / 180, c = std::cos(a), s = std::sin(a);
+        auto rot = [&](double x, double y) { return Pt{100 + c * x - s * y, 100 + s * x + c * y}; };
+        auto stroke = polyline({rot(-60, 0), rot(60, 0), rot(36, 22), rot(60, 0), rot(36, -22)}, 2.0);
+        EXPECT_EQ(recognise(stroke.get()), Outcome::Arrow) << "angle " << deg;
+    }
+}
+
+TEST(ShapeArrow, plainLineAndOneWingedHookStayLines) {
+    auto line = polyline({{40, 100}, {160, 100}}, 2.0);
+    EXPECT_EQ(recognise(line.get()), Outcome::Line);  // a straight line must never become an arrow
+    auto hook = polyline({{40, 100}, {160, 100}, {140, 122}}, 2.0);
+    EXPECT_NE(recognise(hook.get()), Outcome::Arrow);
+}
+
+TEST(ShapeArrow, handwritingShapedLikeArrowsStaysInk) {
+    auto m = polyline({{40, 140}, {70, 60}, {100, 120}, {130, 60}, {160, 140}}, 2.0);
+    EXPECT_EQ(recognise(m.get()), Outcome::Freehand);
+    auto w = polyline({{40, 60}, {70, 140}, {100, 70}, {130, 140}, {160, 60}}, 2.0);
+    EXPECT_EQ(recognise(w.get()), Outcome::Freehand);
+    // wings that do not fold back (a fish / tick-and-cross scribble)
+    auto wide = polyline({{40, 100}, {160, 100}, {170, 60}, {160, 100}, {170, 140}}, 2.0);
+    EXPECT_NE(recognise(wide.get()), Outcome::Arrow);
+}
+
+TEST(ShapeLooseLine, shortJitteryLinesAtAnyAngleAreStraightened) {
+    Rng rng(77);
+    for (double deg : {0.0, 20.0, 45.0, 70.0, 90.0, 120.0, 160.0}) {
+        const double a = deg * M_PI / 180;
+        std::vector<Pt> pts;
+        for (int i = 0; i <= 20; ++i) {
+            const double t = 30.0 * i / 20;
+            pts.push_back({100 + t * std::cos(a) + 0.4 * rng.gauss(), 100 + t * std::sin(a) + 0.4 * rng.gauss()});
+        }
+        auto stroke = makeStroke(pts);
+        EXPECT_EQ(recognise(stroke.get()), Outcome::Line) << "angle " << deg;
+    }
+}
+
+TEST(ShapeLooseLine, bowedStrokeIsNotStraightened) {
+    std::vector<Pt> pts;
+    for (int i = 0; i <= 20; ++i) {
+        const double t = i / 20.0;
+        pts.push_back({100 + 60 * t, 100 - 16 * 4 * t * (1 - t)});  // bow of 16 on a 60 chord
+    }
+    auto stroke = makeStroke(pts);
+    EXPECT_EQ(recognise(stroke.get()), Outcome::Freehand);
+}
+
+TEST(ShapeRecognizerSpeed, recognisingDoesNotDelayPenUp) {
+    // 400 dense strokes of mixed shapes must be recognised well inside a frame each (generous bound for slow CI).
+    const auto start = std::chrono::steady_clock::now();
+    size_t count = 0;
+    for (int variant : {0, 1, 2}) {
+        for (auto& s : positives(variant)) {
+            ShapeRecognizer reco;
+            (void)reco.recognizePatterns(s.stroke.get());
+            ++count;
+        }
+    }
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    EXPECT_LT(ms / static_cast<double>(count), 4.0) << count << " strokes took " << ms << " ms";
 }

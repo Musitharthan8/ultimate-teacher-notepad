@@ -345,6 +345,10 @@ constexpr double MAX_RECOGNIZER_COORDINATE = 1.0e7;
 // A box or triangle found after restarting at a corner must stay this close to what was drawn, else leave the ink
 constexpr double RESTART_MAX_DEVIATION = 0.06;
 
+// Page units of pen tremor forgiven when fitting corners, so that small boxes and triangles are not judged as if the
+// hand were perfectly steady. It is negligible on a large shape (1 unit on a 400 unit diagonal).
+constexpr double POLYGON_TREMOR_ALLOWANCE = 1.0;
+
 /**
  * A hand often puts the pen down in the middle of an edge, so a closed box becomes five or more segments and misses the
  * polygon test. Return the same stroke restarted at its sharpest corner, or nullptr if the stroke is not a closed loop.
@@ -474,7 +478,8 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
         return nullptr;
     }
     std::vector<size_t> indices{0};
-    if (!simplifyContour(points, 0, n, 0.05 * diagonal, indices, 4)) {
+    // Pen tremor is a fixed number of page units, so small shapes get an absolute allowance on top of the relative one
+    if (!simplifyContour(points, 0, n, 0.05 * diagonal + POLYGON_TREMOR_ALLOWANCE, indices, 4)) {
         return nullptr;  // more than four sides: neither a triangle nor a box
     }
     const size_t cornersCount = indices.size() - 1;
@@ -524,7 +529,7 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
         sumSquaredError += nearest * nearest;
     }
     const double relativeRms = std::sqrt(sumSquaredError / ink.size()) / diagonal;
-    if (relativeRms > 0.035) {
+    if (relativeRms > 0.035 + 0.5 * POLYGON_TREMOR_ALLOWANCE / diagonal) {
         return nullptr;
     }
     auto fitted = std::make_unique<Stroke>();
@@ -534,6 +539,176 @@ auto fitClosedPolygon(Stroke* original) -> std::unique_ptr<Stroke> {
     }
     fitted->addPoint(corners.front());
     return fitted;
+}
+
+/**
+ * A natural pen arrow: one stroke that draws the shaft to the tip, goes out along one wing and back to the tip, then
+ * out along the other wing. The corners of that path are tail, tip, wing, tip, wing. Only a clear arrowhead is accepted:
+ * both wings must leave the tip backwards, on opposite sides of the shaft, at a sensible angle and length, and the pen
+ * must return to the tip between them. A plain line, a letter (W, M, N, V, checkmark ...) or a scribble never matches.
+ * The result is the clean arrow: tail, tip, wing, tip, wing (the tip is repeated, so a stroke of 5 points with
+ * point 1 == point 3 is an arrow).
+ */
+auto fitArrow(Stroke* original) -> std::unique_ptr<Stroke> {
+    const auto& points = original->getPointVector();
+    if (points.size() < 10 || points.size() > 4096) {
+        return nullptr;
+    }
+    const auto bounds = original->getSnappedBounds();
+    const double diagonal = std::hypot(bounds.width, bounds.height);
+    if (diagonal < 24.0 || !std::isfinite(diagonal)) {
+        return nullptr;
+    }
+    std::vector<size_t> indices{0};
+    if (!simplifyContour(points, 0, points.size() - 1, 0.045 * diagonal + POLYGON_TREMOR_ALLOWANCE, indices, 4) ||
+        indices.size() != 5) {
+        return nullptr;
+    }
+    const Point& tail = points[indices[0]];
+    const Point& tipA = points[indices[1]];
+    const Point& wingA = points[indices[2]];
+    const Point& tipB = points[indices[3]];
+    const Point& wingB = points[indices[4]];
+
+    const double shaftX = tipA.x - tail.x, shaftY = tipA.y - tail.y;
+    const double shaft = std::hypot(shaftX, shaftY);
+    if (shaft < 20.0) {
+        return nullptr;
+    }
+    const double ux = shaftX / shaft, uy = shaftY / shaft;
+
+    const double ax = wingA.x - tipA.x, ay = wingA.y - tipA.y;
+    const double bx = wingB.x - tipB.x, by = wingB.y - tipB.y;
+    const double la = std::hypot(ax, ay), lb = std::hypot(bx, by);
+    if (la < 6.0 || lb < 6.0) {
+        return nullptr;
+    }
+    const double wing = 0.5 * (la + lb);
+    if (wing < 0.12 * shaft || wing > 0.55 * shaft || la > 2.0 * lb || lb > 2.0 * la) {
+        return nullptr;  // the head is a small part of the arrow and both wings are alike
+    }
+    // The pen has to come back to the tip between the wings
+    if (std::hypot(tipB.x - tipA.x, tipB.y - tipA.y) > 0.35 * wing) {
+        return nullptr;
+    }
+    // Each wing leaves the tip backwards, 18 to 70 degrees off the shaft, on opposite sides of it
+    const double crossA = ux * ay - uy * ax, crossB = ux * by - uy * bx;
+    const double cosA = -(ux * ax + uy * ay) / la, cosB = -(ux * bx + uy * by) / lb;
+    const double minCos = std::cos(70.0 * M_PI / 180), maxCos = std::cos(18.0 * M_PI / 180);
+    if (cosA < minCos || cosA > maxCos || cosB < minCos || cosB > maxCos || crossA * crossB >= 0) {
+        return nullptr;
+    }
+
+    // Rebuild a clean, symmetric head. A shaft within the slant tolerance of an axis is made horizontal or vertical.
+    double dirX = ux, dirY = uy;
+    if (std::abs(uy) < std::sin(SLANT_TOLERANCE)) {
+        dirX = ux > 0 ? 1.0 : -1.0;
+        dirY = 0.0;
+    } else if (std::abs(ux) < std::sin(SLANT_TOLERANCE)) {
+        dirX = 0.0;
+        dirY = uy > 0 ? 1.0 : -1.0;
+    }
+    const Point tip(tail.x + dirX * shaft, tail.y + dirY * shaft);
+    const double halfAngle = std::acos(std::clamp(0.5 * (cosA + cosB), -1.0, 1.0));
+    const double c = std::cos(halfAngle), s = std::sin(halfAngle);
+    const double backX = -dirX, backY = -dirY;
+    auto arrow = std::make_unique<Stroke>();
+    arrow->applyStyleFrom(original);
+    arrow->addPoint(Point(tail.x, tail.y));
+    arrow->addPoint(tip);
+    arrow->addPoint(Point(tip.x + wing * (backX * c - backY * s), tip.y + wing * (backX * s + backY * c)));
+    arrow->addPoint(tip);
+    arrow->addPoint(Point(tip.x + wing * (backX * c + backY * s), tip.y + wing * (-backX * s + backY * c)));
+    return arrow;
+}
+
+/**
+ * A straight line drawn quickly or small: the legacy line fit demands a very low inertia determinant, which hand
+ * jitter exceeds on short strokes. This is a scale-invariant total-least-squares fit instead. It accepts only a stroke
+ * that is long enough, thin along its axis, nearly straight (no bow) and drawn once (no retracing, no scribble).
+ */
+auto fitLooseLine(Stroke* original) -> std::unique_ptr<Stroke> {
+    const auto& pts = original->getPointVector();
+    const size_t n = pts.size();
+    if (n < 4 || n > 100000) {
+        return nullptr;
+    }
+    double mx = 0, my = 0;
+    for (const Point& p: pts) {
+        mx += p.x;
+        my += p.y;
+    }
+    mx /= static_cast<double>(n);
+    my /= static_cast<double>(n);
+    double sxx = 0, sxy = 0, syy = 0, pathLength = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const double dx = pts[i].x - mx, dy = pts[i].y - my;
+        sxx += dx * dx;
+        sxy += dx * dy;
+        syy += dy * dy;
+        if (i > 0) {
+            pathLength += std::hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        }
+    }
+    const double theta = 0.5 * std::atan2(2 * sxy, sxx - syy);
+    const double ux = std::cos(theta), uy = std::sin(theta);
+
+    double tMin = 1e18, tMax = -1e18;
+    for (const Point& p: pts) {
+        const double t = (p.x - mx) * ux + (p.y - my) * uy;
+        tMin = std::min(tMin, t);
+        tMax = std::max(tMax, t);
+    }
+    const double length = tMax - tMin;
+    if (!(length >= 12.0) || pathLength > 1.2 * length) {
+        return nullptr;
+    }
+    double sumSquares = 0, worst = 0;
+    double midSum = 0, startSum = 0, endSum = 0;
+    size_t midCount = 0, startCount = 0, endCount = 0;
+    for (const Point& p: pts) {
+        const double t = (p.x - mx) * ux + (p.y - my) * uy;
+        const double d = -(p.x - mx) * uy + (p.y - my) * ux;
+        sumSquares += d * d;
+        worst = std::max(worst, std::abs(d));
+        const double along = (t - tMin) / length;
+        if (along < 0.15) {
+            startSum += d;
+            ++startCount;
+        } else if (along > 0.85) {
+            endSum += d;
+            ++endCount;
+        } else if (along > 0.4 && along < 0.6) {
+            midSum += d;
+            ++midCount;
+        }
+    }
+    if (std::sqrt(sumSquares / static_cast<double>(n)) > 0.045 * length || worst > 0.10 * length) {
+        return nullptr;
+    }
+    if (midCount && startCount && endCount) {
+        const double mid = midSum / static_cast<double>(midCount);
+        const double ends = 0.5 * (startSum / static_cast<double>(startCount) + endSum / static_cast<double>(endCount));
+        if (std::abs(mid - ends) / 0.72 > 0.05 * length) {
+            return nullptr;  // a visible bow is a curve, not a line
+        }
+    }
+
+    // Travel direction: the pen went from the first to the last point
+    const double firstT = (pts.front().x - mx) * ux + (pts.front().y - my) * uy;
+    const double lastT = (pts.back().x - mx) * ux + (pts.back().y - my) * uy;
+    const double from = firstT <= lastT ? tMin : tMax, to = firstT <= lastT ? tMax : tMin;
+    Point a(mx + ux * from, my + uy * from), b(mx + ux * to, my + uy * to);
+    if (std::abs(uy) < std::sin(SLANT_TOLERANCE)) {
+        a.y = b.y = my;
+    } else if (std::abs(ux) < std::sin(SLANT_TOLERANCE)) {
+        a.x = b.x = mx;
+    }
+    auto line = std::make_unique<Stroke>();
+    line->applyStyleFrom(original);
+    line->addPoint(a);
+    line->addPoint(b);
+    return line;
 }
 }  // namespace
 
@@ -578,6 +753,15 @@ auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stro
     constexpr double MIN_SHAPE_DIAGONAL = 8.0;
     if (!isStrokeLargeEnough(stroke, MIN_SHAPE_DIAGONAL)) {
         return nullptr;
+    }
+
+    // A clear one-stroke arrow (shaft, then both wings of the head) is checked first: it would otherwise be read as a
+    // four-sided polyline. Anything less clear returns nullptr here and goes on as before.
+    if (!restartedAtCorner) {
+        if (auto arrow = fitArrow(stroke)) {
+            RDEBUG("return arrow");
+            return arrow;
+        }
     }
 
     Inertia ss[4];
@@ -720,6 +904,14 @@ auto ShapeRecognizer::recognizeUnchecked(Stroke* stroke) -> std::unique_ptr<Stro
     if (auto smooth = CircleRecognizer::recognizeSmoothLoop(stroke)) {
         RDEBUG("return least-squares circle or ellipse");
         return smooth;
+    }
+
+    // Last resort: a short or jittery straight line the strict legacy line test turned down
+    if (!restartedAtCorner) {
+        if (auto line = fitLooseLine(stroke)) {
+            RDEBUG("return loose line");
+            return line;
+        }
     }
 
     return nullptr;
