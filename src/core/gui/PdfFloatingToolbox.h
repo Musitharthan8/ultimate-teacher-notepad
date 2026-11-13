@@ -80,6 +80,7 @@ private:
     static void underlineCb(GtkButton* button, PdfFloatingToolbox* pft);
     static void copyTextCb(GtkButton* button, PdfFloatingToolbox* pft);
     static void highlightCb(GtkButton* button, PdfFloatingToolbox* pft);
+    static void swatchCb(GtkButton* button, PdfFloatingToolbox* pft);
 
     void createStrokes(PdfMarkerStyle position, PdfMarkerStyle width, int markerOpacity);
 

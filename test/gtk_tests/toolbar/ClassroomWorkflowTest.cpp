@@ -2930,6 +2930,33 @@ TEST_F(ClassroomWorkflow, textSelectHighlightLeavesFreehandHighlightingAloneOnPa
     EXPECT_FALSE(window->getPdfToolbox()->hasSelection());
 }
 
+TEST_F(ClassroomWorkflow, theSelectedPdfTextToolboxOffersEveryHighlightColourAndDoesNothingWithoutASelection) {
+    GtkWidget* grid = gtk_widget_get_parent(window->get("pdfTbHighlight"));
+    ASSERT_TRUE(GTK_IS_GRID(grid));
+    std::vector<GtkWidget*> swatches;
+    GList* children = gtk_container_get_children(GTK_CONTAINER(grid));
+    for (GList* child = children; child; child = child->next) {
+        if (g_strcmp0(gtk_widget_get_name(GTK_WIDGET(child->data)), "pdfFloatingToolSwatches") == 0) {
+            GList* inner = gtk_container_get_children(GTK_CONTAINER(child->data));
+            for (GList* s = inner; s; s = s->next) {
+                swatches.push_back(GTK_WIDGET(s->data));
+            }
+            g_list_free(inner);
+        }
+    }
+    g_list_free(children);
+    ASSERT_EQ(swatches.size(), utn::HIGHLIGHT_SWATCHES.size()) << "one swatch per highlight colour";
+    for (GtkWidget* swatch: swatches) {
+        EXPECT_NE(g_object_get_data(G_OBJECT(swatch), "utn-colour"), nullptr);
+    }
+
+    auto page = control->getCurrentPage();
+    const auto before = page->getSelectedLayer()->getElements().size();
+    gtk_button_clicked(GTK_BUTTON(swatches.front()));
+    settle();
+    EXPECT_EQ(page->getSelectedLayer()->getElements().size(), before) << "no selected text, so nothing is added";
+}
+
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
     auto* settings = control->getSettings();
     auto* tools = control->getToolHandler();

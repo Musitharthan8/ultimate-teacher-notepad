@@ -17,6 +17,7 @@
 #include "control/tools/PdfElemSelection.h"
 #include "gui/PageView.h"           // for XojPageView
 #include "gui/XournalView.h"        // for XournalView
+#include "gui/toolbarMenubar/UtnWidgets.h"  // for HIGHLIGHT_SWATCHES, createColourSwatch
 #include "model/Document.h"         // for Document
 #include "model/Layer.h"            // for Layer
 #include "model/PageRef.h"          // for PageRef
@@ -29,6 +30,7 @@
 #include "undo/UndoRedoHandler.h"   // for UndoRedoHandler
 #include "util/Assert.h"            // for xoj_assert
 #include "util/gtk4_helper.h"       // for gtk_widget_get_clipboard
+#include "util/i18n.h"               // for _
 
 #include "MainWindow.h"  // for MainWindow
 
@@ -46,6 +48,23 @@ PdfFloatingToolbox::PdfFloatingToolbox(MainWindow* theMainWindow, GtkOverlay* ov
     g_signal_connect(theMainWindow->get("pdfTbUnderline"), "clicked", G_CALLBACK(this->underlineCb), this);
     g_signal_connect(theMainWindow->get("pdfTbStrikethrough"), "clicked", G_CALLBACK(this->strikethroughCb), this);
     g_signal_connect(theMainWindow->get("pdfTbChangeType"), "clicked", G_CALLBACK(this->switchSelectTypeCb), this);
+
+    // One tap on a colour highlights the selected text in it, so the colour is chosen where the text is
+    GtkWidget* swatches = gtk_grid_new();
+    gtk_widget_set_name(swatches, "pdfFloatingToolSwatches");
+    gtk_grid_set_column_spacing(GTK_GRID(swatches), 2);
+    gtk_grid_set_row_spacing(GTK_GRID(swatches), 2);
+    int swatchIndex = 0;
+    for (const auto& swatch: utn::HIGHLIGHT_SWATCHES) {
+        GtkWidget* button = utn::createColourSwatch(swatch.colour, _(swatch.name));
+        gtk_widget_set_focus_on_click(button, false);
+        g_object_set_data(G_OBJECT(button), "utn-colour", GUINT_TO_POINTER(uint32_t(swatch.colour)));
+        g_signal_connect(button, "clicked", G_CALLBACK(this->swatchCb), this);
+        gtk_grid_attach(GTK_GRID(swatches), button, swatchIndex % 4, swatchIndex / 4, 1, 1);
+        ++swatchIndex;
+    }
+    GtkWidget* toolGrid = gtk_widget_get_parent(theMainWindow->get("pdfTbHighlight"));
+    gtk_grid_attach(GTK_GRID(toolGrid), swatches, 0, 3, 3, 1);
 
     this->clearSelection();
     this->hide();
@@ -121,6 +140,14 @@ void PdfFloatingToolbox::highlightCb(GtkButton* button, PdfFloatingToolbox* pft)
     int markerOpacity = pft->theMainWindow->getControl()->getToolHandler()->getSelectPDFTextMarkerOpacity();
     pft->createStrokes(PdfMarkerStyle::POS_TEXT_MIDDLE, PdfMarkerStyle::WIDTH_TEXT_HEIGHT, markerOpacity);
     pft->userCancelSelection();
+}
+
+void PdfFloatingToolbox::swatchCb(GtkButton* button, PdfFloatingToolbox* pft) {
+    const Color picked(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "utn-colour")));
+    // The swatch gives the hue; the opacity is the PDF marker opacity the highlight button already uses
+    const uint32_t opacity =
+            static_cast<uint32_t>(pft->theMainWindow->getControl()->getToolHandler()->getSelectPDFTextMarkerOpacity());
+    pft->highlightSelection(Color((uint32_t(picked) & 0x00FFFFFFU) | (opacity << 24)));
 }
 
 bool PdfFloatingToolbox::highlightSelection(Color colour) {
