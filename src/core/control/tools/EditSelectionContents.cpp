@@ -290,7 +290,12 @@ auto EditSelectionContents::setColor(Color color) -> UndoActionPtr {
     for (Element* e: this->selected) {
         if (e->getType() == ELEMENT_TEXT || e->getType() == ELEMENT_STROKE) {
             auto lastColor = e->getColor();
-            e->setColor(color);
+            Color applied = color;
+            // A highlight keeps its own see-through opacity when it is recoloured from another tool's colour
+            if (auto* stroke = dynamic_cast<Stroke*>(e); stroke && stroke->getToolType() == StrokeTool::HIGHLIGHTER) {
+                applied.alpha = lastColor.alpha;
+            }
+            e->setColor(applied);
             undo->addStroke(e, lastColor, e->getColor());
 
             found = true;

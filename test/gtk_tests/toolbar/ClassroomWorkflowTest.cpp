@@ -2957,6 +2957,67 @@ TEST_F(ClassroomWorkflow, theSelectedPdfTextToolboxOffersEveryHighlightColourAnd
     EXPECT_EQ(page->getSelectedLayer()->getElements().size(), before) << "no selected text, so nothing is added";
 }
 
+// A highlight drawn on what the class can see reaches the Student View as it is drawn; the same highlight drawn on a
+// teacher-only layer never does.
+TEST_F(ClassroomWorkflow, aHighlightReachesTheStudentViewOnlyWhenItIsOnAStudentVisibleLayer) {
+    window->show(nullptr);
+    settle();
+    auto page = control->getCurrentPage();
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open on the projector")));
+    settle();
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+    control->selectHighlighter(false);
+    control->selectTool(TOOL_HIGHLIGHTER);
+    settle();
+
+    auto highlightAt = [&](double y) {
+        PositionInputData pos{};
+        pos.pressure = 0.7;
+        pos.x = 80 * view->getZoom();
+        pos.y = y * view->getZoom();
+        ASSERT_TRUE(view->onButtonPressEvent(pos));
+        for (int i = 0; i < 12; ++i) {
+            pos.x += 6 * view->getZoom();
+            pos.timestamp += 8;
+            view->onMotionNotifyEvent(pos);
+        }
+        view->onButtonReleaseEvent(pos);
+        settle();
+    };
+
+    EXPECT_FALSE(studentRegionHasInk(student, 70, 280, 200, 320));
+    Layer* visible = page->getSelectedLayer();
+    ASSERT_EQ(visible->getAudience(), LayerAudience::Everyone);
+    const auto before = visible->getElements().size();
+    highlightAt(300);
+    ASSERT_EQ(visible->getElements().size(), before + 1) << "the highlight was drawn";
+    EXPECT_TRUE(studentRegionHasInk(student, 70, 280, 200, 320)) << "students see the highlight on a visible layer";
+
+    control->getLayerController()->addNewLayer(false);
+    Layer* notes = page->getSelectedLayer();
+    notes->setAudience(LayerAudience::TeacherOnly);
+    settle();
+    EXPECT_FALSE(studentRegionHasInk(student, 70, 480, 200, 520));
+    highlightAt(500);
+    ASSERT_EQ(notes->getElements().size(), 1U) << "the private highlight was drawn";
+    EXPECT_FALSE(studentRegionHasInk(student, 70, 480, 200, 520)) << "a teacher-only highlight never reaches students";
+    EXPECT_TRUE(studentRegionHasInk(student, 70, 280, 200, 320)) << "the visible one is still shown";
+
+    control->selectTool(TOOL_PEN);
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Close Student View")));
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
+}
+
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {
     auto* settings = control->getSettings();
     auto* tools = control->getToolHandler();
@@ -7348,6 +7409,83 @@ TEST_F(ClassroomWorkflow, selectionToolbarDeleteIsTheRealDeleteWithUndoAndRedo) 
     settle();
     control->clearSelection();
     EXPECT_TRUE(layer->getElements().empty()) << "Redo deletes it again";
+}
+
+// An existing highlight is recoloured from the selection toolbar: the hue changes, the see-through opacity stays, and
+// Undo and Redo walk it back and forth. Delete removes only the selected highlight, never the text on the layer below.
+// (Placed here, not beside the other highlighter tests, because it uses the selection toolbar helpers above.)
+TEST_F(ClassroomWorkflow, anExistingHighlightCanBeRecolouredKeepingItsOpacityAndRemovedWithoutTouchingOtherContent) {
+    SelectionToolbarOn toolbarOn(window.get(), control->getSettings());  // Control loads the real settings, where it may be off
+    auto page = control->getCurrentPage();
+    Layer* below = page->getSelectedLayer();
+    auto text = std::make_unique<Text>();
+    text->setText("Underneath");
+    text->move(100, 100);
+    below->addElement(std::move(text));
+    control->getLayerController()->addNewLayer(false);
+    Layer* top = page->getSelectedLayer();
+    ASSERT_NE(top, below);
+    const Color yellow{0xFFU, 0xEBU, 0x3BU, 0x80U};
+    auto mark = std::make_unique<Stroke>();
+    mark->setToolType(StrokeTool::HIGHLIGHTER);
+    mark->setWidth(20);
+    mark->setColor(yellow);
+    mark->addPoint(Point(80, 200));
+    mark->addPoint(Point(160, 200));
+    top->addElement(std::move(mark));
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    control->getUndoRedoHandler()->clearContents();
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();  // the selected layer only: the highlight, not the text below
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+
+    GtkWidget* colour = selectionToolbarButton(window.get(), "Colour");
+    ASSERT_TRUE(GTK_IS_MENU_BUTTON(colour));
+    GtkWidget* popover = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(colour)));
+    GtkWidget* red = buttonAccessibleNamed(popover, "Red");
+    ASSERT_NE(red, nullptr);
+    gtk_button_clicked(GTK_BUTTON(red));
+    settle();
+    control->clearSelection();
+    settle();
+    ASSERT_EQ(top->getElements().size(), 1U);
+    const Color recoloured = top->getElements().front()->getColor();
+    EXPECT_NE(static_cast<uint32_t>(recoloured) & 0xFFFFFFU, static_cast<uint32_t>(yellow) & 0xFFFFFFU)
+            << "the hue changed";
+    EXPECT_EQ(recoloured.alpha, 0x80U) << "and the highlight stays see-through";
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    control->clearSelection();
+    EXPECT_EQ(static_cast<uint32_t>(top->getElements().front()->getColor()), static_cast<uint32_t>(yellow))
+            << "Undo restores colour and opacity";
+    control->getActionDatabase()->fireActivateAction(Action::REDO);
+    settle();
+    control->clearSelection();
+    EXPECT_EQ(static_cast<uint32_t>(top->getElements().front()->getColor()), static_cast<uint32_t>(recoloured))
+            << "Redo applies the new colour again";
+    EXPECT_EQ(top->getElements().front()->getColor().alpha, 0x80U);
+
+    // Remove only the highlight
+    control->selectTool(TOOL_SELECT_RECT);
+    control->selectAllOnPage();
+    settle();
+    ASSERT_TRUE(selectionToolbarShown(window.get()));
+    gtk_button_clicked(GTK_BUTTON(selectionToolbarButton(window.get(), "Delete")));
+    settle();
+    EXPECT_TRUE(top->getElements().empty()) << "the highlight is gone";
+    ASSERT_EQ(below->getElements().size(), 1U) << "the text below is untouched";
+    EXPECT_EQ(below->getElements().front()->getType(), ELEMENT_TEXT);
+
+    control->getActionDatabase()->fireActivateAction(Action::UNDO);
+    settle();
+    control->clearSelection();
+    ASSERT_EQ(top->getElements().size(), 1U) << "Undo brings the highlight back";
+    EXPECT_EQ(top->getElements().front()->getType(), ELEMENT_STROKE);
+    EXPECT_EQ(below->getElements().size(), 1U);
+    control->selectTool(TOOL_PEN);
 }
 
 // Duplicate copies into the layer the objects came from, here a teacher-only layer below the top one, never the
