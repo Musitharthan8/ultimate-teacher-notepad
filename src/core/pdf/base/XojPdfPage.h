@@ -35,6 +35,10 @@ enum class XojPdfPageSelectionStyle : uint8_t {
     Line,
     /// Select an area.
     Area,
+    /// UTN: select the whole sentence under the start position.
+    Sentence,
+    /// UTN: select the whole paragraph under the start position.
+    Paragraph,
 };
 
 class XojPdfRectangle {

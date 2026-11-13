@@ -9,6 +9,7 @@
 #include <poppler-page.h>  // for _PopplerRectangle, _PopplerLin...
 #include <poppler.h>       // for PopplerRectangle, g_object_ref
 
+#include "pdf/base/PdfTextUnits.h"     // for sentenceRange, paragraphRange
 #include "pdf/base/XojPdfAction.h"     // for XojPdfAction
 #include "pdf/base/XojPdfPage.h"       // for XojPdfRectangle, XojPdfPage::Link
 #include "util/Assert.h"               // for xoj_assert
@@ -119,6 +120,8 @@ auto getPopplerSelectionStyle(XojPdfPageSelectionStyle style) -> PopplerSelectio
             return POPPLER_SELECTION_LINE;
         case XojPdfPageSelectionStyle::Linear:
         case XojPdfPageSelectionStyle::Area:
+        case XojPdfPageSelectionStyle::Sentence:   // already turned into a glyph range by expandToTextUnit()
+        case XojPdfPageSelectionStyle::Paragraph:  // already turned into a glyph range by expandToTextUnit()
             return POPPLER_SELECTION_GLYPH;
         default:
             xoj_assert_message(false, "unimplemented");
@@ -126,7 +129,58 @@ auto getPopplerSelectionStyle(XojPdfPageSelectionStyle style) -> PopplerSelectio
     return POPPLER_SELECTION_GLYPH;
 }
 
-auto PopplerGlibPage::selectText(const XojPdfRectangle& rect, XojPdfPageSelectionStyle style) -> std::string {
+namespace {
+/**
+ * UTN: Sentence and Paragraph have no poppler selection style. Find the sentence/paragraph under the start point from
+ * the page's text layout and return the glyph selection (start/end points) covering it, with style set to Linear.
+ * Falls back to Word selection when the layout is unusable.
+ */
+XojPdfRectangle expandToTextUnit(PopplerPage* page, const XojPdfRectangle& rect, XojPdfPageSelectionStyle& style) {
+    if (style != XojPdfPageSelectionStyle::Sentence && style != XojPdfPageSelectionStyle::Paragraph) {
+        return rect;
+    }
+    const auto unit = style;
+    style = XojPdfPageSelectionStyle::Word;  // fallback
+
+    PopplerRectangle* layout = nullptr;
+    guint numRects = 0;
+    if (!poppler_page_get_text_layout(page, &layout, &numRects) || numRects == 0) {
+        return rect;
+    }
+    std::vector<xoj::pdf::textunits::Box> boxes;
+    boxes.reserve(numRects);
+    for (guint i = 0; i < numRects; i++) {
+        boxes.push_back({layout[i].x1, layout[i].y1, layout[i].x2, layout[i].y2});
+    }
+    g_free(layout);
+
+    char* utf8 = poppler_page_get_text(page);
+    if (!utf8) {
+        return rect;
+    }
+    glong len = 0;
+    gunichar* ucs4 = g_utf8_to_ucs4_fast(utf8, -1, &len);
+    g_free(utf8);
+    std::u32string text(reinterpret_cast<const char32_t*>(ucs4), static_cast<size_t>(len));
+    g_free(ucs4);
+    if (text.size() != boxes.size()) {
+        return rect;
+    }
+
+    const size_t idx = xoj::pdf::textunits::charIndexAt(boxes, rect.x1, rect.y1);
+    const auto range = unit == XojPdfPageSelectionStyle::Sentence ? xoj::pdf::textunits::sentenceRange(text, idx) :
+                                                                    xoj::pdf::textunits::paragraphRange(text, boxes, idx);
+    const auto& a = boxes[range.first];
+    const auto& b = boxes[range.second];
+    style = XojPdfPageSelectionStyle::Linear;
+    // points well inside the first and the last glyph
+    return XojPdfRectangle(a.x1 + 0.25 * (a.x2 - a.x1), (a.y1 + a.y2) / 2, b.x2 - 0.25 * (b.x2 - b.x1),
+                           (b.y1 + b.y2) / 2);
+}
+}  // namespace
+
+auto PopplerGlibPage::selectText(const XojPdfRectangle& rectIn, XojPdfPageSelectionStyle style) -> std::string {
+    const XojPdfRectangle rect = expandToTextUnit(page, rectIn, style);
     PopplerRectangle pRect = {rect.x1, rect.y1, rect.x2, rect.y2};
     const auto pStyle = getPopplerSelectionStyle(style);
     if (style == XojPdfPageSelectionStyle::Area) {
@@ -179,7 +233,9 @@ auto PopplerGlibPage::selectText(const XojPdfRectangle& rect, XojPdfPageSelectio
     }
 }
 
-auto PopplerGlibPage::selectTextRegion(const XojPdfRectangle& rect, XojPdfPageSelectionStyle style) -> cairo_region_t* {
+auto PopplerGlibPage::selectTextRegion(const XojPdfRectangle& rectIn, XojPdfPageSelectionStyle style)
+        -> cairo_region_t* {
+    const XojPdfRectangle rect = expandToTextUnit(page, rectIn, style);
     PopplerRectangle pRect = {rect.x1, rect.y1, rect.x2, rect.y2};
     const auto pStyle = getPopplerSelectionStyle(style);
     // The computed region is technically wrong for

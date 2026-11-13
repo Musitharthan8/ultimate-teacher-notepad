@@ -563,15 +563,19 @@ auto XojPageView::onButtonDoublePressEvent(const PositionInputData& pos) -> bool
         this->startText(x, y);
         this->textEditor->selectAtCursor(TextEditor::SelectType::WORD);
     } else if (this->isTextHighlightGesture(toolHandler)) {
-        // Double-click a word to highlight it
-        this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Word);
-        if (auto* selection = this->xournal->getControl()->getWindow()->getPdfToolbox()->getSelection()) {
-            selection->currentPos(x, y, XojPdfPageSelectionStyle::Word);
+        // Double-click a word to highlight it, Ctrl+double-click a sentence
+        const auto style = pos.isControlDown() ? XojPdfPageSelectionStyle::Sentence : XojPdfPageSelectionStyle::Word;
+        this->startTextHighlight(x, y, style);
+        auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+        if (auto* selection = pdfToolbox->getSelection()) {
+            pdfToolbox->selectionStyle = style;
+            selection->currentPos(x, y, style);
         }
     } else if (toolType == TOOL_SELECT_PDF_TEXT_LINEAR || toolType == TOOL_SELECT_PDF_TEXT_RECT) {
         auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
         if (auto* selection = pdfToolbox->getSelection()) {
-            pdfToolbox->selectionStyle = XojPdfPageSelectionStyle::Word;
+            pdfToolbox->selectionStyle =
+                    pos.isControlDown() ? XojPdfPageSelectionStyle::Sentence : XojPdfPageSelectionStyle::Word;
             selection->currentPos(x, y, pdfToolbox->selectionStyle);
         }
     } else if (drawingType == DRAWING_TYPE_SPLINE) {
@@ -624,15 +628,19 @@ auto XojPageView::onButtonTriplePressEvent(const PositionInputData& pos) -> bool
         this->startText(x, y);
         this->textEditor->selectAtCursor(TextEditor::SelectType::PARAGRAPH);
     } else if (this->isTextHighlightGesture(toolHandler)) {
-        // Triple-click a line to highlight it
-        this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Line);
-        if (auto* selection = this->xournal->getControl()->getWindow()->getPdfToolbox()->getSelection()) {
-            selection->currentPos(x, y, XojPdfPageSelectionStyle::Line);
+        // Triple-click a line to highlight it, Ctrl+triple-click a paragraph
+        const auto style = pos.isControlDown() ? XojPdfPageSelectionStyle::Paragraph : XojPdfPageSelectionStyle::Line;
+        this->startTextHighlight(x, y, style);
+        auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+        if (auto* selection = pdfToolbox->getSelection()) {
+            pdfToolbox->selectionStyle = style;
+            selection->currentPos(x, y, style);
         }
     } else if (toolType == TOOL_SELECT_PDF_TEXT_LINEAR || toolType == TOOL_SELECT_PDF_TEXT_RECT) {
         auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
         if (auto* selection = pdfToolbox->getSelection()) {
-            pdfToolbox->selectionStyle = XojPdfPageSelectionStyle::Line;
+            pdfToolbox->selectionStyle =
+                    pos.isControlDown() ? XojPdfPageSelectionStyle::Paragraph : XojPdfPageSelectionStyle::Line;
             selection->currentPos(x, y, pdfToolbox->selectionStyle);
         }
     }

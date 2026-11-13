@@ -99,6 +99,8 @@ void PdfElemSelection::currentPos(double x, double y, XojPdfPageSelectionStyle s
         case XojPdfPageSelectionStyle::Linear:
         case XojPdfPageSelectionStyle::Word:
         case XojPdfPageSelectionStyle::Line:
+        case XojPdfPageSelectionStyle::Sentence:
+        case XojPdfPageSelectionStyle::Paragraph:
             this->selectedTextRegion.reset(this->pdf->selectTextRegion(this->bounds, style), xoj::util::adopt);
             break;
         case XojPdfPageSelectionStyle::Area: {
