@@ -50,6 +50,7 @@
 #include "gui/UtnToast.h"
 #include "gui/XournalView.h"
 #include "gui/inputdevices/PositionInputData.h"
+#include "gui/toolbarMenubar/HighlightModes.h"
 #include "gui/toolbarMenubar/AnnotationBankPanel.h"
 #include "gui/toolbarMenubar/DockCustomizeDialog.h"
 #include "gui/toolbarMenubar/ToolMenuHandler.h"
@@ -2877,6 +2878,56 @@ TEST_F(ClassroomWorkflow, highlighterRestoresFreehandAndSemanticModeAfterSwitchi
     gtk_button_clicked(highlight);
     EXPECT_TRUE(tools->isSmartHighlighterEnabled()) << "incidental resets must not overwrite a chosen mode";
     EXPECT_EQ(tools->getSmartHighlighterSnapMode(), SmartHighlighterSnapMode::Underline);
+}
+
+TEST_F(ClassroomWorkflow, textSelectHighlightIsAListedModeAndSurvivesSwitchingTools) {
+    auto* tools = control->getToolHandler();
+    bool listed = false;
+    for (const auto& entry: utn::HIGHLIGHT_MODES) {
+        listed = listed || entry.snap == SmartHighlighterSnapMode::Text;
+    }
+    EXPECT_TRUE(listed) << "Text select is offered next to Freehand";
+    EXPECT_FALSE(utn::HIGHLIGHT_MODES[0].snap.has_value()) << "Freehand stays the first entry";
+
+    control->selectHighlighter(true, SmartHighlighterSnapMode::Text);
+    control->selectTool(TOOL_PEN);
+    // Like the rail button: a tool switch resets Smart, and the saved preference brings it back
+    bool preferred = false;
+    control->getSettings()->getCustomElement("utn").getBool("smartHighlighterPreferred", preferred);
+    EXPECT_TRUE(preferred);
+    control->selectHighlighter(preferred);
+    EXPECT_TRUE(tools->isSmartHighlighterEnabled());
+    EXPECT_EQ(tools->getSmartHighlighterSnapMode(), SmartHighlighterSnapMode::Text);
+    EXPECT_EQ(utn::highlightModeIndex(true, SmartHighlighterSnapMode::Text), 1);
+    control->selectHighlighter(false);
+    EXPECT_FALSE(tools->isSmartHighlighterEnabled()) << "switching back to Freehand is one choice";
+}
+
+TEST_F(ClassroomWorkflow, textSelectHighlightLeavesFreehandHighlightingAloneOnPagesWithoutPdfText) {
+    window->show(nullptr);
+    settle();
+    auto* view = window->getXournal()->getViewFor(0);
+    ASSERT_NE(view, nullptr);
+    auto page = control->getCurrentPage();
+    ASSERT_EQ(page->getPdfPageNr(), npos) << "a blank page has no PDF behind it";
+    control->selectHighlighter(true, SmartHighlighterSnapMode::Text);
+    const auto before = page->getSelectedLayer()->getElements().size();
+
+    PositionInputData pos{};
+    pos.pressure = 0.7;
+    pos.x = 80 * view->getZoom();
+    pos.y = 120 * view->getZoom();
+    ASSERT_TRUE(view->onButtonPressEvent(pos));
+    for (int i = 0; i < 12; ++i) {
+        pos.x += 6 * view->getZoom();
+        pos.timestamp += 8;
+        view->onMotionNotifyEvent(pos);
+    }
+    view->onButtonReleaseEvent(pos);
+    settle();
+    EXPECT_EQ(page->getSelectedLayer()->getElements().size(), before + 1)
+            << "with no text layer the drag still draws a freehand highlight";
+    EXPECT_FALSE(window->getPdfToolbox()->hasSelection());
 }
 
 TEST_F(ClassroomWorkflow, inspectorWorkspaceModesPreserveToolStateAndPersist) {

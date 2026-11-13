@@ -1,6 +1,7 @@
 #include "PageView.h"
 
 #include <algorithm>  // for max, find_if
+#include <cmath>      // for hypot
 #include <cinttypes>  // for int64_t
 #include <cstdint>    // for int64_t
 #include <cstdlib>    // for size_t
@@ -307,6 +308,14 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
         }
     }
 
+    // UTN Text select Highlight: dragging over PDF text selects the words, and the release highlights exactly them.
+    // Pages without a PDF behind them keep the freehand highlighter.
+    if (tool == TOOL_HIGHLIGHTER && h->isSmartHighlighterEnabled() &&
+        h->getSmartHighlighterSnapMode() == SmartHighlighterSnapMode::Text && this->page->getPdfPageNr() != npos) {
+        this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Linear);
+        return true;
+    }
+
     if (route != DrawingHandlerRoute::None && route != DrawingHandlerRoute::Spline) {
 
         if (this->inputHandler) {
@@ -553,6 +562,12 @@ auto XojPageView::onButtonDoublePressEvent(const PositionInputData& pos) -> bool
     } else if (toolType == TOOL_TEXT) {
         this->startText(x, y);
         this->textEditor->selectAtCursor(TextEditor::SelectType::WORD);
+    } else if (this->isTextHighlightGesture(toolHandler)) {
+        // Double-click a word to highlight it
+        this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Word);
+        if (auto* selection = this->xournal->getControl()->getWindow()->getPdfToolbox()->getSelection()) {
+            selection->currentPos(x, y, XojPdfPageSelectionStyle::Word);
+        }
     } else if (toolType == TOOL_SELECT_PDF_TEXT_LINEAR || toolType == TOOL_SELECT_PDF_TEXT_RECT) {
         auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
         if (auto* selection = pdfToolbox->getSelection()) {
@@ -572,6 +587,26 @@ auto XojPageView::onButtonDoublePressEvent(const PositionInputData& pos) -> bool
     return true;
 }
 
+bool XojPageView::isTextHighlightGesture(ToolHandler* h) const {
+    return h->getToolType() == TOOL_HIGHLIGHTER && h->isSmartHighlighterEnabled() &&
+           h->getSmartHighlighterSnapMode() == SmartHighlighterSnapMode::Text && this->page->getPdfPageNr() != npos;
+}
+
+void XojPageView::startTextHighlight(double x, double y, XojPdfPageSelectionStyle style) {
+    auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
+    if (pdfToolbox->hasSelection() && !pdfToolbox->getSelection()->isFinalized()) {
+        return;  // the first press of this click sequence already started it
+    }
+    pdfToolbox->userCancelSelection();
+    pdfToolbox->selectionStyle = style;
+    auto sel = pdfToolbox->newSelection(x, y);
+    this->overlayViews.emplace_back(
+            std::make_unique<xoj::view::PdfElementSelectionView>(sel, this, settings->getSelectionColor()));
+    this->textHighlightActive = true;
+    this->textHighlightStartX = x;
+    this->textHighlightStartY = y;
+}
+
 auto XojPageView::onButtonTriplePressEvent(const PositionInputData& pos) -> bool {
     // This method assumes that it is called after onButtonDoubleEvent but before
     // onButtonReleaseEvent
@@ -588,6 +623,12 @@ auto XojPageView::onButtonTriplePressEvent(const PositionInputData& pos) -> bool
     if (toolType == TOOL_TEXT) {
         this->startText(x, y);
         this->textEditor->selectAtCursor(TextEditor::SelectType::PARAGRAPH);
+    } else if (this->isTextHighlightGesture(toolHandler)) {
+        // Triple-click a line to highlight it
+        this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Line);
+        if (auto* selection = this->xournal->getControl()->getWindow()->getPdfToolbox()->getSelection()) {
+            selection->currentPos(x, y, XojPdfPageSelectionStyle::Line);
+        }
     } else if (toolType == TOOL_SELECT_PDF_TEXT_LINEAR || toolType == TOOL_SELECT_PDF_TEXT_RECT) {
         auto* pdfToolbox = this->xournal->getControl()->getWindow()->getPdfToolbox();
         if (auto* selection = pdfToolbox->getSelection()) {
@@ -798,7 +839,26 @@ auto XojPageView::onButtonReleaseEvent(const PositionInputData& pos) -> bool {
     }
 
     auto* pdfToolbox = control->getWindow()->getPdfToolbox();
-    if (auto* selection = pdfToolbox->getSelection()) {
+    if (this->textHighlightActive) {
+        this->textHighlightActive = false;
+        bool highlighted = false;
+        if (auto* selection = pdfToolbox->getSelection(); selection && !selection->isFinalized()) {
+            if (selection->finalizeSelectionAndRepaint(pdfToolbox->selectionStyle)) {
+                highlighted = pdfToolbox->highlightSelection(control->getToolHandler()->getColor());
+            }
+        }
+        if (!highlighted) {
+            pdfToolbox->userCancelSelection();
+            const double zoom = xournal->getZoom();
+            const bool dragged = std::hypot(pos.x / zoom - textHighlightStartX, pos.y / zoom - textHighlightStartY) > 8;
+            if (dragged) {
+                if (MainWindow* win = control->getWindow()) {
+                    win->showToast(_("No selectable text there. Use Freehand in the Highlight mode list for scans."));
+                }
+            }
+        }
+        this->repaintPage();
+    } else if (auto* selection = pdfToolbox->getSelection()) {
         if (!selection->isFinalized() && selection->finalizeSelectionAndRepaint(pdfToolbox->selectionStyle)) {
             // Selection was created, so reposition the toolbox and display.
             showPdfToolbox(pos);

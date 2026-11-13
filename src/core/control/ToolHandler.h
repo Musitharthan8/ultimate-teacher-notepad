@@ -42,7 +42,8 @@ class TextAlignment;
 enum SelectedTool { active, toolbar };
 
 // UTN smart highlighter snapping behaviour
-enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough };
+// Text = drag over selectable PDF text to highlight exactly the selected words (no freehand stroke)
+enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough, Text };
 
 /// What the Text tool places with the next click (UTN)
 enum class TextMode { Plain, AnswerBox, Feedback };

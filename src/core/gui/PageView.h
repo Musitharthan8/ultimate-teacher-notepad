@@ -25,6 +25,7 @@
 #include "gui/inputdevices/InputEvents.h"
 #include "model/PageListener.h"       // for PageListener
 #include "model/PageRef.h"            // for PageRef
+#include "pdf/base/XojPdfPage.h"       // for XojPdfPageSelectionStyle
 #include "util/Rectangle.h"           // for Rectangle
 #include "util/raii/CairoWrappers.h"  // for CairoSurfaceSPtr
 #include "view/Mask.h"                // for Mask
@@ -34,6 +35,7 @@
 #include "LegacyRedrawable.h"  // for LegacyRedrawable
 
 class EraseHandler;
+class ToolHandler;
 class ImageSizeSelection;
 class InputHandler;
 class LaserPointerHandler;
@@ -288,6 +290,13 @@ private:
     bool startEditingOnButtonRelease = false;
     bool inLatex = false;
     bool inLatexDoubleClick = false;
+    /// A Text-select Highlight drag is selecting PDF text; the release turns it into a highlight
+    bool textHighlightActive = false;
+    /// The Highlighter is in Text select mode on a page that has a PDF behind it
+    bool isTextHighlightGesture(ToolHandler* h) const;
+    void startTextHighlight(double x, double y, XojPdfPageSelectionStyle style);
+    double textHighlightStartX = 0;
+    double textHighlightStartY = 0;
 
     /**
      * Vertical Space

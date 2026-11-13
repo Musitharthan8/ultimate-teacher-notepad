@@ -123,6 +123,16 @@ void PdfFloatingToolbox::highlightCb(GtkButton* button, PdfFloatingToolbox* pft)
     pft->userCancelSelection();
 }
 
+bool PdfFloatingToolbox::highlightSelection(Color colour) {
+    if (!this->pdfElemSelection || this->pdfElemSelection->getSelectedTextRects().empty()) {
+        return false;
+    }
+    this->color = colour;
+    this->createStrokes(PdfMarkerStyle::POS_TEXT_MIDDLE, PdfMarkerStyle::WIDTH_TEXT_HEIGHT, colour.alpha);
+    this->userCancelSelection();
+    return true;
+}
+
 void PdfFloatingToolbox::copyTextCb(GtkButton* button, PdfFloatingToolbox* pft) {
     pft->copyTextToClipboard();
     pft->userCancelSelection();
