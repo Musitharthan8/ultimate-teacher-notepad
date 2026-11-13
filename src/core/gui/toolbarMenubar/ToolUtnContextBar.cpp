@@ -27,6 +27,7 @@
 #include "gui/MainWindow.h"
 #include "gui/ResponsiveLayout.h"
 #include "gui/XournalView.h"
+#include "gui/XournalppCursor.h"
 #include "ToolMenuHandler.h"
 #include "ToolStudentView.h"
 #include "model/Font.h"
@@ -1140,6 +1141,10 @@ void ToolUtnContextBar::appendHighlightControls() {
                                  "smartHighlighterPreferred", entry.snap.has_value());
                          if (entry.snap) {
                              tools->setSmartHighlighterSnapMode(*entry.snap);
+                         }
+                         // Text select shows the text cursor, Freehand the highlighter cursor: apply it right away
+                         if (auto* window = static_cast<Control*>(data)->getWindow(); window && window->getXournal()) {
+                             window->getXournal()->getCursor()->updateCursor();
                          }
                      }),
                      control);
