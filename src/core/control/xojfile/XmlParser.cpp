@@ -521,6 +521,12 @@ void XmlParser::parseTextTag(const XmlParserHelper::AttributeMap& attributeMap) 
                           strikethrough, lineSpacing, boxEnabled, boxBackground, boxBorder, boxBorderWidth, boxPadding,
                           boxRadius, std::move(tempFilename), tempTimestamp);
 
+    if (auto value = XmlParserHelper::getAttrib<std::string_view>(xoj::xml_attrs::UTN_BACKGROUND_STR, attributeMap)) {
+        if (auto parsed = XmlParserHelper::parseColorCode(*value)) {
+            this->builder.setTextBackground(*parsed);
+        }
+    }
+
     this->tempTimestamp = 0;
 }
 

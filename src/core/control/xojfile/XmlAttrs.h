@@ -74,6 +74,9 @@ constexpr auto UTN_BOX_BORDER_WIDTH_STR = u8"utnBoxBorderWidth";
 constexpr auto UTN_BOX_PADDING_STR = u8"utnBoxPadding";
 constexpr auto UTN_BOX_RADIUS_STR = u8"utnBoxRadius";
 
+// UTN text background colour (absent = transparent)
+constexpr auto UTN_BACKGROUND_STR = u8"utnBackground";
+
 // image
 constexpr auto LEFT_POS_STR = u8"left";      // also in teximage
 constexpr auto TOP_POS_STR = u8"top";        // also in teximage

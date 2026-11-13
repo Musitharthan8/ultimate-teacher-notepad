@@ -3316,6 +3316,24 @@ void Control::setToolSize(ToolSize size) {
     this->toolHandler->setSize(size);
 }
 
+bool Control::applyTextBackground(Color color) {
+    if (!colourChangeAllowed()) {
+        return false;
+    }
+    this->toolHandler->setTextBackgroundColor(color);
+    if (TextEditor* editor = getTextEditor(); editor) {
+        // The edit is committed (with its own undo step) when it ends
+        editor->setBackgroundColor(color);
+    } else if (this->win) {
+        if (EditSelection* sel = this->win->getXournal()->getSelection(); sel) {
+            if (auto undo = sel->setTextBackground(color)) {
+                undoRedo->addUndoAction(std::move(undo));
+            }
+        }
+    }
+    return true;
+}
+
 void Control::fontChanged(const XojFont& font) {
     settings->setFont(font);
 

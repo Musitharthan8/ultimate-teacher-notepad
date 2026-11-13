@@ -70,6 +70,7 @@ public:
      * (or nullptr if there are no Text elements)
      */
     UndoActionPtr setFont(const XojFont& font);
+    UndoActionPtr setTextBackground(Color background);
 
     /**
      * Fills the undo item if the selection is deleted

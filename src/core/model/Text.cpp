@@ -50,6 +50,7 @@ auto Text::cloneText() const -> std::unique_ptr<Text> {
     text->boxBorderWidth = this->boxBorderWidth;
     text->boxPadding = this->boxPadding;
     text->boxCornerRadius = this->boxCornerRadius;
+    text->backgroundColor = this->backgroundColor;
 
     return text;
 }
@@ -152,6 +153,26 @@ static auto computeAnswerBoxBounds(const Text::Boxes& boxes, double padding, dou
     return {left, top, right - left, bottom - top};
 }
 
+auto Text::getBackgroundColor() const -> Color { return this->backgroundColor; }
+
+void Text::setBackgroundColor(Color color) {
+    this->backgroundColor = color;
+    sizeCalculated = false;  // the padding changes the bounds, which repainting and selecting rely on
+}
+
+auto Text::hasBackground() const -> bool { return this->backgroundColor.alpha > 0U; }
+
+auto Text::backgroundBoundsFor(const Boxes& boxes) -> xoj::util::Rectangle<double> {
+    return computeAnswerBoxBounds(boxes, BACKGROUND_PADDING, 0.0);
+}
+
+auto Text::getBackgroundBounds() const -> xoj::util::Rectangle<double> {
+    if (!this->sizeCalculated) {
+        this->calcSize();
+    }
+    return backgroundBoundsFor(Boxes{this->naturalSize, this->effectiveBounds});
+}
+
 auto Text::getBoxBounds() const -> xoj::util::Rectangle<double> {
     if (!this->sizeCalculated) {
         this->calcSize();
@@ -202,6 +223,12 @@ void Text::calcSize() const {
                 boxBounds.x - border, boxBounds.y - border,
                 boxBounds.width + 2 * border, boxBounds.height + 2 * border};
         this->snappedBounds = matrix * boxBounds;
+    } else if (this->hasBackground()) {
+        // The background sticks out around the text, so it must be part of the bounds: it is what gets repainted,
+        // selected and erased, and what keeps moving and resizing the text from leaving a stale edge behind
+        const auto backgroundBounds = backgroundBoundsFor(boxes);
+        this->boundingBox = matrix * backgroundBounds;
+        this->snappedBounds = matrix * backgroundBounds;
     } else {
         this->boundingBox = matrix * this->effectiveBounds;
         this->snappedBounds = matrix * xoj::util::Rectangle<double>{{0, 0}, this->naturalSize};
@@ -281,6 +308,11 @@ void Text::serialize(ObjectOutputStream& out) const {
         out.writeDouble(boxCornerRadius);
         out.endObject();
     }
+    if (hasBackground()) {
+        out.writeObject("UTNTextBackground");
+        out.writeUInt(uint32_t(backgroundColor));
+        out.endObject();
+    }
 
     out.endObject();
 }
@@ -322,6 +354,12 @@ void Text::readSerialized(ObjectInputStream& in) {
         setBoxBorderWidth(in.readDouble());
         setBoxPadding(in.readDouble());
         setBoxCornerRadius(in.readDouble());
+        in.endObject();
+    }
+    setBackgroundColor(defaults.getBackgroundColor());
+    if (in.hasNextObject("UTNTextBackground")) {
+        in.readObject("UTNTextBackground");
+        setBackgroundColor(Color(in.readUInt()));
         in.endObject();
     }
 

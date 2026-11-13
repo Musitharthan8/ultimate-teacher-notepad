@@ -64,6 +64,8 @@ public:
                          bool underlined, bool strikethrough, double lineSpacing, bool boxEnabled,
                          Color boxBackground, Color boxBorder, double boxBorderWidth, double boxPadding,
                          double boxRadius, fs::path filename, size_t timestamp) = 0;
+    /// UTN: the text's background colour, if the file has one. Called after addText, before finalizeText.
+    virtual void setTextBackground(Color /*background*/) {}
     virtual void setTextContents(std::string contents) = 0;
     virtual void finalizeText() = 0;
     virtual void addImageLegacy(double left, double top, double right, double bottom,

@@ -27,6 +27,7 @@
 #include "undo/InsertUndoAction.h"                // for InsertsUndoAction
 #include "undo/LineStyleUndoAction.h"             // for LineStyleUndoAction
 #include "undo/MoveUndoAction.h"                  // for MoveUndoAction
+#include "undo/TextBackgroundUndoAction.h"        // for TextBackgroundUndoAction
 #include "undo/RotateUndoAction.h"                // for RotateUndoAction
 #include "undo/ScaleUndoAction.h"                 // for ScaleUndoAction
 #include "undo/SizeUndoAction.h"                  // for SizeUndoAction
@@ -212,6 +213,28 @@ auto EditSelectionContents::setFont(const XojFont& font) -> UndoActionPtr {
             Text* t = dynamic_cast<Text*>(e);
             undo->addStroke(t, t->getFont(), font);
             t->setFont(font);
+            foundOne = true;
+        }
+    }
+
+    if (foundOne) {
+        this->deleteViewBuffer();
+        this->sourceView->getXournal()->repaintSelection();
+        return undo;
+    }
+
+    return nullptr;
+}
+
+auto EditSelectionContents::setTextBackground(Color background) -> UndoActionPtr {
+    auto undo = std::make_unique<TextBackgroundUndoAction>(this->sourcePage);
+    bool foundOne = false;
+
+    for (Element* e: this->selected) {
+        if (e->getType() == ELEMENT_TEXT) {
+            Text* t = dynamic_cast<Text*>(e);
+            undo->addText(t, t->getBackgroundColor(), background);
+            t->setBackgroundColor(background);
             foundOne = true;
         }
     }

@@ -415,6 +415,10 @@ auto EditSelection::setColor(Color color) -> UndoActionPtr { return this->conten
  */
 auto EditSelection::setFont(const XojFont& font) -> UndoActionPtr { return this->contents->setFont(font); }
 
+auto EditSelection::setTextBackground(Color background) -> UndoActionPtr {
+    return this->contents->setTextBackground(background);
+}
+
 /**
  * Fills de undo item if the selection is deleted
  * the selection is cleared after

@@ -260,6 +260,10 @@ public:
     void setAnswerBoxTextColor(Color color);
     Color getAnswerBoxBackgroundColor() const;
     void setAnswerBoxBackgroundColor(Color color);
+
+    /// Background for new plain text boxes. Fully transparent (the default) means none; not kept between launches.
+    Color getTextBackgroundColor() const { return textBackgroundColor; }
+    void setTextBackgroundColor(Color color) { textBackgroundColor = color; }
     Color getAnswerBoxBorderColor() const;
     void setAnswerBoxBorderColor(Color color);
     double getAnswerBoxBorderWidth() const;
@@ -504,6 +508,7 @@ private:
     bool answerBoxEnabled = false;
     Color answerBoxTextColor{45U, 45U, 45U, 255U};
     Color answerBoxBackgroundColor{255U, 248U, 214U, 230U};
+    Color textBackgroundColor{0U, 0U, 0U, 0U};  // UTN: plain text background, transparent by default
     Color answerBoxBorderColor{180U, 140U, 20U, 255U};  // matches the Model answer style
     double answerBoxBorderWidth = 1.2;
     double answerBoxPadding = 6.0;

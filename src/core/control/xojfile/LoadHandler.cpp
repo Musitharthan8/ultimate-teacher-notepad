@@ -699,6 +699,12 @@ void LoadHandler::finalizeStroke() {
     }
 }
 
+void LoadHandler::setTextBackground(Color background) {
+    if (this->text) {
+        this->text->setBackgroundColor(background);
+    }
+}
+
 void LoadHandler::addText(std::string font, double size, xoj::util::Matrix matrix, Color color,
                           std::optional<double> wrap, std::optional<TextAlignment> align, bool justify,
                           bool underlined, bool strikethrough, double lineSpacing, bool boxEnabled,

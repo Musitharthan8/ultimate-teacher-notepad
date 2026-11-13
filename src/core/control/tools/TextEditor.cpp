@@ -502,6 +502,11 @@ void TextEditor::toggleNumberedList() {
     repaintEditor(true);
 }
 
+void TextEditor::setBackgroundColor(Color color) {
+    this->textElement->setBackgroundColor(color);
+    repaintEditor(true);  // the padding changes the area the text covers
+}
+
 void TextEditor::setBoxBackgroundColor(Color color) {
     this->textElement->setBoxBackgroundColor(color);
     repaintEditor(true);
@@ -1363,6 +1368,12 @@ void TextEditor::updateBoxes() {
         edBounds.y -= extra;
         edBounds.width += 2.0 * extra;
         edBounds.height += 2.0 * extra;
+    } else if (this->textElement->hasBackground()) {
+        const double extra = Text::BACKGROUND_PADDING;
+        edBounds.x -= extra;
+        edBounds.y -= extra;
+        edBounds.width += 2.0 * extra;
+        edBounds.height += 2.0 * extra;
     }
 
     this->previousBoundingBox = Range(this->textElement->getTransformation() * edBounds);
@@ -1556,6 +1567,9 @@ void TextEditor::initializeEditionAt(double x, double y) {
             this->textElement->setBoxBorderWidth(h->getAnswerBoxBorderWidth());
             this->textElement->setBoxPadding(h->getAnswerBoxPadding());
             this->textElement->setBoxCornerRadius(h->getAnswerBoxCornerRadius());
+        } else if (!feedback) {
+            // UTN: plain text takes the background chosen in the Text settings (transparent unless one was picked)
+            this->textElement->setBackgroundColor(h->getTextBackgroundColor());
         }
 
 #ifdef ENABLE_AUDIO
@@ -1594,6 +1608,9 @@ void TextEditor::initializeEditionAt(double x, double y) {
             tools->setAnswerBoxPadding(this->textElement->getBoxPadding());
             tools->setAnswerBoxCornerRadius(this->textElement->getBoxCornerRadius());
         }
+
+        // The Background colour control shows the background of the text being edited
+        tools->setTextBackgroundColor(this->textElement->getBackgroundColor());
 
         Color c = this->textElement->getColor();
         c.alpha = 0xff;

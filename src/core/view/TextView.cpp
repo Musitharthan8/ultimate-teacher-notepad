@@ -40,6 +40,8 @@ void TextView::draw(const Context& ctx) const {
 
     // UTN: draw the answer box behind its text
     drawAnswerBox(ctx.cr, text, text->getBoxBounds());
+    // UTN: and the plain text background
+    drawTextBackground(ctx.cr, text, text->getBackgroundBounds());
 
     // make elements without audio translucent when highlighting elements with audio
     if (ctx.fadeOutNonAudio && text->getAudioFilename().empty()) {

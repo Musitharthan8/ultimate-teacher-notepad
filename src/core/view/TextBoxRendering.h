@@ -60,4 +60,15 @@ inline void drawAnswerBox(cairo_t* cr, const Text* text, const xoj::util::Rectan
     }
 }
 
+/// The text's background colour, behind the text and inside any Answer Box. Nothing is drawn when it is transparent.
+inline void drawTextBackground(cairo_t* cr, const Text* text, const xoj::util::Rectangle<double>& bounds) {
+    if (!text->hasBackground()) {
+        return;
+    }
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    appendRoundedRectangle(cr, bounds, Text::BACKGROUND_CORNER_RADIUS);
+    Util::cairo_set_source_argb(cr, text->getBackgroundColor());
+    cairo_fill(cr);
+}
+
 }  // namespace xoj::view

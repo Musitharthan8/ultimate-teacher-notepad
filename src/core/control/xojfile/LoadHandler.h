@@ -134,6 +134,7 @@ private:
                  double lineSpacing, bool boxEnabled, Color boxBackground, Color boxBorder,
                  double boxBorderWidth, double boxPadding, double boxRadius, fs::path filename,
                  size_t timestamp) override;
+    void setTextBackground(Color background) override;
     void setTextContents(std::string contents) override;
     void finalizeText() override;
     void addImageLegacy(double left, double top, double right, double bottom,

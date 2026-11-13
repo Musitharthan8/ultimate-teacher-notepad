@@ -176,6 +176,9 @@ public:
      */
     UndoActionPtr setFont(const XojFont& font);
 
+    /// UTN: set the background colour of all containing text elements (transparent = none); nullptr if there are none
+    UndoActionPtr setTextBackground(Color background);
+
     /**
      * Fills the undo item if the selection is deleted
      * the selection is cleared after

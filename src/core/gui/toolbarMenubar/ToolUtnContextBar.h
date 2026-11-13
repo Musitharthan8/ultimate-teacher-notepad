@@ -66,6 +66,10 @@ private:
     // Shared building blocks, used in this order by every tool
     void appendBadge(const char* name);
     void appendColourControls(Palette palette);
+    /// The Text tool's "Background colour": a Transparent swatch (the default), the ink palette and "More colours",
+    /// applied to the text being edited, the selected text boxes and new text, independent of the text colour
+    void appendBackgroundColourControls();
+    void appendSectionTitle(const char* text);
     void appendSizeControls(ToolType tool);
     void appendSeparator();
     /// The highlighter's opacity slider: the tool's own alpha, nothing else

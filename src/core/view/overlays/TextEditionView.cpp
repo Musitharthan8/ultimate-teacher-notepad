@@ -131,6 +131,7 @@ void TextEditionView::drawWithoutDrawingAids(cairo_t* cr) const {
 
         drawAnswerBox(cr, textElement, {left, top, right - left, bottom - top});
     }
+    drawTextBackground(cr, textElement, Text::backgroundBoundsFor(this->textEditor->getBoxes()));
 
     Util::cairo_set_source_rgbi(cr, textElement->getColor());
 

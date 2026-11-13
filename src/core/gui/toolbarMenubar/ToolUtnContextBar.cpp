@@ -795,6 +795,101 @@ void ToolUtnContextBar::appendColourControls(Palette palette) {
     gtk_box_append(box, group);
 }
 
+void ToolUtnContextBar::appendSectionTitle(const char* text) {
+    GtkWidget* title = gtk_label_new(text);
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_widget_add_css_class(title, "utn-context-title");
+    gtk_box_append(box, title);
+}
+
+void ToolUtnContextBar::appendBackgroundColourControls() {
+    const std::vector<NamedSwatch> inkSwatches(INK_SWATCHES.begin(), INK_SWATCHES.end());
+    const Color current = control->getToolHandler()->getTextBackgroundColor();
+
+    appendSectionTitle(_("Background colour"));
+    GtkWidget* group = newControlGroup(isSidePanel() ? 3 : 0, 2);
+    gtk_widget_add_css_class(group, "utn-swatches");
+    gtk_widget_set_name(group, "utnTextBackgroundSwatches");
+
+    // Every swatch applies the same way; the data holds the ARGB colour (0 = transparent)
+    auto addSwatch = [&](GtkWidget* button, Color colour, bool selected, int index) {
+        gtk_widget_set_focus_on_click(button, false);  // keyboard users can still Tab to it
+        utn::setSwatchSelected(button, selected);
+        g_object_set_data(G_OBJECT(button), "utn-colour", GUINT_TO_POINTER(uint32_t(colour)));
+        g_object_set_data(G_OBJECT(button), "utn-background", GINT_TO_POINTER(1));
+        g_signal_connect(button, "clicked", G_CALLBACK(+[](GtkButton* button, gpointer data) {
+                             const auto chosen =
+                                     Color(GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "utn-colour")));
+                             GObjectHold hold(button);
+                             if (!static_cast<Control*>(data)->applyTextBackground(chosen)) {
+                                 return;  // refused: the marks keep showing the background the text still has
+                             }
+                             GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(button));
+                             if (!parent) {
+                                 return;
+                             }
+                             GList* siblings = gtk_container_get_children(GTK_CONTAINER(parent));
+                             for (GList* it = siblings; it; it = it->next) {
+                                 if (g_object_get_data(G_OBJECT(it->data), "utn-background")) {
+                                     utn::setSwatchSelected(GTK_WIDGET(it->data), it->data == button);
+                                 }
+                             }
+                             g_list_free(siblings);
+                         }),
+                         control);
+        addToGroup(group, button, index);
+    };
+
+    int index = 0;
+    // Transparent first and clearly marked: it is the default, and the way back to no background
+    addSwatch(utn::createColourSwatch(Color{0U, 0U, 0U, 0U}, _("Transparent")), Color{0U, 0U, 0U, 0U},
+              current.alpha == 0U, index++);
+    for (const auto& swatch: inkSwatches) {
+        addSwatch(utn::createColourSwatch(swatch.colour, _(swatch.name)), swatch.colour,
+                  current.alpha > 0U && sameHue(swatch.colour, current), index++);
+    }
+
+    GdkRGBA rgba = Util::argb_to_GdkRGBA(current.alpha > 0U ? current : Color{255U, 255U, 255U});
+    rgba.alpha = 1.0;
+    GtkWidget* more = gtk_color_button_new_with_rgba(&rgba);
+    gtk_widget_set_focus_on_click(more, false);
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(more), false);
+    gtk_widget_set_tooltip_text(more, _("More background colours"));
+    utn::setAccessibleName(more, _("More background colours"));
+    g_signal_connect(more, "color-set", G_CALLBACK(+[](GtkColorButton* button, gpointer data) {
+                         GdkRGBA chosen{};
+                         gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &chosen);
+                         GObjectHold hold(button);
+                         auto* ctrl = static_cast<Control*>(data);
+                         if (!ctrl->applyTextBackground(Util::GdkRGBA_to_argb(chosen))) {
+                             GdkRGBA kept = Util::argb_to_GdkRGBA(ctrl->getToolHandler()->getTextBackgroundColor());
+                             kept.alpha = 1.0;
+                             gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(button), &kept);
+                             return;
+                         }
+                         GtkWidget* parent = gtk_widget_get_parent(GTK_WIDGET(button));
+                         if (!parent) {
+                             return;
+                         }
+                         GList* siblings = gtk_container_get_children(GTK_CONTAINER(parent));
+                         for (GList* it = siblings; it; it = it->next) {
+                             if (g_object_get_data(G_OBJECT(it->data), "utn-background")) {
+                                 utn::setSwatchSelected(GTK_WIDGET(it->data), false);
+                             }
+                         }
+                         g_list_free(siblings);
+                     }),
+                     control);
+    if (GTK_IS_GRID(group)) {
+        const int columns = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(group), "utn-columns"));
+        gtk_widget_set_halign(more, GTK_ALIGN_CENTER);
+        gtk_grid_attach(GTK_GRID(group), more, index % columns, index / columns, 1, 1);
+    } else {
+        addToGroup(group, more, index);
+    }
+    gtk_box_append(box, group);
+}
+
 void ToolUtnContextBar::appendSizeControls(ToolType tool) {
     auto* tools = control->getToolHandler();
     const bool forSelection = tool != TOOL_PEN && tool != TOOL_HIGHLIGHTER;
@@ -1191,8 +1286,16 @@ void ToolUtnContextBar::appendTextControls() {
         appendSeparator();
     }
 
+    if (mode == TextMode::Plain) {
+        // Two independent palettes: the colour of the letters, and the colour behind them
+        appendSectionTitle(_("Text colour"));
+    }
     appendColourControls(Palette::Ink);
     appendSeparator();
+    if (mode == TextMode::Plain) {
+        appendBackgroundColourControls();
+        appendSeparator();
+    }
 
     XojFont current = currentTextFont(control);
     GtkWidget* fontButton = gtk_font_button_new_with_font(current.asString().c_str());

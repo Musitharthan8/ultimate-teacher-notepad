@@ -249,6 +249,12 @@ auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
     gtk_widget_set_size_request(dot, 18, 18);
     auto* rgba = new GdkRGBA(Util::argb_to_GdkRGBA(colour));
     rgba->alpha = 1.0;  // swatches show the hue; opacity has its own control
+    if (colour.alpha == 0U) {
+        // A fully transparent colour means "none" (for example no text background): a white dot with a red slash,
+        // the usual sign for "no colour", rather than a dot of whatever hue the empty colour carries
+        *rgba = GdkRGBA{1.0, 1.0, 1.0, 1.0};
+        g_object_set_data(G_OBJECT(dot), "utn-transparent", GINT_TO_POINTER(1));
+    }
     g_object_set_data_full(G_OBJECT(dot), "utn-rgba", rgba, +[](gpointer p) { delete static_cast<GdkRGBA*>(p); });
     g_signal_connect(dot, "draw", G_CALLBACK(+[](GtkWidget* widget, cairo_t* cr, gpointer) -> gboolean {
                          auto* rgba = static_cast<GdkRGBA*>(g_object_get_data(G_OBJECT(widget), "utn-rgba"));
@@ -262,6 +268,13 @@ auto createColourSwatch(Color colour, const char* name) -> GtkWidget* {
                          cairo_set_source_rgba(cr, 0, 0, 0, 0.35);
                          cairo_set_line_width(cr, 1.0);
                          cairo_stroke(cr);
+                         if (g_object_get_data(G_OBJECT(widget), "utn-transparent")) {
+                             cairo_set_source_rgb(cr, 0.78, 0.1, 0.1);
+                             cairo_set_line_width(cr, 1.6);
+                             cairo_move_to(cr, w / 2.0 - r * 0.7, h / 2.0 + r * 0.7);
+                             cairo_line_to(cr, w / 2.0 + r * 0.7, h / 2.0 - r * 0.7);
+                             cairo_stroke(cr);
+                         }
                          // Selected: a tick on top of the colour, so the mark does not depend on seeing the border
                          // colour (the button is the dot's parent, see setSwatchSelected)
                          if (GtkWidget* owner = gtk_widget_get_parent(widget);

@@ -108,6 +108,19 @@ public:
     /// Get the boxes out of a Pango context, ignoring any affine transformation
     static Boxes computeBoxesForLayout(PangoLayout* layout, double wrapWidth);
 
+    /**
+     * UTN text background: a coloured rectangle behind the text, independent of the text colour and of the Answer Box
+     * (which has its own fill, border and mode). Fully transparent (the default) means no background at all.
+     */
+    Color getBackgroundColor() const;
+    void setBackgroundColor(Color color);
+    bool hasBackground() const;
+    /// The rectangle the background covers, in the text's own coordinates: the text plus BACKGROUND_PADDING all round
+    xoj::util::Rectangle<double> getBackgroundBounds() const;
+    static xoj::util::Rectangle<double> backgroundBoundsFor(const Boxes& boxes);
+    static constexpr double BACKGROUND_PADDING = 4.0;
+    static constexpr double BACKGROUND_CORNER_RADIUS = 3.0;
+
 protected:
     void calcSize() const override;
 
@@ -142,6 +155,9 @@ private:
     double boxBorderWidth = 1.2;
     double boxPadding = 6.0;
     double boxCornerRadius = 5.0;
+
+    // UTN text background (alpha 0 = transparent = none)
+    Color backgroundColor{0U, 0U, 0U, 0U};
 
     bool inEditing = false;
 };

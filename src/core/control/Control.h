@@ -230,6 +230,12 @@ public:
     void selectDefaultTool();
 
     void fontChanged(const XojFont& font);      ///< Set the font after the user selected a font
+    /**
+     * UTN: set the text background (transparent = none) for the text being edited, the selected text boxes, and the
+     * background new plain text starts with. Independent of the text colour. Does nothing while the controls may not act.
+     * @return whether the colour was applied
+     */
+    bool applyTextBackground(Color color);
 
     void updatePageNumbers(size_t page, size_t pdfPage);
 

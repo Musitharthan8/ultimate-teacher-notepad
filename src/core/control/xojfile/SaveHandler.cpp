@@ -338,7 +338,8 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
             text->setAttrib(xoj::xml_attrs::FONT_STR, f.getName().c_str());
             // Keep boxed and wrapped text in its local coordinate system. Folding the scale into the font alone
             // changes the box padding/border and the wrap width when the lesson is reopened.
-            if (isMatrixHomogeneousScaling(*t) && !t->isBoxEnabled() && t->getWrap() == Text::NO_WRAP) {
+            if (isMatrixHomogeneousScaling(*t) && !t->isBoxEnabled() && !t->hasBackground() &&
+                t->getWrap() == Text::NO_WRAP) {
                 // Save as file version 4 for backward compatibility
                 text->setAttrib(xoj::xml_attrs::SIZE_STR, t->getTransformation().xx * f.getSize());
                 const auto& origin = t->getTransformation().shift;
@@ -381,6 +382,11 @@ void SaveHandler::visitLayer(XmlNode* page, const Layer* l) {
                 text->setAttrib(xoj::xml_attrs::UTN_BOX_BORDER_WIDTH_STR, t->getBoxBorderWidth());
                 text->setAttrib(xoj::xml_attrs::UTN_BOX_PADDING_STR, t->getBoxPadding());
                 text->setAttrib(xoj::xml_attrs::UTN_BOX_RADIUS_STR, t->getBoxCornerRadius());
+            }
+
+            if (t->hasBackground()) {
+                Color background = t->getBackgroundColor();
+                text->setAttrib(xoj::xml_attrs::UTN_BACKGROUND_STR, getColorStr(background, background.alpha).c_str());
             }
 
             writeAudio(text, *t);

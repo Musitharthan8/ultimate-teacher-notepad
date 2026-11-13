@@ -82,6 +82,9 @@ public:
     void toggleBulletList();
     void toggleNumberedList();
 
+    /// UTN: background behind the text being edited (transparent = none). Independent of the text colour.
+    void setBackgroundColor(Color color);
+
     // UTN Answer Box live styling
     void setBoxBackgroundColor(Color color);
     void setBoxBorderColor(Color color);
