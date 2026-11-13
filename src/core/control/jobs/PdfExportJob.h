@@ -26,6 +26,9 @@ protected:
 public:
     void run() override;
 
+    /// Choose the destination without the file chooser (Save As with the PDF type). False if it can't be used.
+    bool setDestination(const fs::path& file) { return testAndSetFilepath(file); }
+
 protected:
     void addFilterToDialog(GtkFileChooser* dialog) override;
     void setExtensionFromFilter(fs::path& p, const char* filterName) const override;

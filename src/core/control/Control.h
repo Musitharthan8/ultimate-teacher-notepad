@@ -124,6 +124,8 @@ public:
 
     void print();
     void exportAsPdf();
+    /// Export a PDF copy to the given path (Save As with the PDF type); the document itself is not renamed
+    void exportPdfTo(const fs::path& path);
     void exportAs();
     void quit(bool allowCancel = true, bool forceClose = false);
 

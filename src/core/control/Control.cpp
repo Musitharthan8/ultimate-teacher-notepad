@@ -2745,6 +2745,19 @@ void Control::exportAsPdf() {
             });
 }
 
+void Control::exportPdfTo(const fs::path& path) {
+    this->clearSelectionEndText();
+    auto* job = new PdfExportJob(this);
+    if (!job->setDestination(path)) {
+        this->unblock();  // the job blocked the window and will never run
+        job->unref();
+        return;
+    }
+    this->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.beginExport(); });
+    this->scheduler->addJob(job, JOB_PRIORITY_NONE);
+    job->unref();
+}
+
 void Control::exportAs() {
     this->clearSelectionEndText();
     auto* job = new CustomExportJob(this);
@@ -2784,6 +2797,10 @@ void Control::saveImpl(bool saveAs, std::function<void(bool)> callback) {
                                                   [doSave = std::move(doSave), ctrl = this](std::optional<fs::path> p) {
                                                       if (p && !p->empty()) {
                                                           ctrl->settings->setLastSavePath(p->parent_path());
+                                                          if (p->extension() == ".pdf") {
+                                                              ctrl->exportPdfTo(*p);
+                                                              return;
+                                                          }
                                                           ctrl->doc->lock();
                                                           ctrl->doc->setFilepath(std::move(p.value()));
                                                           ctrl->doc->unlock();

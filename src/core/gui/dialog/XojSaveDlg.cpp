@@ -73,7 +73,13 @@ void xoj::SaveExportDialog::close(std::optional<fs::path> path) {
     cb(std::move(path));
 }
 
-static bool xoppPathValidation(fs::path& p, const char*) {
+static bool xoppPathValidation(fs::path& p, const char* filterName) {
+    if (filterName && g_strcmp0(filterName, _("PDF files")) == 0) {
+        // Save As a PDF: Control exports a PDF copy instead of saving a .xopp
+        Util::clearExtensions(p, ".pdf");
+        p += ".pdf";
+        return true;
+    }
     Util::clearExtensions(p);
     p += ".xopp";
     return true;
@@ -86,6 +92,7 @@ void xoj::SaveExportDialog::showSaveFileDialog(GtkWindow* parent, Settings* sett
 
     auto* fc = GTK_FILE_CHOOSER(popup.getPopup()->getWindow());
     xoj::addFilterXopp(fc);
+    xoj::addFilterPdf(fc);
 
     popup.show(parent);
 }
