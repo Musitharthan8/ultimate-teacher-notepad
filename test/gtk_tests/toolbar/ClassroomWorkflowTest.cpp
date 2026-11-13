@@ -73,6 +73,7 @@
 #include "model/Stroke.h"
 #include "model/XojPage.h"
 #include "undo/InsertUndoAction.h"
+#include "undo/TextBackgroundUndoAction.h"
 #include "undo/UndoAction.h"
 #include "undo/UndoRedoHandler.h"
 #include "model/eraser/MaskedStrokeCodec.h"
@@ -5086,6 +5087,219 @@ TEST_F(ClassroomWorkflow, changingTextSettingsFromThePopoverKeepsTheEditAndTheTe
         texts += element->getType() == ELEMENT_TEXT ? 1 : 0;
     }
     EXPECT_EQ(texts, 1U) << "formatting did not duplicate or drop the box";
+}
+
+namespace {
+void collectBackgroundSwatches(GtkWidget* widget, std::vector<GtkWidget*>& found) {
+    if (g_object_get_data(G_OBJECT(widget), "utn-background")) {
+        found.push_back(widget);
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+        for (GList* child = children; child; child = child->next) {
+            collectBackgroundSwatches(GTK_WIDGET(child->data), found);
+        }
+        g_list_free(children);
+    }
+}
+
+bool swatchIsSelected(GtkWidget* swatch) { return gtk_widget_get_state_flags(swatch) & GTK_STATE_FLAG_CHECKED; }
+
+/// The swatch that applies @p colour (a container does not hand its children back in the order they were added)
+GtkWidget* swatchFor(const std::vector<GtkWidget*>& swatches, Color colour) {
+    for (GtkWidget* swatch: swatches) {
+        if (GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(swatch), "utn-colour")) == uint32_t(colour)) {
+            return swatch;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<Text*> textsOn(const PageRef& page) {
+    std::vector<Text*> texts;
+    for (auto& element: page->getSelectedLayer()->getElements()) {
+        if (auto* text = dynamic_cast<Text*>(element.get())) {
+            texts.push_back(text);
+        }
+    }
+    return texts;
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, textBackgroundColourIsOfferedSeparatelyWithTransparentAsTheDefault) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    control->selectTextMode(TextMode::Plain);
+    EXPECT_EQ(control->getToolHandler()->getTextBackgroundColor().alpha, 0U) << "transparent unless one is picked";
+
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+
+    EXPECT_NE(accessibleNamed(popover, "Transparent"), nullptr) << "a clearly named Transparent option";
+    std::vector<GtkWidget*> swatches;
+    collectBackgroundSwatches(popover, swatches);
+    // Transparent plus every colour the text colour palette offers (the "More background colours" chooser is separate)
+    ASSERT_EQ(swatches.size(), utn::INK_SWATCHES.size() + 1);
+    GtkWidget* transparent = swatchFor(swatches, Color{0U, 0U, 0U, 0U});
+    ASSERT_NE(transparent, nullptr);
+    EXPECT_TRUE(swatchIsSelected(transparent)) << "Transparent is the one marked by default";
+    for (GtkWidget* swatch: swatches) {
+        EXPECT_EQ(swatchIsSelected(swatch), swatch == transparent);
+    }
+    // Every text colour in the palette is offered as a background
+    for (const auto& ink: utn::INK_SWATCHES) {
+        EXPECT_NE(swatchFor(swatches, ink.colour), nullptr) << ink.name << " is missing from the backgrounds";
+    }
+    EXPECT_NE(accessibleNamed(popover, "More background colours"), nullptr);
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, textBackgroundAppliesToTheEditedBoxAndNewTextWithoutTouchingTheTextColourAndUndoes) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto page = control->getCurrentPage();
+    auto box = std::make_unique<Text>();
+    box->setText("Good attempt");
+    box->setColor(Color{200U, 30U, 30U});
+    box->move(100, 100);
+    page->getSelectedLayer()->addElement(std::move(box));
+    control->selectTextMode(TextMode::Plain);
+    auto* editor = editAt(101, 101);
+    ASSERT_NE(editor, nullptr);
+
+    GtkWidget* menu = nullptr;
+    GtkWidget* popover = textSettingsPopover(window->get("tbLeft1"), "Text", &menu);
+    ASSERT_NE(popover, nullptr);
+    gtk_button_clicked(GTK_BUTTON(menu));
+    settle();
+    std::vector<GtkWidget*> swatches;
+    collectBackgroundSwatches(popover, swatches);
+    ASSERT_GE(swatches.size(), 4U);
+
+    // Pick a colour for the box being edited
+    const Color chosen = utn::INK_SWATCHES[2].colour;
+    GtkWidget* chosenSwatch = swatchFor(swatches, chosen);
+    GtkWidget* transparentSwatch = swatchFor(swatches, Color{0U, 0U, 0U, 0U});
+    ASSERT_NE(chosenSwatch, nullptr);
+    ASSERT_NE(transparentSwatch, nullptr);
+    gtk_button_clicked(GTK_BUTTON(chosenSwatch));
+    settle();
+    ASSERT_EQ(control->getTextEditor(), editor) << "the edit stays open";
+    EXPECT_EQ(editor->getTextElement()->getBackgroundColor(), chosen);
+    EXPECT_EQ(editor->getTextElement()->getColor(), (Color{200U, 30U, 30U})) << "the text colour is a separate setting";
+    EXPECT_EQ(editor->getTextElement()->isBoxEnabled(), false) << "still plain text, not an Answer Box";
+    EXPECT_EQ(control->getToolHandler()->getTextMode(), TextMode::Plain);
+    control->clearSelectionEndText();
+    settle();
+    {
+        auto texts = textsOn(page);
+        ASSERT_EQ(texts.size(), 1U);
+        EXPECT_EQ(texts[0]->getBackgroundColor(), chosen) << "committed with the edit";
+        EXPECT_EQ(texts[0]->getText(), "Good attempt") << "no text lost";
+    }
+
+    // Undo and redo
+    control->getUndoRedoHandler()->undo();
+    settle();
+    ASSERT_EQ(textsOn(page).size(), 1U);
+    EXPECT_FALSE(textsOn(page)[0]->hasBackground()) << "undo takes the background off";
+    EXPECT_EQ(textsOn(page)[0]->getColor(), (Color{200U, 30U, 30U}));
+    control->getUndoRedoHandler()->redo();
+    settle();
+    ASSERT_EQ(textsOn(page).size(), 1U);
+    EXPECT_EQ(textsOn(page)[0]->getBackgroundColor(), chosen) << "redo brings it back";
+
+    // The choice is now the default for new text, and Transparent undoes it for new text
+    EXPECT_EQ(control->getToolHandler()->getTextBackgroundColor(), chosen);
+    gtk_button_clicked(GTK_BUTTON(transparentSwatch));
+    settle();
+    EXPECT_EQ(control->getToolHandler()->getTextBackgroundColor().alpha, 0U);
+    gtk_popover_popdown(GTK_POPOVER(popover));
+    settle();
+}
+
+TEST_F(ClassroomWorkflow, textBackgroundUndoActionRestoresEverySelectedBox) {
+    auto page = control->getCurrentPage();
+    std::vector<Text*> boxes;
+    for (int i = 0; i < 3; ++i) {
+        auto text = std::make_unique<Text>();
+        text->setText("note");
+        text->move(50, 50 + 60 * i);
+        boxes.push_back(text.get());
+        page->getSelectedLayer()->addElement(std::move(text));
+    }
+    boxes[1]->setBackgroundColor(Color{10U, 200U, 10U, 255U});  // one already had a colour
+    const Color yellow{255U, 235U, 59U, 255U};
+
+    TextBackgroundUndoAction action(page);
+    for (auto* text: boxes) {
+        action.addText(text, text->getBackgroundColor(), yellow);
+        text->setBackgroundColor(yellow);
+    }
+    ASSERT_TRUE(action.undo(control.get()));
+    EXPECT_FALSE(boxes[0]->hasBackground());
+    EXPECT_EQ(boxes[1]->getBackgroundColor(), (Color{10U, 200U, 10U, 255U})) << "each box gets its own old colour back";
+    EXPECT_FALSE(boxes[2]->hasBackground());
+    ASSERT_TRUE(action.redo(control.get()));
+    for (auto* text: boxes) {
+        EXPECT_EQ(text->getBackgroundColor(), yellow);
+    }
+}
+
+TEST_F(ClassroomWorkflow, textBackgroundShowsOnTheStudentScreenWhenTheTextIsVisibleAndNotWhenItIsPrivate) {
+    control->getZoomControl()->setZoomFitMode(true);
+    gtk_widget_hide(window->getWindow());
+    settle();
+    auto page = control->getCurrentPage();
+    auto students = std::make_unique<ToolStudentView>("CLASSROOM_STUDENTS", control.get());
+    students->setFollowScrollPosition(false);
+    auto pill = students->createItem(true);
+    auto* menu = GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(pill.get())));
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Open on the projector")));
+    settle();
+    auto* student = studentWindow();
+    ASSERT_NE(student, nullptr);
+
+    auto text = std::make_unique<Text>();
+    text->setText("Good attempt");
+    text->move(100, 100);
+    auto* raw = text.get();
+    page->getSelectedLayer()->addElement(std::move(text));
+    control->notifyCanvasChanged(page.get());
+    settle();
+    // Just inside the padding, above and left of the first letter: only a background can colour it
+    EXPECT_EQ(studentPixel(student, 98, 98), 0xFFFFFFU) << "no background yet";
+
+    raw->setBackgroundColor(Color{255U, 235U, 59U, 255U});
+    control->notifyCanvasChanged(page.get());
+    settle();
+    EXPECT_NE(studentPixel(student, 98, 98), 0xFFFFFFU) << "the background is on the student screen";
+    EXPECT_EQ(studentPixel(student, 300, 300), 0xFFFFFFU) << "and only behind the text box, not the page";
+
+    // The same text on a teacher-only layer stays off the student screen, background included
+    control->getLayerController()->addNewLayer(false);
+    auto* notes = page->getSelectedLayer();
+    notes->setAudience(LayerAudience::TeacherOnly);
+    auto note = std::make_unique<Text>();
+    note->setText("private");
+    note->move(100, 300);
+    note->setBackgroundColor(Color{255U, 100U, 100U, 255U});
+    notes->addElement(std::move(note));
+    control->notifyCanvasChanged(page.get());
+    settle();
+    EXPECT_EQ(studentPixel(student, 98, 298), 0xFFFFFFU) << "a private note's background never reaches students";
+
+    gtk_button_clicked(GTK_BUTTON(buttonNamed(menu, "Close Student View")));
+    gtk_widget_destroy(pill.get());
+    pill.reset();
+    students.reset();
+    settle();
 }
 
 // First tap selects, a repeat tap (pointer, Return or Space) opens the settings; none of them changes the tool.
