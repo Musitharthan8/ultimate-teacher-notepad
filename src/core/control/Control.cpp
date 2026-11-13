@@ -2745,8 +2745,35 @@ void Control::exportAsPdf() {
             });
 }
 
-void Control::exportPdfTo(const fs::path& path) {
+void Control::exportPdfTo(const fs::path& chosen) {
     this->clearSelectionEndText();
+
+    // Never export over the PDF the document is built on: save beside it as "<name> (annotated).pdf" instead
+    fs::path path = chosen;
+    this->doc->lock_shared();
+    const fs::path background = this->doc->getPdfFilepath();
+    this->doc->unlock_shared();
+    try {
+        if (!background.empty() && fs::exists(background) &&
+            fs::weakly_canonical(chosen) == fs::weakly_canonical(background)) {
+            for (int n = 0; n < 100; ++n) {
+                fs::path name = chosen.stem();
+                name += n == 0 ? std::string(" (annotated).pdf") : " (annotated " + std::to_string(n + 1) + ").pdf";
+                path = chosen.parent_path() / name;
+                if (!fs::exists(path)) {
+                    break;
+                }
+            }
+            if (this->win) {
+                this->win->showToast(FS(_F("The background PDF can't be overwritten, so this was saved as \"{1}\"") %
+                                        path.filename().u8string()));
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        g_warning("%s", e.what());
+        path = chosen;  // the export job reports the problem itself
+    }
+
     auto* job = new PdfExportJob(this);
     if (!job->setDestination(path)) {
         this->unblock();  // the job blocked the window and will never run
