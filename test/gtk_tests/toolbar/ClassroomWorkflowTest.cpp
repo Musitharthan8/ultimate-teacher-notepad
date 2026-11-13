@@ -2888,6 +2888,15 @@ TEST_F(ClassroomWorkflow, textSelectHighlightIsAListedModeAndSurvivesSwitchingTo
     }
     EXPECT_TRUE(listed) << "Text select is offered next to Freehand";
     EXPECT_FALSE(utn::HIGHLIGHT_MODES[0].snap.has_value()) << "Freehand stays the first entry";
+    bool underlineListed = false;
+    bool strikeListed = false;
+    for (const auto& entry: utn::HIGHLIGHT_MODES) {
+        underlineListed = underlineListed || entry.snap == SmartHighlighterSnapMode::TextUnderline;
+        strikeListed = strikeListed || entry.snap == SmartHighlighterSnapMode::TextStrikethrough;
+    }
+    EXPECT_TRUE(underlineListed && strikeListed) << "mouse users can underline and strike through selected text too";
+    EXPECT_TRUE(isTextSelectSnapMode(SmartHighlighterSnapMode::TextUnderline));
+    EXPECT_FALSE(isTextSelectSnapMode(SmartHighlighterSnapMode::Underline)) << "the stylus snap mode is unchanged";
 
     control->selectHighlighter(true, SmartHighlighterSnapMode::Text);
     control->selectTool(TOOL_PEN);

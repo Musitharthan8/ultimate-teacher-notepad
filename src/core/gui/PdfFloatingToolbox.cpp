@@ -150,12 +150,12 @@ void PdfFloatingToolbox::swatchCb(GtkButton* button, PdfFloatingToolbox* pft) {
     pft->highlightSelection(Color((uint32_t(picked) & 0x00FFFFFFU) | (opacity << 24)));
 }
 
-bool PdfFloatingToolbox::highlightSelection(Color colour) {
+bool PdfFloatingToolbox::highlightSelection(Color colour, PdfMarkerStyle position, PdfMarkerStyle width) {
     if (!this->pdfElemSelection || this->pdfElemSelection->getSelectedTextRects().empty()) {
         return false;
     }
     this->color = colour;
-    this->createStrokes(PdfMarkerStyle::POS_TEXT_MIDDLE, PdfMarkerStyle::WIDTH_TEXT_HEIGHT, colour.alpha);
+    this->createStrokes(position, width, colour.alpha);
     this->userCancelSelection();
     return true;
 }

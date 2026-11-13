@@ -287,7 +287,7 @@ void XournalppCursor::updateCursor() {
                     break;
             }
         } else if (type == TOOL_HIGHLIGHTER && control->getToolHandler()->isSmartHighlighterEnabled() &&
-                   control->getToolHandler()->getSmartHighlighterSnapMode() == SmartHighlighterSnapMode::Text) {
+                   isTextSelectSnapMode(control->getToolHandler()->getSmartHighlighterSnapMode())) {
             // Text select highlight: the pointer picks words, so it looks like the text cursor, like the PDF text tool
             setCursor(CRSR_XTERM);
         } else if (type == TOOL_PEN || type == TOOL_HIGHLIGHTER || type == TOOL_LASER_POINTER_PEN ||

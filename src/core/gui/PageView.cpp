@@ -311,7 +311,7 @@ auto XojPageView::onButtonPressEvent(const PositionInputData& pos) -> bool {
     // UTN Text select Highlight: dragging over PDF text selects the words, and the release highlights exactly them.
     // Pages without a PDF behind them keep the freehand highlighter.
     if (tool == TOOL_HIGHLIGHTER && h->isSmartHighlighterEnabled() &&
-        h->getSmartHighlighterSnapMode() == SmartHighlighterSnapMode::Text && this->page->getPdfPageNr() != npos) {
+        isTextSelectSnapMode(h->getSmartHighlighterSnapMode()) && this->page->getPdfPageNr() != npos) {
         this->startTextHighlight(x, y, XojPdfPageSelectionStyle::Linear);
         return true;
     }
@@ -593,7 +593,7 @@ auto XojPageView::onButtonDoublePressEvent(const PositionInputData& pos) -> bool
 
 bool XojPageView::isTextHighlightGesture(ToolHandler* h) const {
     return h->getToolType() == TOOL_HIGHLIGHTER && h->isSmartHighlighterEnabled() &&
-           h->getSmartHighlighterSnapMode() == SmartHighlighterSnapMode::Text && this->page->getPdfPageNr() != npos;
+           isTextSelectSnapMode(h->getSmartHighlighterSnapMode()) && this->page->getPdfPageNr() != npos;
 }
 
 void XojPageView::startTextHighlight(double x, double y, XojPdfPageSelectionStyle style) {
@@ -852,7 +852,23 @@ auto XojPageView::onButtonReleaseEvent(const PositionInputData& pos) -> bool {
         bool highlighted = false;
         if (auto* selection = pdfToolbox->getSelection(); selection && !selection->isFinalized()) {
             if (selection->finalizeSelectionAndRepaint(pdfToolbox->selectionStyle)) {
-                highlighted = pdfToolbox->highlightSelection(control->getToolHandler()->getColor());
+                auto* tools = control->getToolHandler();
+                Color colour = tools->getColor();
+                switch (tools->getSmartHighlighterSnapMode()) {
+                    case SmartHighlighterSnapMode::TextUnderline:
+                        colour.alpha = 230;
+                        highlighted = pdfToolbox->highlightSelection(colour, PdfMarkerStyle::POS_TEXT_BOTTOM,
+                                                                     PdfMarkerStyle::WIDTH_TEXT_LINE);
+                        break;
+                    case SmartHighlighterSnapMode::TextStrikethrough:
+                        colour.alpha = 230;
+                        highlighted = pdfToolbox->highlightSelection(colour, PdfMarkerStyle::POS_TEXT_MIDDLE,
+                                                                     PdfMarkerStyle::WIDTH_TEXT_LINE);
+                        break;
+                    default:
+                        highlighted = pdfToolbox->highlightSelection(colour);
+                        break;
+                }
             }
         }
         if (!highlighted) {

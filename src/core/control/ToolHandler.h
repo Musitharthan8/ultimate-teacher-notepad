@@ -43,7 +43,14 @@ enum SelectedTool { active, toolbar };
 
 // UTN smart highlighter snapping behaviour
 // Text = drag over selectable PDF text to highlight exactly the selected words (no freehand stroke)
-enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough, Text };
+// TextUnderline / TextStrikethrough do the same with an underline or a line through the selected words
+enum class SmartHighlighterSnapMode { Straight, Word, Line, Underline, Strikethrough, Text, TextUnderline, TextStrikethrough };
+
+/// True for the modes where the mouse selects PDF text instead of drawing a stroke
+inline constexpr bool isTextSelectSnapMode(SmartHighlighterSnapMode mode) {
+    return mode == SmartHighlighterSnapMode::Text || mode == SmartHighlighterSnapMode::TextUnderline ||
+           mode == SmartHighlighterSnapMode::TextStrikethrough;
+}
 
 /// What the Text tool places with the next click (UTN)
 enum class TextMode { Plain, AnswerBox, Feedback };

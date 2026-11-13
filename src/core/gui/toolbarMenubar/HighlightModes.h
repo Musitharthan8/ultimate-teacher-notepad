@@ -23,10 +23,14 @@ struct HighlightMode {
     std::optional<SmartHighlighterSnapMode> snap;  ///< nullopt = freehand
 };
 
-inline constexpr std::array<HighlightMode, 7> HIGHLIGHT_MODES{{
+inline constexpr std::array<HighlightMode, 9> HIGHLIGHT_MODES{{
         {N_("Freehand"), N_("Highlight exactly where you draw"), std::nullopt},
         {N_("Text select"), N_("Drag over PDF text to highlight exactly the words you select"),
          SmartHighlighterSnapMode::Text},
+        {N_("Text underline"), N_("Drag over PDF text to underline exactly the words you select"),
+         SmartHighlighterSnapMode::TextUnderline},
+        {N_("Text strikethrough"), N_("Drag over PDF text to strike through exactly the words you select"),
+         SmartHighlighterSnapMode::TextStrikethrough},
         {N_("Straight line"), N_("Straighten roughly horizontal strokes"), SmartHighlighterSnapMode::Straight},
         {N_("Snap to word"), N_("Cover the PDF words under the stroke"), SmartHighlighterSnapMode::Word},
         {N_("Snap to line"), N_("Cover whole PDF text lines under the stroke"), SmartHighlighterSnapMode::Line},

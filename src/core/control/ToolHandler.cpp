@@ -878,7 +878,7 @@ void ToolHandler::loadSettings() {
     }
 
     int intValue = 0;
-    if (utn.getInt("smartHighlighterMode", intValue) && intValue >= 0 && intValue <= 5) {
+    if (utn.getInt("smartHighlighterMode", intValue) && intValue >= 0 && intValue <= 7) {
         this->smartHighlighterSnapMode = static_cast<SmartHighlighterSnapMode>(intValue);
     }
 

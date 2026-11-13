@@ -67,7 +67,8 @@ public:
 
     /// Highlight the current selection with colour (alpha is the opacity), then drop the selection.
     /// Returns false when the selection covers no text.
-    bool highlightSelection(Color colour);
+    bool highlightSelection(Color colour, PdfMarkerStyle position = PdfMarkerStyle::POS_TEXT_MIDDLE,
+                            PdfMarkerStyle width = PdfMarkerStyle::WIDTH_TEXT_HEIGHT);
 
 private:
     void show();
