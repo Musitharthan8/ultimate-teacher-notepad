@@ -119,6 +119,11 @@ struct ActionProperties<Action::ANNOTATE_PDF> {
 };
 
 template <>
+struct ActionProperties<Action::OCR_MAKE_SEARCHABLE> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->makePdfSearchable(); }
+};
+
+template <>
 struct ActionProperties<Action::SAVE> {
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->save(); }
 };

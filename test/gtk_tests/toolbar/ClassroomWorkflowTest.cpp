@@ -26,6 +26,10 @@
 #include "control/jobs/AutosaveJob.h"
 #include "control/jobs/CustomExportJob.h"
 #include "control/jobs/PdfExportJob.h"
+#include "pdf/ocr/PdfOcr.h"
+#include "config-features.h"  // for ENABLE_OCR
+
+#include <cairo-pdf.h>
 #include "control/jobs/SaveJob.h"
 #include "control/jobs/Job.h"
 #include "control/jobs/XournalScheduler.h"
@@ -970,6 +974,123 @@ TEST_F(ClassroomWorkflow, aPdfExportIsReportedSeparatelyAndNeverChangesTheSaveSt
     EXPECT_EQ(documentSummary(control.get()).state, utn::StatusState::Exported);
     fs::remove_all(folder);
 }
+
+#ifdef ENABLE_OCR
+namespace {
+/// A PDF made only of a picture of text (no text layer), like a scan
+fs::path writeScannedPdf(const fs::path& file, const std::string& text) {
+    const double pageW = 612;
+    const double pageH = 792;
+    const double scale = 150 / 72.0;
+    const std::string utf8 = file.string();
+    cairo_surface_t* pdf = cairo_pdf_surface_create(utf8.c_str(), pageW, pageH);
+    cairo_t* out = cairo_create(pdf);
+    cairo_surface_t* bitmap = cairo_image_surface_create(CAIRO_FORMAT_RGB24, static_cast<int>(pageW * scale),
+                                                         static_cast<int>(pageH * scale));
+    cairo_t* cr = cairo_create(bitmap);
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_paint(cr);
+    cairo_set_source_rgb(cr, 0, 0, 0);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 30 * scale);
+    cairo_move_to(cr, 60 * scale, 200 * scale);
+    cairo_show_text(cr, text.c_str());
+    cairo_destroy(cr);
+    cairo_surface_flush(bitmap);
+    cairo_scale(out, 1 / scale, 1 / scale);
+    cairo_set_source_surface(out, bitmap, 0, 0);
+    cairo_paint(out);
+    cairo_show_page(out);
+    cairo_surface_destroy(bitmap);
+    cairo_destroy(out);
+    cairo_surface_finish(pdf);
+    cairo_surface_destroy(pdf);
+    return file;
+}
+}  // namespace
+#endif  // ENABLE_OCR
+
+TEST_F(ClassroomWorkflow, theHeaderOffersAMenuButtonThatDrivesTheMenubarAction) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    auto* toggle = widgetNamed(window->getWindow(), "utnMenubarToggle");
+    ASSERT_NE(toggle, nullptr) << "the document header has a Menu button";
+    ASSERT_TRUE(GTK_IS_TOGGLE_BUTTON(toggle));
+    EXPECT_STREQ(gtk_actionable_get_action_name(GTK_ACTIONABLE(toggle)), "win.show-menubar")
+            << "the same action as View > Show Menubar and F10";
+    EXPECT_STREQ(gtk_label_get_text(GTK_LABEL(gtk_bin_get_child(GTK_BIN(toggle)))), "☰");
+    EXPECT_STREQ(atk_object_get_name(gtk_widget_get_accessible(toggle)), "Menu bar")
+            << "a screen reader says what the glyph is";
+}
+
+#ifdef ENABLE_OCR
+TEST_F(ClassroomWorkflow, makeSearchableTurnsAScannedBackgroundIntoSearchableTextAndUndoRestoresIt) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    ensureSchedulerRunning(control.get());  // the fixture does not start the job thread by itself
+    const fs::path folder = Util::getTmpDirSubfolder() / "ocr-ui";
+    fs::remove_all(folder);
+    fs::create_directories(folder);
+
+    // Without a PDF background nothing happens and nothing is written
+    control->getActionDatabase()->fireActivateAction(Action::OCR_MAKE_SEARCHABLE);
+    settle();
+    EXPECT_TRUE(control->getDocument()->getPdfFilepath().empty());
+    EXPECT_TRUE(fs::is_empty(folder));
+
+    const fs::path scan = writeScannedPdf(folder / "worksheet.pdf", "Photosynthesis worksheet");
+    Document* doc = control->getDocument();
+    // readPdf takes the document lock itself
+    ASSERT_TRUE(doc->readPdf(scan, /*initPages=*/true, /*attachToDocument=*/false));
+
+    ASSERT_GT(doc->getPdfPageCount(), 0u) << "the scan is loaded as the background";
+    ASSERT_FALSE(utn::ocr::availableLanguages().empty());
+    ASSERT_EQ(utn::ocr::countPagesWithText(scan), 0);
+    EXPECT_TRUE(control->getActionDatabase()->isActionEnabled(Action::OCR_MAKE_SEARCHABLE))
+            << "the menu item is clickable";
+    control->getActionDatabase()->fireActivateAction(Action::OCR_MAKE_SEARCHABLE);
+    const fs::path expected = folder / "worksheet (searchable).pdf";
+    const gint64 deadline = g_get_monotonic_time() + 90 * G_USEC_PER_SEC;
+    while (doc->getPdfFilepath() != expected && g_get_monotonic_time() < deadline) {
+        settle();
+    }
+    ASSERT_EQ(doc->getPdfFilepath(), expected) << "the document now uses the searchable copy";
+    EXPECT_GT(utn::ocr::countPagesWithText(expected), 0) << "and it carries text";
+    EXPECT_EQ(utn::ocr::countPagesWithText(scan), 0) << "the original scan was not touched";
+
+    control->getUndoRedoHandler()->undo();
+    settle();
+    EXPECT_EQ(doc->getPdfFilepath(), scan) << "undo goes back to the original PDF";
+
+    // Run again on the original: the copy name is taken, so a new name is used and nothing is overwritten.
+    // (Undo only restores the path; load the original properly the way opening it would.)
+    ASSERT_TRUE(doc->readPdf(scan, /*initPages=*/false, /*attachToDocument=*/false));
+    const auto before = fs::file_size(expected);
+    EXPECT_TRUE(control->getActionDatabase()->isActionEnabled(Action::OCR_MAKE_SEARCHABLE))
+            << "the first job has let go of the window again";
+    control->getActionDatabase()->fireActivateAction(Action::OCR_MAKE_SEARCHABLE);
+    const fs::path second = folder / "worksheet (searchable 2).pdf";
+    const gint64 deadline2 = g_get_monotonic_time() + 90 * G_USEC_PER_SEC;
+    while (doc->getPdfFilepath() != second && g_get_monotonic_time() < deadline2) {
+        settle();
+    }
+    EXPECT_EQ(doc->getPdfFilepath(), second);
+    EXPECT_EQ(fs::file_size(expected), before) << "the first copy is untouched";
+
+    // A PDF that already has text is left alone
+    const auto filesBefore = std::distance(fs::directory_iterator(folder), fs::directory_iterator());
+    control->getActionDatabase()->fireActivateAction(Action::OCR_MAKE_SEARCHABLE);
+    settle();
+    EXPECT_EQ(doc->getPdfFilepath(), second);
+    EXPECT_EQ(std::distance(fs::directory_iterator(folder), fs::directory_iterator()), filesBefore);
+    closeMessageDialogs();
+    // The document still has the PDF open, which Windows will not let go of; leave the scratch folder to the temp cleanup
+    std::error_code cleanup;
+    fs::remove_all(folder, cleanup);
+}
+#endif  // ENABLE_OCR
 
 TEST_F(ClassroomWorkflow, aPdfExportWritesToATemporaryNameFirstAndNeverLeavesAPartialFile) {
     const fs::path folder = Util::getTmpDirSubfolder() / "export-partial";

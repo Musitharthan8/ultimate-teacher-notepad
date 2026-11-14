@@ -127,6 +127,8 @@ public:
     /// Export a PDF copy to the given path (Save As with the PDF type); the document itself is not renamed
     void exportPdfTo(const fs::path& chosen);
     void exportAs();
+    /// UTN: OCR the document's scanned background PDF and switch the document to the searchable copy
+    void makePdfSearchable();
     void quit(bool allowCancel = true, bool forceClose = false);
 
     /**

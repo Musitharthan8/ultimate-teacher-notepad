@@ -27,7 +27,9 @@
 #include "control/jobs/AutosaveJob.h"                            // for Auto...
 #include "control/jobs/BaseExportJob.h"                          // for Base...
 #include "control/jobs/CustomExportJob.h"                        // for Cust...
+#include "control/jobs/OcrJob.h"                                 // for OcrJob
 #include "control/jobs/PdfExportJob.h"                           // for PdfE...
+#include "pdf/ocr/PdfOcr.h"                                      // for utn::ocr
 #include "control/jobs/SaveJob.h"                                // for SaveJob
 #include "control/jobs/Scheduler.h"                              // for JOB_...
 #include "control/jobs/XournalScheduler.h"                       // for Xour...
@@ -2789,6 +2791,75 @@ void Control::exportPdfTo(const fs::path& chosen) {
         return;
     }
     this->updateDocumentStatus([](utn::DocumentStatusModel& status) { status.beginExport(); });
+    this->scheduler->addJob(job, JOB_PRIORITY_NONE);
+    job->unref();
+}
+
+void Control::makePdfSearchable() {
+    this->clearSelectionEndText();
+    const auto say = [this](const std::string& message) {
+        if (this->win) {
+            this->win->showToast(message);
+        }
+    };
+
+    this->doc->lock_shared();
+    const fs::path source = this->doc->getPdfFilepath();
+    const size_t pdfPages = this->doc->getPdfPageCount();
+    const bool attach = this->doc->isAttachPdf();
+    this->doc->unlock_shared();
+
+    if (source.empty() || pdfPages == 0) {
+        say(_("This document has no PDF background. Open a scanned PDF with File > Annotate PDF first."));
+        return;
+    }
+    if (!utn::ocr::compiledIn()) {
+        say(_("This version of UTN was built without OCR support."));
+        return;
+    }
+    const auto languages = utn::ocr::availableLanguages();
+    if (languages.empty()) {
+        say(_("No OCR language data is installed, so scanned pages cannot be read."));
+        return;
+    }
+    std::error_code ec;
+    if (!fs::exists(source, ec)) {
+        say(_("The background PDF file could not be found."));
+        return;
+    }
+    const int pagesWithText = utn::ocr::countPagesWithText(source);
+    if (pagesWithText < 0) {
+        say(_("The background PDF could not be opened."));
+        return;
+    }
+    if (pagesWithText > 0) {
+        // Rebuilding pages as pictures would cost the quality of pages that already have real text
+        say(pagesWithText >= static_cast<int>(pdfPages) ?
+                    _("This PDF is already searchable.") :
+                    _("Some pages of this PDF already have text, so it is not a pure scan. It was left as it is."));
+        return;
+    }
+
+    // A name that is free: an existing file is never replaced
+    fs::path output;
+    for (int n = 0; n < 100; ++n) {
+        fs::path name = source.stem();
+        name += n == 0 ? std::string(" (searchable).pdf") : " (searchable " + std::to_string(n + 1) + ").pdf";
+        output = source.parent_path() / name;
+        if (!fs::exists(fs::symlink_status(output, ec))) {
+            break;
+        }
+        output.clear();
+    }
+    if (output.empty()) {
+        say(_("No free file name was found for the searchable copy."));
+        return;
+    }
+
+    const std::string language = std::find(languages.begin(), languages.end(), "eng") != languages.end() ?
+                                         std::string("eng") :
+                                         languages.front();
+    auto* job = new OcrJob(this, source, output, language, attach);
     this->scheduler->addJob(job, JOB_PRIORITY_NONE);
     job->unref();
 }

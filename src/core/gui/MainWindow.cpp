@@ -983,6 +983,18 @@ void MainWindow::appendDocumentHeader() {
                          }), this);
         gtk_menu_button_set_popover(GTK_MENU_BUTTON(statusButton), statusPopover);
         gtk_box_append(GTK_BOX(content), statusButton);
+        // The menu bar (File, Edit, View, Classroom, Tools...) can be hidden; this brings it back with a click.
+        // Same action as View > Show Menubar and F10, so its state and the menu item always agree.
+        // A single glyph: the app bar has to fit the smallest supported window (see the appBarFits tests)
+        GtkWidget* menuToggle = gtk_toggle_button_new_with_label("☰");
+        gtk_widget_set_name(menuToggle, "utnMenubarToggle");
+        gtk_button_set_relief(GTK_BUTTON(menuToggle), GTK_RELIEF_NONE);
+        gtk_widget_set_focus_on_click(menuToggle, false);
+        gtk_widget_add_css_class(menuToggle, "utn-status-button");
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(menuToggle), "win.show-menubar");
+        gtk_widget_set_tooltip_text(menuToggle, _("Show or hide the menu bar (F10)"));
+        utn::setAccessibleName(menuToggle, _("Menu bar"));
+        gtk_box_append(GTK_BOX(content), menuToggle);
         documentHeaderStatusButton = statusButton;
         gtk_widget_set_tooltip_text(content, _("Document name and save status"));
         gtk_container_add(GTK_CONTAINER(item), content);

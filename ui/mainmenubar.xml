@@ -23,6 +23,10 @@
      <attribute name="action">win.annotate-pdf</attribute>
     </item>
     <item>
+     <attribute name="label" translatable="yes">Make Scanned PDF _Searchable…</attribute>
+     <attribute name="action">win.ocr-make-searchable</attribute>
+    </item>
+    <item>
      <attribute name="label" translatable="yes">Save</attribute>
      <attribute name="action">win.save</attribute>
      <attribute name="accel">&lt;Ctrl&gt;s</attribute>

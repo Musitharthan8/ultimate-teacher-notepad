@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <system_error>
+#include <tuple>
 
 #include "config-features.h"
 #include "util/PathUtil.h"
@@ -172,14 +173,49 @@ PixPtr renderPage(PopplerPage* page, int dpi) {
     return pix;
 }
 
-fs::path scratchBase() {
-    static std::atomic<unsigned> counter{0};
-    // Tesseract takes narrow file names, so the work file lives in an ASCII-only folder of ours
+fs::path scratchFolder() {
+    // Tesseract takes narrow file names, so the work files live in a folder of ours
     fs::path dir = Util::getTmpDirSubfolder("ocr");
     std::error_code ec;
     fs::create_directories(dir, ec);
-    return dir / ("run-" + std::to_string(g_get_real_time()) + "-" + std::to_string(counter++));
+    return dir;
 }
+
+fs::path scratchBase() {
+    static std::atomic<unsigned> counter{0};
+    return scratchFolder() / ("run-" + std::to_string(g_get_real_time()) + "-" + std::to_string(counter++));
+}
+
+/// Leptonica writes JPEG data for the PDF through a temporary file in %TMP% (GetTempFileName), which fails when that
+/// folder is missing or unusable. For the duration of one run, point TMP and TEMP at our own scratch folder.
+class TempDirGuard {
+public:
+    explicit TempDirGuard(const fs::path& dir) {
+#ifdef _WIN32
+        for (const char* name: {"TMP", "TEMP"}) {
+            const char* old = std::getenv(name);
+            saved.emplace_back(name, old ? std::string(old) : std::string(), old != nullptr);
+            _putenv_s(name, dir.string().c_str());
+        }
+#else
+        (void)dir;
+#endif
+    }
+    ~TempDirGuard() {
+#ifdef _WIN32
+        for (const auto& [name, value, was]: saved) {
+            _putenv_s(name.c_str(), was ? value.c_str() : "");
+        }
+#endif
+    }
+    TempDirGuard(const TempDirGuard&) = delete;
+    TempDirGuard& operator=(const TempDirGuard&) = delete;
+
+private:
+#ifdef _WIN32
+    std::vector<std::tuple<std::string, std::string, bool>> saved;
+#endif
+};
 }  // namespace
 
 int countPagesWithText(const fs::path& pdf) {
@@ -234,6 +270,7 @@ Result makeSearchable(const fs::path& input, const fs::path& output, const Optio
         return result;
     }
 
+    const TempDirGuard tempDir(scratchFolder());
     const fs::path base = scratchBase();
     const std::string baseStr = base.string();
     fs::path produced = base;

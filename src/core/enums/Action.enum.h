@@ -35,6 +35,7 @@ enum class Action : size_t {
     NEW_FILE,
     OPEN,
     ANNOTATE_PDF,
+    OCR_MAKE_SEARCHABLE,  // UTN: make a scanned background PDF searchable
     SAVE,
     SAVE_AS,
     EXPORT_AS_PDF,
