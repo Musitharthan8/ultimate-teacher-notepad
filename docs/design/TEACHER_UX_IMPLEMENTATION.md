@@ -283,6 +283,10 @@ hand-off notes and are historical: this section replaces them for the head named
 - GTK, full suite without soak, stress, `heavySession*`, `longSession*` (head `8c935cdcf`): 195 of 195 at 120 DPI and 195 of 195 at
   96 DPI (`__COMPAT_LAYER=DPIUNAWARE`, 2026-11-06, 533 s), 0 GTK CRITICAL or ERROR in both. An earlier 120 DPI run failed one test
   (`TextContextualSettings`, which toggled Bold with the pen active, now refused by the new text gate); it was fixed and passes.
+- Clean-build proof, 2026-11-14, head `6baed1dda` (supersedes the `8c935cdcf` counts above; 28 commits later): a fresh `git clone` of
+  `origin/feature/utn-teacher-ux-program` into an empty folder, configured and built from scratch (Debug, `ninja -j2`, 723 of 723
+  steps, exit 0). Units: 685 passed, 1 skipped (`CrashChild.run`, as above). GTK, same filter: 213 of 213 at 120 DPI (511 s) and
+  213 of 213 at 96 DPI (585 s), 0 CRITICAL or ERROR in both logs. Author-run, not independent.
 - Real `%LOCALAPPDATA%\utn\settings.xml` unchanged before and after (SHA-256 starts `667441dd910`, 15181 bytes, mtime 2026-11-03 17:15:34).
   The first launch of the real app read that file because the isolating variables were set from bash; it was killed by PID
   within a minute without saving, and the file was verified identical. Later runs used a scratch profile started from PowerShell.
