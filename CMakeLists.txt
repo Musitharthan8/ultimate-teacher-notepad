@@ -200,6 +200,23 @@ if (ENABLE_QPDF)
     message(STATUS "Found qpdf: ${qpdf_VERSION}")
 endif ()
 
+# UTN: OCR for scanned PDFs (Tesseract). Optional: without it the "Make searchable" command is not offered.
+option(ENABLE_OCR "Compile with OCR support for scanned PDFs (needs Tesseract and Leptonica)" ON)
+if (ENABLE_OCR)
+    pkg_check_modules(UtnOcr IMPORTED_TARGET "tesseract >= 4.1" "lept >= 1.74")
+    if (UtnOcr_FOUND)
+        message(STATUS "Enable OCR: tesseract ${UtnOcr_tesseract_VERSION}")
+        # Where the language data was installed, so the app finds it without TESSDATA_PREFIX
+        pkg_get_variable(UTN_TESSERACT_PREFIX tesseract prefix)
+        if (UTN_TESSERACT_PREFIX)
+            set(UTN_OCR_DEFINITIONS "UTN_TESSDATA_HINT=\"${UTN_TESSERACT_PREFIX}/share/tessdata\"")
+        endif ()
+    else ()
+        message(STATUS "Disable OCR: Tesseract or Leptonica not found")
+        set(ENABLE_OCR OFF)
+    endif ()
+endif ()
+
 option(ENABLE_PLUGINS "Compile with plugin support" ON)
 if (ENABLE_PLUGINS)
     message(STATUS "Enable Xournal++ Plugins")
@@ -288,6 +305,7 @@ target_link_libraries(external_modules INTERFACE
         $<$<TARGET_EXISTS:X11::X11>:X11::X11>
         $<$<TARGET_EXISTS:cpptrace::cpptrace>:cpptrace::cpptrace>
         $<$<TARGET_EXISTS:qpdf::libqpdf>:qpdf::libqpdf>
+        $<$<TARGET_EXISTS:PkgConfig::UtnOcr>:PkgConfig::UtnOcr>
         ZLIB::ZLIB
         Threads::Threads
         )
@@ -295,6 +313,7 @@ target_link_libraries(external_modules INTERFACE
 target_compile_definitions(external_modules INTERFACE
         GLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_40
         GDK_VERSION_MIN_REQUIRED=GDK_VERSION_3_18
+        ${UTN_OCR_DEFINITIONS}
         )
 target_link_options(external_modules INTERFACE
         $<$<AND:$<NOT:$<PLATFORM_ID:Windows>>,$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>>:-rdynamic>

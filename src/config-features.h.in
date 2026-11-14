@@ -21,6 +21,9 @@
 
 #cmakedefine ENABLE_AUDIO
 
+/// UTN: OCR of scanned PDFs through Tesseract
+#cmakedefine ENABLE_OCR
+
 #cmakedefine01 ENABLE_FLOAT_FROM_CHARS
 
 /* --- Testing features --- */
