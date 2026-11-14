@@ -33,8 +33,20 @@ void PdfExportJob::run() {
     std::unique_ptr<XojPdfExport> pdfe = XojPdfExportFactory::createExport(doc, control);
     doc->unlock_shared();
 
-    if (!pdfe->createPdf(this->filepath, false)) {
+    // Write beside the destination and rename on success: a failed export leaves no partial file, never replaces
+    // an existing file before the new one is complete, and replaces (rather than writes through) a symlink
+    fs::path partial = this->filepath;
+    partial += ".utn-part";
+    std::error_code ec;
+    if (!pdfe->createPdf(partial, false)) {
         this->errorMsg = pdfe->getLastError();
+        fs::remove(partial, ec);
+    } else {
+        fs::rename(partial, this->filepath, ec);
+        if (ec) {
+            this->errorMsg = _("The PDF could not be saved to the chosen file: ") + ec.message();
+            fs::remove(partial, ec);
+        }
     }
     // Success is reported too, so the document status can say the export finished
     if (control->getWindow()) {

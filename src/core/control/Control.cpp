@@ -2756,13 +2756,21 @@ void Control::exportPdfTo(const fs::path& chosen) {
     try {
         if (!background.empty() && fs::exists(background) &&
             fs::weakly_canonical(chosen) == fs::weakly_canonical(background)) {
-            for (int n = 0; n < 100; ++n) {
+            // Only ever pick a name that does not exist yet: the file dialog's overwrite confirmation was for the
+            // background PDF's name, so the fallback must never replace anything
+            bool found = false;
+            for (int n = 0; n < 100 && !found; ++n) {
                 fs::path name = chosen.stem();
                 name += n == 0 ? std::string(" (annotated).pdf") : " (annotated " + std::to_string(n + 1) + ").pdf";
                 path = chosen.parent_path() / name;
-                if (!fs::exists(path)) {
-                    break;
+                found = !fs::exists(fs::symlink_status(path));
+            }
+            if (!found) {
+                if (this->win) {
+                    this->win->showToast(_("The background PDF can't be overwritten and no free file name was found. "
+                                           "Choose another name."));
                 }
+                return;
             }
             if (this->win) {
                 this->win->showToast(FS(_F("The background PDF can't be overwritten, so this was saved as \"{1}\"") %

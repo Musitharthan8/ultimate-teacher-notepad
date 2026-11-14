@@ -283,7 +283,7 @@ hand-off notes and are historical: this section replaces them for the head named
 - GTK, full suite without soak, stress, `heavySession*`, `longSession*` (head `8c935cdcf`): 195 of 195 at 120 DPI and 195 of 195 at
   96 DPI (`__COMPAT_LAYER=DPIUNAWARE`, 2026-11-06, 533 s), 0 GTK CRITICAL or ERROR in both. An earlier 120 DPI run failed one test
   (`TextContextualSettings`, which toggled Bold with the pen active, now refused by the new text gate); it was fixed and passes.
-- Clean-build proof, 2026-11-14, head `6baed1dda` (supersedes the `8c935cdcf` counts above; 28 commits later): a fresh `git clone` of
+- Clean-build proof, 2026-11-14, code head `6baed1dda` (the later `9cb88349d` and the commits after it were not part of this run; supersedes the `8c935cdcf` counts above; 28 commits later): a fresh `git clone` of
   `origin/feature/utn-teacher-ux-program` into an empty folder, configured and built from scratch (Debug, `ninja -j2`, 723 of 723
   steps, exit 0). Units: 685 passed, 1 skipped (`CrashChild.run`, as above). GTK, same filter: 213 of 213 at 120 DPI (511 s) and
   213 of 213 at 96 DPI (585 s), 0 CRITICAL or ERROR in both logs. Author-run, not independent.
@@ -330,6 +330,13 @@ hand-off notes and are historical: this section replaces them for the head named
 - Open, non-blocking: the corpus is synthetic (no real pen traces); missed clean shapes are capped at today's measured counts, not
   zero; the handwriting gate allows one documented false positive (D) and has no 8/O/0 cases; the colour-dialog path and the Answer
   Box style controls are gated but not covered by a GTK test; no test measures the real side-panel swatch allocation.
+- Audit 4 (Codex, static, 2026-11-14, of `3c74b630f..9cb88349d`, report `codex-audit4.md`): found Save As PDF could write through a
+  destination symlink, could end up on an existing fallback name after 100 collisions, and wrote straight to the destination. Fixed:
+  the fallback only takes an unused name (else a toast and no export), and the export writes `<name>.pdf.utn-part` then renames, so
+  a symlink is replaced rather than followed and a failure leaves no partial file (GTK test
+  `aPdfExportWritesToATemporaryNameFirstAndNeverLeavesAPartialFile`). Not tested: a symlink destination and 100 occupied names (a
+  symlink needs elevated rights on Windows). Still open from audit 4: no GTK tests for Student View lifetime and hidden-answer live
+  typing, for undo/redo of sentence, paragraph and highlighter text selection, or for the colour-dialog and Answer Box style paths.
 - Still **not** verified: High Contrast and dark-mode native visual pass, NVDA/Narrator, touch and stylus, dual-display Student View,
   the menubar dropdowns (Classroom, File), shuffled test order, real handwriting traces.
 

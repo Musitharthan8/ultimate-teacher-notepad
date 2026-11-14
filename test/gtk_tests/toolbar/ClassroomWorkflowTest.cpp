@@ -971,6 +971,48 @@ TEST_F(ClassroomWorkflow, aPdfExportIsReportedSeparatelyAndNeverChangesTheSaveSt
     fs::remove_all(folder);
 }
 
+TEST_F(ClassroomWorkflow, aPdfExportWritesToATemporaryNameFirstAndNeverLeavesAPartialFile) {
+    const fs::path folder = Util::getTmpDirSubfolder() / "export-partial";
+    fs::remove_all(folder);
+    fs::create_directories(folder);
+    const auto runExport = [&](const fs::path& target) {
+        auto* job = new TestPdfExport(control.get());
+        EXPECT_TRUE(job->testAndSetFilepath(target));
+        control->updateDocumentStatus([](utn::DocumentStatusModel& model) { model.beginExport(); });
+        job->run();
+        settle();
+        job->unref();
+        control->unblock();
+        closeMessageDialogs();
+    };
+    const auto leftovers = [&]() {
+        int count = 0;
+        for (const auto& entry: fs::directory_iterator(folder)) {
+            count += entry.path().extension() == ".utn-part" ? 1 : 0;
+        }
+        return count;
+    };
+
+    // An older file at the destination is replaced by the complete new PDF
+    const fs::path target = folder / "worksheet.pdf";
+    {
+        std::ofstream(target) << "old content";
+    }
+    runExport(target);
+    EXPECT_EQ(control->getDocumentStatus().get().exportStatus, utn::ExportStatus::Completed);
+    EXPECT_GT(fs::file_size(target), std::uintmax_t{11}) << "the old text was replaced by a PDF";
+    EXPECT_EQ(leftovers(), 0);
+
+    // A destination that cannot be replaced (a folder with that name): the export fails, says so, and leaves nothing
+    const fs::path blocked = folder / "blocked.pdf";
+    fs::create_directories(blocked / "keep");
+    runExport(blocked);
+    EXPECT_EQ(control->getDocumentStatus().get().exportStatus, utn::ExportStatus::Failed);
+    EXPECT_TRUE(fs::is_directory(blocked / "keep")) << "what was there is untouched";
+    EXPECT_EQ(leftovers(), 0) << "no partial file is left behind";
+    fs::remove_all(folder);
+}
+
 TEST_F(ClassroomWorkflow, headerShowsEveryStateAsAShapeAWordAndASeverityClassWithTheDetailsOnHover) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);
