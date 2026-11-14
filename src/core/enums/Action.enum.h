@@ -36,6 +36,10 @@ enum class Action : size_t {
     OPEN,
     ANNOTATE_PDF,
     OCR_MAKE_SEARCHABLE,  // UTN: make a scanned background PDF searchable
+    PDF_MERGE,            // UTN: File > PDF Tools
+    PDF_EXTRACT_PAGES,
+    PDF_SPLIT,
+    PDF_ORGANISE_PAGES,
     SAVE,
     SAVE_AS,
     EXPORT_AS_PDF,

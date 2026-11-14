@@ -129,6 +129,11 @@ public:
     void exportAs();
     /// UTN: OCR the document's scanned background PDF and switch the document to the searchable copy
     void makePdfSearchable();
+    /// UTN: File > PDF Tools. Each opens its dialog and writes a new PDF; the document itself is not touched.
+    void pdfMerge();
+    void pdfExtractPages();
+    void pdfSplit();
+    void pdfOrganisePages();
     void quit(bool allowCancel = true, bool forceClose = false);
 
     /**

@@ -45,6 +45,13 @@ long pageCount(const fs::path& pdf, std::string* error = nullptr);
 /// Returns an empty vector and sets `error` on anything that is not a page of this document.
 std::vector<size_t> parsePageRanges(const std::string& text, size_t pageCount, std::string* error = nullptr);
 
+/// What the extract dialog tells the teacher while they type: "3 pages: 1, 2, 5" or the problem. `ok` says whether
+/// the text can be used.
+std::string describeRanges(const std::string& text, size_t pageCount, bool* ok = nullptr);
+
+/// The file names a split into `pagesPerFile` pages makes, in order (empty when nothing would be split)
+std::vector<std::string> splitNames(const std::string& stem, size_t pageCount, size_t pagesPerFile);
+
 /// Builds `output` from the given pieces, in order. The general operation behind everything below.
 Result assemble(const std::vector<Piece>& pieces, const fs::path& output);
 

@@ -1010,6 +1010,44 @@ fs::path writeScannedPdf(const fs::path& file, const std::string& text) {
 }  // namespace
 #endif  // ENABLE_OCR
 
+namespace {
+void collectMenuActions(GMenuModel* model, std::vector<std::string>& out) {
+    for (int i = 0; i < g_menu_model_get_n_items(model); ++i) {
+        gchar* action = nullptr;
+        if (g_menu_model_get_item_attribute(model, i, "action", "s", &action)) {
+            out.push_back(action);
+            g_free(action);
+        }
+        GMenuLinkIter* links = g_menu_model_iterate_item_links(model, i);
+        while (g_menu_link_iter_next(links)) {
+            GMenuModel* sub = g_menu_link_iter_get_value(links);
+            collectMenuActions(sub, out);
+            g_object_unref(sub);
+        }
+        g_object_unref(links);
+    }
+}
+}  // namespace
+
+TEST_F(ClassroomWorkflow, theFileMenuOffersThePdfToolsAndOcrAndTheirActionsAreReady) {
+    window->toolbarSelected("UTN Teacher");
+    window->show(nullptr);
+    settle();
+    std::vector<std::string> actions;
+    collectMenuActions(window->getMenuModel(), actions);
+    const auto has = [&](const char* name) { return std::find(actions.begin(), actions.end(), name) != actions.end(); };
+    for (const char* name: {"win.pdf-merge", "win.pdf-extract-pages", "win.pdf-split", "win.pdf-organise-pages",
+                            "win.ocr-make-searchable"}) {
+        EXPECT_TRUE(has(name)) << name << " is in the menu bar";
+    }
+    for (Action a: {Action::PDF_MERGE, Action::PDF_EXTRACT_PAGES, Action::PDF_SPLIT, Action::PDF_ORGANISE_PAGES,
+                    Action::OCR_MAKE_SEARCHABLE}) {
+        EXPECT_TRUE(control->getActionDatabase()->isActionEnabled(a)) << Action_toString(a) << " can be clicked";
+    }
+    EXPECT_STREQ(Action_toString(Action::PDF_ORGANISE_PAGES), "pdf-organise-pages")
+            << "the generated name map and the enum agree";
+}
+
 TEST_F(ClassroomWorkflow, theHeaderOffersAMenuButtonThatDrivesTheMenubarAction) {
     window->toolbarSelected("UTN Teacher");
     window->show(nullptr);

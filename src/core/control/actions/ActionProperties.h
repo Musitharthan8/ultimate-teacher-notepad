@@ -124,6 +124,26 @@ struct ActionProperties<Action::OCR_MAKE_SEARCHABLE> {
 };
 
 template <>
+struct ActionProperties<Action::PDF_MERGE> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->pdfMerge(); }
+};
+
+template <>
+struct ActionProperties<Action::PDF_EXTRACT_PAGES> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->pdfExtractPages(); }
+};
+
+template <>
+struct ActionProperties<Action::PDF_SPLIT> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->pdfSplit(); }
+};
+
+template <>
+struct ActionProperties<Action::PDF_ORGANISE_PAGES> {
+    static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->pdfOrganisePages(); }
+};
+
+template <>
 struct ActionProperties<Action::SAVE> {
     static void callback(GSimpleAction*, GVariant*, Control* ctrl) { ctrl->save(); }
 };

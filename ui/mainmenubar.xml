@@ -26,6 +26,27 @@
      <attribute name="label" translatable="yes">Make Scanned PDF _Searchable…</attribute>
      <attribute name="action">win.ocr-make-searchable</attribute>
     </item>
+    <submenu>
+     <attribute name="label" translatable="yes">PDF _Tools</attribute>
+     <section>
+      <item>
+       <attribute name="label" translatable="yes">_Merge PDFs…</attribute>
+       <attribute name="action">win.pdf-merge</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">_Extract Pages…</attribute>
+       <attribute name="action">win.pdf-extract-pages</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">_Split PDF…</attribute>
+       <attribute name="action">win.pdf-split</attribute>
+      </item>
+      <item>
+       <attribute name="label" translatable="yes">_Organise Pages…</attribute>
+       <attribute name="action">win.pdf-organise-pages</attribute>
+      </item>
+     </section>
+    </submenu>
     <item>
      <attribute name="label" translatable="yes">Save</attribute>
      <attribute name="action">win.save</attribute>

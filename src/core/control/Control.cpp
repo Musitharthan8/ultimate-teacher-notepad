@@ -30,6 +30,8 @@
 #include "control/jobs/OcrJob.h"                                 // for OcrJob
 #include "control/jobs/PdfExportJob.h"                           // for PdfE...
 #include "pdf/ocr/PdfOcr.h"                                      // for utn::ocr
+#include "pdf/tools/PdfTools.h"                                  // for utn::pdftools
+#include "gui/dialog/PdfToolsDialogs.h"                          // for utn::pdftoolsui
 #include "control/jobs/SaveJob.h"                                // for SaveJob
 #include "control/jobs/Scheduler.h"                              // for JOB_...
 #include "control/jobs/XournalScheduler.h"                       // for Xour...
@@ -2863,6 +2865,42 @@ void Control::makePdfSearchable() {
     this->scheduler->addJob(job, JOB_PRIORITY_NONE);
     job->unref();
 }
+
+namespace {
+enum class PdfTool { Merge, Extract, Split, Organise };
+
+void runPdfTool(Control* control, PdfTool tool) {
+    control->clearSelectionEndText();
+    if (!utn::pdftools::available()) {
+        control->getWindow()->showToast(_("This version of UTN was built without PDF tools."));
+        return;
+    }
+    Document* doc = control->getDocument();
+    doc->lock_shared();
+    const fs::path background = doc->getPdfFilepath();
+    doc->unlock_shared();
+    GtkWindow* window = control->getGtkWindow();
+    switch (tool) {
+        case PdfTool::Merge:
+            utn::pdftoolsui::showMergeDialog(window, background.parent_path());
+            break;
+        case PdfTool::Extract:
+            utn::pdftoolsui::showExtractDialog(window, background);
+            break;
+        case PdfTool::Split:
+            utn::pdftoolsui::showSplitDialog(window, background);
+            break;
+        case PdfTool::Organise:
+            utn::pdftoolsui::showOrganiseDialog(window, background);
+            break;
+    }
+}
+}  // namespace
+
+void Control::pdfMerge() { runPdfTool(this, PdfTool::Merge); }
+void Control::pdfExtractPages() { runPdfTool(this, PdfTool::Extract); }
+void Control::pdfSplit() { runPdfTool(this, PdfTool::Split); }
+void Control::pdfOrganisePages() { runPdfTool(this, PdfTool::Organise); }
 
 void Control::exportAs() {
     this->clearSelectionEndText();

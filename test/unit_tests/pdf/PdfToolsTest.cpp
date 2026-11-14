@@ -121,6 +121,27 @@ TEST(PdfToolsRanges, refusesAnythingThatIsNotAPageOfTheDocumentAndSaysWhy) {
     EXPECT_TRUE(tools::parsePageRanges("all", 0).empty());
 }
 
+TEST(PdfToolsRanges, describesTheSelectionWhileTyping) {
+    bool ok = false;
+    EXPECT_EQ(tools::describeRanges("1-3, 5", 8, &ok), "4 pages: 1, 2, 3, 5");
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(tools::describeRanges("2", 8, &ok), "1 page: 2");
+    EXPECT_EQ(tools::describeRanges("all", 20, &ok), "20 pages: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, ...");
+    EXPECT_TRUE(ok);
+    EXPECT_NE(tools::describeRanges("", 8, &ok).find("Type the pages"), std::string::npos) << "an empty box is a hint";
+    EXPECT_FALSE(ok);
+    EXPECT_NE(tools::describeRanges("9", 8, &ok).find("1 to 8"), std::string::npos);
+    EXPECT_FALSE(ok);
+}
+
+TEST(PdfToolsRanges, splitNamesMatchWhatSplitWrites) {
+    using V = std::vector<std::string>;
+    EXPECT_EQ(tools::splitNames("book", 5, 2), (V{"book (part 1).pdf", "book (part 2).pdf", "book (part 3).pdf"}));
+    EXPECT_TRUE(tools::splitNames("book", 5, 5).empty()) << "nothing to split";
+    EXPECT_TRUE(tools::splitNames("book", 5, 0).empty());
+    EXPECT_EQ(tools::splitNames("x", 4, 2).size(), 2u);
+}
+
 #ifdef ENABLE_QPDF
 
 TEST(PdfTools, mergeJoinsEveryPageOfEveryFileInTheOrderGiven) {

@@ -128,6 +128,41 @@ std::vector<size_t> parsePageRanges(const std::string& text, size_t pageCount, s
     return pages;
 }
 
+std::string describeRanges(const std::string& text, size_t pageCount, bool* ok) {
+    std::string error;
+    const auto pages = parsePageRanges(text, pageCount, &error);
+    if (ok) {
+        *ok = !pages.empty();
+    }
+    if (pages.empty()) {
+        return trim(text).empty() ? "Type the pages to take, like 1-3, 5, 8-" : error;
+    }
+    std::string out = std::to_string(pages.size()) + (pages.size() == 1 ? " page: " : " pages: ");
+    constexpr size_t SHOWN = 12;
+    for (size_t i = 0; i < pages.size() && i < SHOWN; ++i) {
+        out += (i ? ", " : "") + std::to_string(pages[i] + 1);
+    }
+    if (pages.size() > SHOWN) {
+        out += ", ...";
+    }
+    return out;
+}
+
+std::vector<std::string> splitNames(const std::string& stem, size_t pageCount, size_t pagesPerFile) {
+    std::vector<std::string> names;
+    if (pagesPerFile == 0) {
+        return names;
+    }
+    const size_t parts = (pageCount + pagesPerFile - 1) / pagesPerFile;
+    if (parts < 2) {
+        return names;
+    }
+    for (size_t part = 0; part < parts; ++part) {
+        names.push_back(stem + " (part " + std::to_string(part + 1) + ").pdf");
+    }
+    return names;
+}
+
 #ifndef ENABLE_QPDF
 
 bool available() { return false; }
@@ -317,7 +352,8 @@ Result splitByPageCount(const fs::path& input, size_t pagesPerFile, const fs::pa
     std::vector<fs::path> targets;
     std::error_code ec;
     for (size_t part = 0; part < parts; ++part) {
-        fs::path name = fs::u8path(stem + " (part " + std::to_string(part + 1) + ").pdf");
+        const std::string fileName = splitNames(stem, total, pagesPerFile)[part];
+        fs::path name = fs::path(std::u8string(fileName.begin(), fileName.end()));
         targets.push_back(folder / name);
         if (fs::exists(fs::symlink_status(targets.back(), ec))) {
             result.error = "\"" + utf8(name) + "\" already exists. Nothing was written.";
